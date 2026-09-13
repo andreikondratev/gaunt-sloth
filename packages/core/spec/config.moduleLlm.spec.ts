@@ -378,6 +378,49 @@ export async function configure() {
       expect(ChatAnthropicMock).not.toHaveBeenCalled();
     });
 
+    it('survives the extends composition above the branch, with a base that carries an llm', async () => {
+      // The OTHER site the node told us to check: `resolveConfigExtends` runs on this same value
+      // BEFORE the branch decides anything, and this node is what makes "a global config returning
+      // a built model" reach it at all — until now such a config was refused before `extends` could
+      // matter. The composition is `deepMerge(base, childDelta)`, so it is CFG-71's rule that keeps
+      // the instance whole: the base's `llm` is a plain object, the child's is a class instance, and
+      // a non-mergeable source REPLACES rather than recursing. A base with no `llm` would take the
+      // plain override branch and pass an instance through even unfixed, so the base carries one.
+      mkdirSync(resolve(hoisted.globalDir, '.gsloth-settings', 'base'), { recursive: true });
+      writeFileSync(
+        resolve(hoisted.globalDir, '.gsloth-settings', 'base', '.gsloth.config.json'),
+        JSON.stringify({ llm: { type: 'anthropic', model: 'base-model' }, streamOutput: true })
+      );
+      writeGlobalModuleConfig(`
+export async function configure() {
+  class UserBuiltGlobalModel {
+    constructor(model) {
+      this.model = model;
+    }
+    invoke() {
+      return 'invoked:' + this.model;
+    }
+  }
+  const built = new UserBuiltGlobalModel('extending-built-model');
+  globalThis.${BUILT_MODEL_KEY} = built;
+  return { extends: 'base', llm: built };
+}
+`);
+
+      const { initConfig } = await import('#src/config.js');
+      const config = await initConfig({ global: true });
+
+      expect(config.llm).toBe(globalStash());
+      expect((config.llm as unknown as FakeChatModel).invoke()).toBe(
+        'invoked:extending-built-model'
+      );
+      // The base really was composed in — otherwise this cell would pass without `extends` doing
+      // anything, and could not see a flattening composition at all.
+      expect(config.streamOutput).toBe(true);
+      // The base's spec was NOT built on top of the child's instance.
+      expect(ChatAnthropicMock).not.toHaveBeenCalled();
+    });
+
     it('PAIR: a raw { type, model } spec in the same global module still routes to the provider', async () => {
       // The other half of the pair. Same file, same format, same branch — only the returned value
       // differs, so an implementation that hardcoded either answer fails one of the two.
