@@ -331,4 +331,50 @@ describe('TUI-C108 — the tool status row is levelled by outcome', () => {
       });
     });
   });
+
+  /**
+   * [[TUI-C109]] — **the success rung pinned from ABOVE, which is the half the cells up to here
+   * leave open.** They establish that the row shows at `info` and at `display`; every one of them
+   * goes on passing if the rung is raised further, because a louder row still survives a quieter
+   * console. So a success at WARNING — printing a SUCCESSFUL call to somebody who set
+   * `consoleLevel: "error"` and asked for failures only — satisfies the whole block above while
+   * collapsing the success/failure distinction [[TUI-C108]] exists to draw. This is the ceiling.
+   *
+   * It is also what holds the claim in `docs/configuration/output.md` §Console Logging Level that
+   * from `warning` onwards a tool call shows up only when something was wrong with it.
+   */
+  describe('at consoleLevel warning, the rung that keeps failures only', () => {
+    const failuresOnly = {
+      consoleLevel: StatusLevel.WARNING,
+      displayConfig: { toolOutputPreviewLines: 0 },
+    };
+
+    it('a successful call prints nothing, while a failed one still prints its row', async () => {
+      await emitRound(failuresOnly);
+
+      expect(systemUtilsMock.info).not.toHaveBeenCalled();
+      expect(systemUtilsMock.log).not.toHaveBeenCalled();
+      expect(systemUtilsMock.warn).not.toHaveBeenCalled();
+      expect(systemUtilsMock.error).not.toHaveBeenCalled();
+      expect(systemUtilsMock.writeToLogStream).not.toHaveBeenCalled();
+
+      // The CONTROL, and deliberately in the SAME cell rather than a sibling `it`: the silence
+      // above is equally satisfied by a harness that was never wired to anything, and a control
+      // that can be deleted on its own stops guarding the assertion it was written for. The
+      // identical harness at the identical level DOES print a failure.
+      vi.clearAllMocks();
+      systemUtilsMock.getUseColour.mockReturnValue(false);
+      await emitRound({ ...failuresOnly, result: ERROR_TEXT, status: 'error' });
+
+      expect(systemUtilsMock.info).toHaveBeenCalledTimes(1);
+      const block = blocks()[0];
+      const [, head, ...body] = block.split('\n');
+      expect(head).toContain('✗');
+      expect(head).toContain('read_file(path=README.md)');
+      // The error floor survives the depth-0 setting here as it does at `display`, so a failure
+      // still explains itself at the rung that keeps nothing else.
+      expect(block).toContain('ENOENT: no such file or directory');
+      expect(body.length).toBeGreaterThanOrEqual(3);
+    });
+  });
 });
