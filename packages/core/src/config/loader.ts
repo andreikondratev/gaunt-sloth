@@ -1014,18 +1014,39 @@ export async function initConfig(
           { globalOnly: commandLineConfigOverrides.global }
         )) as Partial<RawGthConfig>;
       }
-      if (
-        resolvedRawConfig.llm &&
-        typeof resolvedRawConfig.llm === 'object' &&
-        'type' in resolvedRawConfig.llm
-      ) {
-        // Route the global config through the same path the project JSON uses.
+      const globalLlm: unknown = resolvedRawConfig.llm;
+      // CFG-75 — the global layer is the ONE layer that can arrive in either form. It is loaded
+      // from `.gsloth.config.json`/`.jsonc` (which can only carry a raw spec) or from
+      // `.gsloth.config.js`/`.mjs`, whose `configure()` may return an already-built model exactly
+      // as a project module config may. So usability is asked of the value's behaviour, the way
+      // `tryModuleConfig` asks it, and a built model is used as it stands: the provider layer has
+      // nothing left to build, and rebuilding would replace the user's model with another one.
+      //
+      // Asked BEFORE the `type` test below because a built model may also carry a `type` field,
+      // and then both match — see {@link isUsableModel}.
+      if (isUsableModel(globalLlm)) {
+        return await mergeConfig(
+          resolvedRawConfig as unknown as Partial<GthConfig>,
+          commandLineConfigOverrides
+        );
+      }
+      if (globalLlm && typeof globalLlm === 'object' && 'type' in globalLlm) {
+        // Route the global config through the same path the project JSON uses. `type` is the
+        // provider layer's own precondition (`tryJsonConfig` refuses a spec without one), not a
+        // test of whether the config is usable — that question was answered above.
         return await tryJsonConfig(resolvedRawConfig as RawGthConfig, commandLineConfigOverrides);
       }
-      // CFG-47 — a global config that read fine and does not define `llm.type` is "config present
-      // and unusable", the same class CFG-36 converted: raise it, let the caller choose the exit
-      // code. The message is the one this branch has always printed, so the CLI's top-level guard
-      // reproduces the previous output exactly.
+      // CFG-47 — a global config that read fine and defines neither a usable model nor a routable
+      // `llm.type` is "config present and unusable", the same class CFG-36 converted: raise it, let
+      // the caller choose the exit code. The message is the one this branch has always printed, so
+      // the CLI's top-level guard reproduces the previous output exactly.
+      //
+      // CFG-75 — a typeless raw spec is refused HERE rather than forwarded to `tryJsonConfig` the
+      // way `tryModuleConfig` forwards one. That forwarding earns its place because a project
+      // module layer has a global layer underneath it that may still supply the `type`; this branch
+      // IS the bottom layer and `extends` has already been resolved, so nothing can. Forwarding
+      // would only trade a message that names the global config and the missing key for
+      // "LLM type not specified in config.", which names neither.
       const globalProfile = globalLayerProfile(commandLineConfigOverrides);
       const sourceLabel = globalProfile
         ? `${GSLOTH_SETTINGS_DIR}/${globalProfile}/${USER_PROJECT_CONFIG_JSON} (global)`
@@ -1132,7 +1153,31 @@ type ModuleConfigFormat = 'js' | 'mjs' | 'ts';
  * must not stand is the third option — accepted, unrouted, and fatal only at the first call.
  */
 function needsProviderRouting(llm: unknown): boolean {
-  return isMergeableObject(llm) && typeof (llm as { invoke?: unknown }).invoke !== 'function';
+  return isMergeableObject(llm) && !isUsableModel(llm);
+}
+
+/**
+ * CFG-75 — is this `llm` config value ALREADY usable as a model, with nothing left for the provider
+ * layer to build?
+ *
+ * Decided by what the value can DO — answer a call — and never by what it looks like. A model a
+ * user's own `configure()` built keeps its methods on its prototype and has no own `type` property,
+ * so a `type`-key test calls exactly the documented shape unusable; that is the assumption this
+ * predicate exists to replace. It is the positive half of {@link needsProviderRouting}, kept as one
+ * definition rather than two so the two questions cannot drift apart.
+ *
+ * It is NOT the negation of {@link needsProviderRouting}: that is false for an ABSENT `llm` too, so
+ * a branch that accepted `!needsProviderRouting(llm)` would accept a config with no model at all.
+ * Ask this one when the question is "may this be used?", and ask it FIRST wherever a `type` test
+ * could also match — an object that answers calls and happens to carry a `type` field is a working
+ * model the user built, and sending it to the provider layer would quietly swap it for another.
+ */
+function isUsableModel(llm: unknown): boolean {
+  return (
+    typeof llm === 'object' &&
+    llm !== null &&
+    typeof (llm as { invoke?: unknown }).invoke === 'function'
+  );
 }
 
 /**
