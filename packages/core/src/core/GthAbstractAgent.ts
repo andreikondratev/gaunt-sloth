@@ -366,8 +366,13 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
 
   /**
    * EXT-58 — the names of the tools registered with the graph at the last {@link init}, recorded by
-   * {@link registerApprovalsAwareTools}. Read by `GthAgentRunner` to build the rater's
-   * granted-built-in list (§4.4), so a suggestion can only ever name a tool the model actually has.
+   * {@link registerApprovalsAwareTools} and read back through {@link getRegisteredToolNames}.
+   *
+   * EXT-173 — it was recorded so `GthAgentRunner` could build the rater's granted-built-in list
+   * (§4.4). That mechanism is gone, and with it the only production reader: today this is inspection
+   * state on the agent interface, exercised by tests alone. Kept rather than deleted because
+   * `getRegisteredToolNames` is declared on {@link GthAgentInterface} and removing it is an API
+   * decision this node did not take.
    */
   private registeredToolNames: string[] = [];
 
@@ -476,7 +481,8 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
    *
    * `additionalToolNames` covers tools the graph builder registers itself and that therefore never
    * appear in `tools`. Their descriptions are not ours to write, so they cannot be suffixed here;
-   * they are recorded only so the rater's suggestion list reflects what the model actually has.
+   * they are recorded only so {@link getRegisteredToolNames} reports the full set the model
+   * actually has. (Before EXT-173 that set fed the rater's §4.4 suggestion list, which is gone.)
    */
   protected registerApprovalsAwareTools<T extends DescribableTool>(
     tools: T[],
