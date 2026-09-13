@@ -1630,6 +1630,67 @@ describe('GthLangChainAgent', () => {
       });
     });
 
+    /**
+     * [[TUI-C109]] — **the level `Requested tools:` is announced at, and why anything pins it.**
+     *
+     * `consoleLevel: "display"` is asked to print a finished tool call's status row and to drop
+     * the two lines that announce the same call before it happens. Keeping the row is one map
+     * entry in `plainToolIndication.ts`; dropping this line is not a change at all — it is this
+     * call site staying at INFO, one rung below DISPLAY, where `shouldDisplayLevel`
+     * (`level >= current`) filters it out. Nothing else in the suite would notice it being raised,
+     * so half of what was asked for would come back undone and silent.
+     *
+     * The behavioural other half — that an INFO line really is silent at `display`, through the
+     * real console gate rather than by arithmetic — is asserted in
+     * `plainToolIndicationOutcomeLevel.spec.ts`, which mocks only `systemUtils` and can therefore
+     * reach the gate this file's mocked `consoleUtils` stands in for.
+     */
+    describe('GthMiddlewareToolCallStatusUpdate (TUI-C109 announcement level)', () => {
+      const getStatusMw = () => {
+        const middleware = createAgentMock.mock.calls.at(-1)?.[0].middleware as {
+          name: string;
+
+          afterModel?: (_state: any) => any;
+        }[];
+        return middleware.find((m) => m.name === 'GthMiddlewareToolCallStatusUpdate');
+      };
+
+      it('announces `Requested tools:` at INFO, below display, so a quieted run does not see it', async () => {
+        const agent = new GthLangChainAgent(statusUpdateCallback, {
+          resolveTools: vi.fn().mockResolvedValue([]),
+          resolveMiddleware: async (m) => m ?? [],
+        });
+        await agent.init('code', mockConfig);
+
+        const status = getStatusMw();
+        expect(status).toBeDefined();
+        // Drop the init preamble so the count below is about this round alone.
+        statusUpdateCallback.mockClear();
+
+        status!.afterModel!({
+          messages: [
+            new HumanMessage('read it'),
+            new AIMessage({
+              content: '',
+              tool_calls: [
+                { id: 'c1', name: 'read_file', args: { path: 'README.md' }, type: 'tool_call' },
+              ],
+            }),
+          ],
+        });
+
+        const announcements = statusUpdateCallback.mock.calls.filter(([, message]) =>
+          String(message).includes('Requested tools:')
+        );
+        expect(announcements).toHaveLength(1);
+        const [level] = announcements[0];
+        expect(level).toBe(StatusLevel.INFO);
+        // The RELATION, not just the constant, is what the requirement is made of: any raise to
+        // DISPLAY or above puts this line back on screen in the very run that asked it to go.
+        expect(level).toBeLessThan(StatusLevel.DISPLAY);
+      });
+    });
+
     // EXT-35 — the lean agent installs an afterModel middleware that promotes a text-emitted tool
     // call (a small/local model serialising a call as assistant TEXT) into a native tool_call, so
     // the ReAct router sees tool_calls on the last message and CONTINUES the loop instead of ending
