@@ -294,4 +294,182 @@ export async function configure() {
       expect((config.llm as unknown as FakeChatModel).invoke()).toBe('invoked:project-json-model');
     });
   });
+
+  /**
+   * CFG-75 — mechanism 3: the SAME two return values, in a GLOBAL `.gsloth.config.js`, reached
+   * through `initConfig`'s global-only branch (no project config of any format exists).
+   *
+   * That branch decided usability by asking whether `llm` had a `type` key, which a built model
+   * instance does not have — so the documented "return a built instance" advice loaded on the
+   * project route and was refused by name on the global one.
+   *
+   * Every cell here writes a real global `.gsloth.config.js` and lets the production loader import
+   * it; the temp-dir redirect above is the only seam. The stand-in model is CONSTRUCTED INSIDE the
+   * config module, so the instance really does cross the module boundary as a user's own would.
+   */
+  describe('CFG-75 — a GLOBAL module config must deliver a working llm too', () => {
+    /** Where the global config module parks the instance it built, so identity is assertable. */
+    const BUILT_MODEL_KEY = '__CFG75_GLOBAL_BUILT_MODEL__';
+
+    const globalStash = (): unknown =>
+      (globalThis as unknown as Record<string, unknown>)[BUILT_MODEL_KEY];
+
+    afterEach(() => {
+      delete (globalThis as unknown as Record<string, unknown>)[BUILT_MODEL_KEY];
+    });
+
+    const writeGlobalModuleConfig = (body: string): void => {
+      writeFileSync(resolve(hoisted.globalDir, '.gsloth.config.js'), body);
+    };
+
+    /**
+     * A global config returning an already-built model, parked on `globalThis` so the cells can
+     * assert the loader handed back THAT OBJECT rather than something of the same shape. A shape
+     * assertion would pass against a rebuild that happened to copy `model` across.
+     */
+    const GLOBAL_CONFIG_RETURNING_INSTANCE = `
+export async function configure() {
+  class UserBuiltGlobalModel {
+    constructor(model) {
+      this.model = model;
+    }
+    invoke() {
+      return 'invoked:' + this.model;
+    }
+  }
+  const built = new UserBuiltGlobalModel('global-built-model');
+  globalThis.${BUILT_MODEL_KEY} = built;
+  return { llm: built, streamOutput: true };
+}
+`;
+
+    it('accepts a built instance and resolves to THAT instance, not a rebuilt one', async () => {
+      // THE cell this node turns on. Before the fix this rejected outright with "Global
+      // configuration found but it is not in valid format", because a built instance has no own
+      // `type` property — its methods live on the prototype.
+      writeGlobalModuleConfig(GLOBAL_CONFIG_RETURNING_INSTANCE);
+
+      const { initConfig } = await import('#src/config.js');
+      const config = await initConfig({});
+
+      // IDENTITY, not shape: the very object `configure()` returned.
+      expect(config.llm).toBe(globalStash());
+      expect((config.llm as unknown as FakeChatModel).invoke()).toBe('invoked:global-built-model');
+      // No provider was asked to build anything — accepting the instance is not a disguised rebuild.
+      expect(ChatAnthropicMock).not.toHaveBeenCalled();
+      // The rest of the global layer still arrives, so acceptance did not replace the layer.
+      expect(config.streamOutput).toBe(true);
+    });
+
+    it('accepts a built instance under an explicit --global run too', async () => {
+      // The other way this branch is reached: `-g` short-circuits project discovery outright
+      // (findProjectConfigPath returns undefined), rather than the up-tree walk finding nothing.
+      // Both entrances must land on the same decision, and only one of them is exercised above.
+      writeGlobalModuleConfig(GLOBAL_CONFIG_RETURNING_INSTANCE);
+      // A project config exists and must be bypassed, which is what makes this cell about `-g`
+      // rather than a second spelling of the cell above.
+      writeProjectJsonConfig({ llm: { type: 'anthropic', model: 'project-model' } });
+
+      const { initConfig } = await import('#src/config.js');
+      const config = await initConfig({ global: true });
+
+      expect(config.llm).toBe(globalStash());
+      expect((config.llm as unknown as FakeChatModel).invoke()).toBe('invoked:global-built-model');
+      expect(ChatAnthropicMock).not.toHaveBeenCalled();
+    });
+
+    it('PAIR: a raw { type, model } spec in the same global module still routes to the provider', async () => {
+      // The other half of the pair. Same file, same format, same branch — only the returned value
+      // differs, so an implementation that hardcoded either answer fails one of the two.
+      writeGlobalModuleConfig(`
+export async function configure() {
+  return { llm: { type: 'anthropic', model: 'global-spec-model' }, streamOutput: true };
+}
+`);
+
+      const { initConfig } = await import('#src/config.js');
+      const config = await initConfig({});
+
+      expect(ChatAnthropicMock).toHaveBeenCalledTimes(1);
+      expect(ChatAnthropicMock).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'global-spec-model' })
+      );
+      expect((config.llm as unknown as FakeChatModel).invoke()).toBe('invoked:global-spec-model');
+    });
+
+    it('a built instance that ALSO carries a type field is used as-is, never rebuilt', async () => {
+      // Ordering, which nothing else pins: both tests match this object, so whichever question the
+      // branch asks first decides. Asking "is it already a model?" first is the fix; asking "has it
+      // a type?" first would hand a working model to the provider layer and rebuild it as some
+      // other model — silently, because the rebuilt one answers calls too.
+      writeGlobalModuleConfig(`
+export async function configure() {
+  class TypedUserBuiltModel {
+    constructor(model) {
+      this.model = model;
+      this.type = 'anthropic';
+    }
+    invoke() {
+      return 'invoked:' + this.model;
+    }
+  }
+  const built = new TypedUserBuiltModel('typed-built-model');
+  globalThis.${BUILT_MODEL_KEY} = built;
+  return { llm: built };
+}
+`);
+
+      const { initConfig } = await import('#src/config.js');
+      const config = await initConfig({});
+
+      expect(config.llm).toBe(globalStash());
+      expect((config.llm as unknown as FakeChatModel).invoke()).toBe('invoked:typed-built-model');
+      expect(ChatAnthropicMock).not.toHaveBeenCalled();
+    });
+
+    it('CONTROL: a global config with NO llm is still refused, with its message unchanged', async () => {
+      // The control that says the refusal was NARROWED, not removed. `needsProviderRouting` is
+      // false for an absent `llm` on purpose, so reusing it as the acceptance test would invert
+      // this cell into a silent acceptance — a run with no model at all.
+      //
+      // The wording is asserted as a LITERAL, not against the constant the code emits: a cell that
+      // imported that constant would stay green through a rewrite of the very message the CLI's
+      // top-level guard reproduces.
+      writeGlobalModuleConfig(`
+export async function configure() {
+  return { prompts: { guidelines: 'GLOBAL.md' } };
+}
+`);
+
+      const { initConfig, isConfigDiscoveryError } = await import('#src/config.js');
+      const error = await initConfig({}).catch((e: unknown) => e);
+
+      expect(isConfigDiscoveryError(error)).toBe(true);
+      expect((error as Error).message).toBe(
+        'Global configuration found but it is not in valid format. Should at least define llm.type'
+      );
+    });
+
+    it('CONTROL: a global llm that is neither a model nor a spec keeps the same refusal', async () => {
+      // A plain `llm` object with no `type` and no `invoke`: not usable, and nothing downstream can
+      // supply the missing `type` (the global-only branch has no lower layer, and `extends` has
+      // already been resolved). Refused here by name rather than routed, so the user is told which
+      // config is wrong and what it is missing — `tryJsonConfig` would answer "LLM type not
+      // specified in config." with no indication that the global config is the one at fault.
+      writeGlobalModuleConfig(`
+export async function configure() {
+  return { llm: { model: 'no-type-no-invoke' } };
+}
+`);
+
+      const { initConfig, isConfigDiscoveryError } = await import('#src/config.js');
+      const error = await initConfig({}).catch((e: unknown) => e);
+
+      expect(isConfigDiscoveryError(error)).toBe(true);
+      expect((error as Error).message).toBe(
+        'Global configuration found but it is not in valid format. Should at least define llm.type'
+      );
+      expect(ChatAnthropicMock).not.toHaveBeenCalled();
+    });
+  });
 });
