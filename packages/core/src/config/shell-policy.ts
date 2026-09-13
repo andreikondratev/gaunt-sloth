@@ -782,6 +782,12 @@ export function isRatedRung(rung: ApprovalRung): boolean {
  * preflight. Anything asking *"may the agent argue about THIS call"* wants that function; this one
  * is a fact about the ladder and stays free of the shell module.
  *
+ * **[[EXT-171]] — and `isNegotiableCall` is not the only thing that can withhold a negotiation.**
+ * The decision also escalates when the gate never obtained a rating at all — the rater module's
+ * `RaterDecisionOptions.failClosedCause` — which is a fact about the CALL rather than about the
+ * command, so no function over the command text could carry it. A reader looking for "why did this
+ * `destructive` not open a round at `auto`?" has two answers to check, not one.
+ *
  * Written as a `=== 'auto'` test rather than as "rated but not assisted" so that a sixth rung has to
  * be classified deliberately rather than inheriting a negotiation by omission.
  */

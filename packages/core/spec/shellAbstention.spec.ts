@@ -1043,6 +1043,12 @@ describe('EXT-81 — the parser preflight note', () => {
         const decision = mapVerdictToAction('pwd && ls', failClosed, { rung });
         // The claim is "never approves"; where a non-approval goes is the rung's business, and at
         // `auto` a `destructive` is [[EXT-29]] §5's negotiation rather than a human.
+        //
+        // **[[EXT-171]] — and this doubles as a control that TEXT alone does not escalate.** The
+        // verdict here is hand-built and no `failClosedCause` is passed, which is exactly the shape
+        // of a rating a model rendered while obeying the prompt's instruction to say it could not
+        // assess the command. That one negotiates, and must: the gate escalates on the call's own
+        // recorded cause, never on the reason's wording.
         expect(decision.action, rung).not.toBe('approve');
         expect(decision.action, rung).toBe(rung === 'auto' ? 'reject' : 'escalate');
         expect(decision.verdict?.reason, rung).toBe(failClosed.reason);

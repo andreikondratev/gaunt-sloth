@@ -1549,6 +1549,13 @@ describe('GthAgentRunner', () => {
     it('warns the user when the rater runs out of time, instead of escalating silently', async () => {
       // A rater model that never answers, with a 5ms budget — the shape of a local model on a
       // hard command, compressed.
+      //
+      // [[EXT-171]] — **this is also the runner's end-to-end wiring cell**, and the reason the
+      // approval callback below is asserted rather than merely present. `mapVerdictToAction` is
+      // pure and cannot say whether the runner actually threads the call's `FailClosedCause` into
+      // it; a fix that landed in core alone would leave this session negotiating with the agent and
+      // every core-level cell would stay green. Asking whether a HUMAN was consulted is the one
+      // question that distinguishes the two.
       resolveRaterModelMock.mockResolvedValue({
         withStructuredOutput: () => ({ invoke: () => new Promise(() => {}) }),
       } as any);
@@ -1572,7 +1579,8 @@ describe('GthAgentRunner', () => {
         streamOutput: true,
         approvals: { mode: 'auto', rater: 'slow-rater', raterTimeoutMs: 5 },
       } as unknown as typeof mockConfig);
-      runner.setToolApprovalCallback(vi.fn().mockResolvedValue({ type: 'approve' }));
+      const human = vi.fn().mockResolvedValue({ type: 'approve' });
+      runner.setToolApprovalCallback(human);
 
       await runner.processMessages([new HumanMessage('run ls')]);
 
@@ -1585,6 +1593,13 @@ describe('GthAgentRunner', () => {
       expect(notice).not.toMatch(/\bdestructive\b/);
       // It reports the action that actually happened: with no allow entry, the call escalated.
       expect(notice).toContain('was escalated without being rated');
+      // [[EXT-171]] — and the sentence is TRUE, which is the half a string assertion cannot see. At
+      // `auto` this command is negotiable, so before the cause was threaded through the runner the
+      // call was handed back to the AGENT and this notice said something that had not happened.
+      expect(
+        human,
+        'a rating nobody made goes to the human, not into a negotiation'
+      ).toHaveBeenCalled();
     });
 
     /**

@@ -2182,9 +2182,20 @@ export class GthAgentRunner {
           },
           record
         );
+        // [[EXT-171]] — **the decision is told whether anybody actually rated this command**, read
+        // off the call's own capture (`rateCommand` assigns it through `onCapture` before the model
+        // is invoked, and `settle` writes the cause on every failing exit). At `auto` a rating the
+        // gate never obtained now reaches the human instead of opening a negotiation with the
+        // agent about a question nothing has answered.
+        //
+        // **Not `isFailClosed(verdict)`**, which is true of an obedient rater's genuine verdict as
+        // well — the rating prompt tells it to say it could not assess a command it is unsure of.
+        // The capture is the one place the two are distinguishable, and it is the same source
+        // `raterHealth` counts from, so the decision and the diagnostic cannot come to disagree.
         const decision = mapVerdictToAction(subject.command, verdict, {
           rung: approvals.rung,
           provenance,
+          ...(record.rating?.failClosed ? { failClosedCause: record.rating.failClosed } : {}),
         });
         // [[TUI-C27]] — WHICH deterministic preflight fired, and whether it actually rewrote the
         // rating. The two are separate facts: a preflight only ever RAISES, and only `safe` sits

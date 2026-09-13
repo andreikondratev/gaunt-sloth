@@ -21,6 +21,7 @@ import {
   foldHomePath,
   hasScriptEnvLeakRisk,
   isBelowDestructiveFloor,
+  mapAllowMatchedVerdictToAction,
   mapVerdictToAction,
   NAMES_A_HOST_PREFIX,
   NEVER_AUTO_APPROVED_CLAUSE,
@@ -38,6 +39,7 @@ import {
   type EffectiveToolAnnotations,
   MCP_FAIL_CLOSED_ANNOTATIONS,
 } from '#src/core/approvals/matcher.js';
+import type { RaterCallCapture } from '#src/core/shell/approvalCapture.js';
 
 /**
  * Build a fake BaseChatModel whose `withStructuredOutput(schema).invoke()` returns (or throws)
@@ -1591,12 +1593,16 @@ describe('rateShellCommand — the timeout is configurable, and a timeout says s
       expect(isFailClosed(verdict), `${cause} is recognisable as a gate failure`).toBe(true);
       // The claim is "never approves and never halts", so it is asserted as those two — a gate that
       // gave up is `destructive`, and at `auto` `destructive` opens §5's negotiation ([[EXT-29]]).
-      // Pinning the equality to `escalate` here would have made this test a statement about which
-      // rung was chosen for the probe rather than about failing closed.
+      //
+      // **[[EXT-171]] — and this probe passes NO cause, which is why it still reads `reject`.** The
+      // verdict alone does not move the decision: a caller that hands the mapping nothing negotiates
+      // exactly as it always has, and only a caller that hands it the call's own `FailClosedCause`
+      // escalates. The decision keyed on the cause is pinned in EXT-171's own block, driven off a
+      // real capture; what this line pins is the back-compatibility that block depends on.
       const action = mapVerdictToAction('ls -la', verdict, { rung: 'auto' }).action;
       expect(action, `${cause} never approves`).not.toBe('approve');
       expect(action, `${cause} never halts`).not.toBe('halt');
-      expect(action, `${cause} is negotiable at auto, like any other destructive`).toBe('reject');
+      expect(action, `${cause} with no cause passed is still negotiable at auto`).toBe('reject');
       expect(
         mapVerdictToAction('ls -la', verdict, { rung: 'assisted' }).action,
         `${cause} reaches the human at assisted`
@@ -2190,5 +2196,181 @@ describe('[[EXT-82]] a provider-rejected rating call says WHY it failed', () => 
         failClosedVerdict('threw')
       );
     });
+  });
+});
+
+/**
+ * [[EXT-171]] — **a rating the gate never obtained goes to the HUMAN, not back to the agent.**
+ *
+ * At `auto` every fail-closed cause used to map to `reject`, which is [[EXT-29]] §5's negotiation:
+ * the command is handed back to the AGENT to argue about. So the strictest rater available produced
+ * the most permissive outcome by failing to answer at all, and only at `auto` — `assisted` escalates
+ * every `destructive` already, which is why nobody saw it.
+ *
+ * **Every case here drives the cause off a real `RaterCallCapture`, never off a hand-built one**, so
+ * what is pinned is the wiring a caller actually has to do and not a claim about a literal. The
+ * control below is the whole point of the block: a verdict a MODEL returned whose reason begins
+ * `Could not assess this command` — which the rating prompt instructs the rater to produce, and
+ * which `isFailClosed` therefore calls a gate failure — still negotiates.
+ */
+describe('EXT-171 — the gate failing to obtain a rating escalates; a rater that answered does not', () => {
+  /** No preflight finding, so the command is negotiable and `auto` really does reach §5. */
+  const NEGOTIABLE = 'xargs -a targets.txt rm -rf';
+
+  /**
+   * One rating call, returning both the verdict and the call's own capture — the pair every
+   * production call site now holds, and the only honest source for "did anybody answer?".
+   */
+  const rateWithCapture = async (
+    command: string,
+    options: Parameters<typeof rateShellCommand>[2]
+  ): Promise<{ verdict: ShellSafetyVerdict; capture: RaterCallCapture | undefined }> => {
+    let capture: RaterCallCapture | undefined;
+    const verdictOut = await rateShellCommand(command, CONFIG, {
+      ...options,
+      onCapture: (c) => {
+        capture = c;
+      },
+    });
+    return { verdict: verdictOut, capture };
+  };
+
+  /**
+   * The four causes, each produced by the gate failing in its own way rather than by naming the
+   * cause — so a rearranged `settle` that stopped recording one of them reds here.
+   *
+   * `unparseable` is driven by a model returning `{}`, deliberately and not as a convenience: that
+   * is the EMPTY VERDICT this node was ruled on, measured twice from `claude-opus-5` in
+   * `docs/test-sessions/qa-17-substitution-note-2026-08-03/opus-empty-verdict.log`. Driving it from
+   * a hand-built verdict would have left the ruling and the test connected only by a comment.
+   */
+  const CAUSE_DRIVERS: Record<string, () => Parameters<typeof rateShellCommand>[2]> = {
+    'no-model': () => ({ model: {} as unknown as BaseChatModel }),
+    timeout: () => ({ model: fakeModel(() => new Promise(() => {})).model, timeoutMs: 5 }),
+    unparseable: () => ({ model: fakeModel(() => ({})).model }),
+    threw: () => ({
+      model: fakeModel(() => {
+        throw new Error('the provider refused');
+      }).model,
+    }),
+  };
+
+  for (const [cause, driver] of Object.entries(CAUSE_DRIVERS)) {
+    it(`escalates at auto when the gate failed closed because of ${cause}`, async () => {
+      const { verdict: failed, capture } = await rateWithCapture(NEGOTIABLE, driver());
+
+      // The capture is what carries the fact, and it carries THIS cause — not merely "some" cause.
+      expect(capture?.failClosed, `${cause} is recorded on the call`).toBe(cause);
+      expect(failed.outcome, `${cause} still fails closed`).toBe('destructive');
+
+      const decision = mapVerdictToAction(NEGOTIABLE, failed, {
+        rung: 'auto',
+        failClosedCause: capture?.failClosed,
+      });
+      expect(decision.action, `${cause} reaches the human instead of the agent`).toBe('escalate');
+      // Asserted as its own claim, because "not approve" is what the pre-EXT-171 suite already
+      // pinned and it was true of the defective behaviour too.
+      expect(decision.action, `${cause} never approves`).not.toBe('approve');
+      expect(decision.verdict?.reason, `${cause} keeps its honest reason`).toBe(failed.reason);
+    });
+
+    it(`still negotiates at auto when no cause is passed (${cause} back-compat)`, async () => {
+      // The contract that makes this change reviewable: EVERY existing caller passes nothing, and
+      // every existing caller must be unmoved. A single implementation that keyed on the verdict
+      // instead would move all of them at once and this cell would red.
+      const { verdict: failed } = await rateWithCapture(NEGOTIABLE, driver());
+      expect(mapVerdictToAction(NEGOTIABLE, failed, { rung: 'auto' }).action).toBe('reject');
+    });
+
+    it(`is byte-identical at assisted with and without the ${cause} cause`, async () => {
+      // `assisted` escalated every `destructive` before this node and must not have moved a byte.
+      const { verdict: failed, capture } = await rateWithCapture(NEGOTIABLE, driver());
+      expect(
+        mapVerdictToAction(NEGOTIABLE, failed, {
+          rung: 'assisted',
+          failClosedCause: capture?.failClosed,
+        })
+      ).toEqual(mapVerdictToAction(NEGOTIABLE, failed, { rung: 'assisted' }));
+    });
+  }
+
+  /**
+   * **THE CONTROL — the criterion the whole node turns on.**
+   *
+   * `rater.ts`'s system prompt tells the rater that uncertainty is not an outcome: if it cannot
+   * assess a command it must return `destructive` and SAY it could not assess it. A rater that obeys
+   * therefore produces a verdict `isFailClosed` calls a gate failure — and Andrew ruled that half is
+   * left exactly as it is, because a model did assess the command.
+   *
+   * So this case drives a MODEL returning that verdict, asserts the capture carries NO cause, and
+   * pins that it still negotiates. Mutate the implementation to read `isFailClosed(verdict)` instead
+   * of `opts.failClosedCause` and this is the cell that goes red; without it nothing in the suite
+   * distinguishes the two designs.
+   */
+  it('CONTROL: a model that ANSWERED "could not assess" still negotiates at auto', async () => {
+    const answered: ShellSafetyVerdict = {
+      outcome: 'destructive',
+      reason: `${COULD_NOT_ASSESS_PREFIX}: the command composes three unfamiliar tools.`,
+    };
+    const { model } = fakeModel(() => answered);
+    const { verdict: rendered, capture } = await rateWithCapture(NEGOTIABLE, { model });
+
+    // Both halves of the trap, stated: the text says "could not assess" and the predicate agrees…
+    expect(rendered).toEqual(answered);
+    expect(isFailClosed(rendered), 'the TEXT-keyed predicate calls this a gate failure').toBe(true);
+    // …while the call itself records no cause, because a model really did answer.
+    expect(capture?.failClosed, 'but the CALL knows a rater answered').toBeUndefined();
+
+    expect(
+      mapVerdictToAction(NEGOTIABLE, rendered, {
+        rung: 'auto',
+        failClosedCause: capture?.failClosed,
+      }).action,
+      'an obedient rater’s genuine verdict is still the agent’s to argue'
+    ).toBe('reject');
+  });
+
+  /**
+   * The other direction of the same discriminator: an ordinary `destructive` a rater rendered is
+   * untouched, reason included. Without this the block above is consistent with a change that
+   * escalated every `destructive` at `auto`.
+   */
+  it('a rater that answered destructive normally still negotiates, with a byte-identical reason', async () => {
+    const { model } = fakeModel(() => DESTRUCTIVE);
+    const { verdict: rendered, capture } = await rateWithCapture(NEGOTIABLE, { model });
+
+    expect(capture?.failClosed).toBeUndefined();
+    const decision = mapVerdictToAction(NEGOTIABLE, rendered, {
+      rung: 'auto',
+      failClosedCause: capture?.failClosed,
+    });
+    expect(decision.action).toBe('reject');
+    expect(decision.verdict?.reason).toBe(DESTRUCTIVE.reason);
+  });
+
+  /**
+   * **A missing VERDICT at a rated rung is not a gate failure.** It is the shape `gth eval`'s rater
+   * target produces for a `model_free` case — no call, no capture, no cause — and keying the new arm
+   * on `verdict === undefined` as well would silently move every deterministic eval case at `auto`
+   * from `reject` to `escalate`.
+   */
+  it('an undefined verdict at a rated rung keeps today’s action', () => {
+    expect(mapVerdictToAction(NEGOTIABLE, undefined, { rung: 'auto' }).action).toBe('reject');
+    expect(mapVerdictToAction(NEGOTIABLE, undefined, { rung: 'assisted' }).action).toBe('escalate');
+  });
+
+  /**
+   * §3.2's tripwire is explicitly out of scope: a fail-closed verdict over a standing human grant
+   * still RUNS, because the human already authorised the call and a rating that never happened does
+   * not revoke it. Asserted here rather than assumed, because "a non-judgement escalates" is exactly
+   * the sentence that would otherwise be applied to it.
+   */
+  it('the allow-matched tripwire still approves on a fail-closed verdict', async () => {
+    const { verdict: failed, capture } = await rateWithCapture(
+      NEGOTIABLE,
+      CAUSE_DRIVERS['timeout']()
+    );
+    expect(capture?.failClosed).toBe('timeout');
+    expect(mapAllowMatchedVerdictToAction(failed).action).toBe('approve');
   });
 });

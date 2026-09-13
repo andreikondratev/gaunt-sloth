@@ -1553,6 +1553,27 @@ export interface RaterDecisionOptions {
    * floor is not the rater.
    */
   provenance?: readonly string[];
+  /**
+   * [[EXT-171]] — **why THIS call's rating never arrived**, taken off the `failClosed` field of the
+   * call's own {@link RaterCallCapture} and nothing else. Present means the gate failed to obtain a
+   * judgement (no rater model, a timeout, unparseable output, a provider refusal); absent means a
+   * rater answered, or nobody was asked.
+   *
+   * **Read it from the capture, never from {@link isFailClosed}.** That predicate keys on
+   * {@link COULD_NOT_ASSESS_PREFIX}, and the rating prompt *instructs* the rater to return
+   * `destructive` and say it could not assess a command it is unsure of — so `isFailClosed` is true
+   * of an obedient model's genuine verdict as well, and keying on it would escalate a rating that
+   * really was rendered. `raterHealth.ts` states the same rule for the counting path; this is that
+   * rule reaching the decision path.
+   *
+   * **Absent is "no cause", and it decides exactly as it did before this field existed.** A caller
+   * that passes nothing negotiates at `auto` precisely as it always has, which is what keeps every
+   * existing call site and corpus measuring what it measured. In particular an `undefined` VERDICT
+   * at a rated rung is not a gate failure and must not set this: `gth eval`'s `model_free` cases
+   * make no call, so there is no capture and no cause, and moving them would be a suite change
+   * nobody asked for.
+   */
+  failClosedCause?: FailClosedCause;
 }
 
 /**
@@ -1884,7 +1905,7 @@ export function isNegotiableCall(
  * |---|---|---|---|---|
  * | — (no rating) | escalate | | | approve |
  * | `safe` | — | approve | approve | — |
- * | `destructive` | — | escalate | **reject** — §5's negotiation ([[EXT-29]]); **escalate** when a preflight floors the command and §4.6's carve-out did not lift it ([[EXT-106]]) | — |
+ * | `destructive` | — | escalate | **reject** — §5's negotiation ([[EXT-29]]); **escalate** when a preflight floors the command and §4.6's carve-out did not lift it ([[EXT-106]]), and **escalate** when the gate never obtained a rating at all ([[EXT-171]], `opts.failClosedCause`) | — |
  * | `catastrophic` | — | escalate | escalate — **never negotiate** | — |
  * | `attack` | — | **halt** | **halt** | — |
  *
@@ -1929,6 +1950,15 @@ export function isNegotiableCall(
  *    provenance (3) is: a command §4.6's carve-out lifted the floor from can reach `approve` again,
  *    so it is negotiable again.
  *
+ *    **[[EXT-171]] — and `escalate` too when the gate never obtained a rating**
+ *    ({@link RaterDecisionOptions.failClosedCause}). A negotiation hands the command back to the
+ *    AGENT to argue about, and there is nothing to argue with: no model looked at this command. An
+ *    absence of judgement must not be laundered into a judgement, so it goes to the human — which
+ *    is what `assisted` already did with it, and the reason nobody saw this at all. This clause
+ *    sits INSIDE step 6 rather than above it: `attack` still halts and `catastrophic` still
+ *    escalates unnegotiably, so the fail-closed-first ordering above is unchanged, and a cause
+ *    arriving alongside either of those outcomes is decided by the stricter arm.
+ *
  * **The gate never decides for itself that a shell command is "equivalent" to a built-in and
  * substitutes it.** Any such equivalence test would be a second command parser, and a second
  * command parser is a second place for the gate to be bypassed. Nothing the rater returns may
@@ -1940,8 +1970,11 @@ export function isNegotiableCall(
  *   of the rater, so the gate is robust even if the rater is wrong or manipulated).
  * @param verdict The rater's verdict (or {@link FAIL_CLOSED_VERDICT}); `undefined` at the unrated
  *   rungs. A missing verdict at a RATED rung is treated as {@link FAIL_CLOSED_VERDICT}.
- * @param opts The rung in force, and [[EXT-106]] §4.6's user provenance — see
- *   {@link RaterDecisionOptions.provenance}, whose default floors exactly as before.
+ * @param opts The rung in force, [[EXT-106]] §4.6's user provenance — see
+ *   {@link RaterDecisionOptions.provenance}, whose default floors exactly as before — and
+ *   [[EXT-171]]'s {@link RaterDecisionOptions.failClosedCause}, whose default negotiates exactly as
+ *   before. **A caller that passes neither behaves precisely as it did**, which is what makes both
+ *   additions reviewable.
  */
 export function mapVerdictToAction(
   command: string,
@@ -2021,7 +2054,24 @@ export function mapVerdictToAction(
   // can win exists; without this hop a carved command the rater rated `destructive` would escalate
   // to a human instead — the very interruption the carve-out was built to remove, reintroduced one
   // branch further down.
-  if (isNegotiableCall(opts.rung, command, opts.provenance ?? [])) {
+  //
+  // [[EXT-171]] — **and a rating the gate never obtained is not one of them either.** The two
+  // exclusions are separate facts and are deliberately separate clauses: the one above is about
+  // the COMMAND (a preflight already decided it), this one is about the GATE (nobody assessed it).
+  // A negotiation spends a round, a rating call and an alignment call arguing a question nothing
+  // has answered, and the strictest model available would produce the most permissive outcome by
+  // failing to answer at all.
+  //
+  // **The discriminator is the call's own {@link FailClosedCause}, never {@link isFailClosed}.**
+  // The rating prompt instructs the rater that uncertainty is not an outcome — return `destructive`
+  // and say you could not assess it — so a verdict whose reason merely begins
+  // {@link COULD_NOT_ASSESS_PREFIX} may well be a model's genuine, obedient judgement, and that one
+  // negotiates exactly as it always has. `raterHealth.ts` already states the same rule for the
+  // counting path: read from the call's own capture, never from the verdict's text.
+  if (
+    opts.failClosedCause === undefined &&
+    isNegotiableCall(opts.rung, command, opts.provenance ?? [])
+  ) {
     return { action: 'reject', verdict: effective };
   }
   return { action: 'escalate', verdict: effective };

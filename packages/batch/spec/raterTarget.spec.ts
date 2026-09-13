@@ -4,8 +4,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  COULD_NOT_ASSESS_PREFIX,
   FAIL_CLOSED_VERDICT,
   failClosedVerdict,
+  isFailClosed,
   RATER_ACTIONS,
   RATER_OUTCOMES,
   mapVerdictToAction,
@@ -2236,5 +2238,137 @@ describe('buildRaterClassifier (BATCH-25 Half B — the `rater` target)', () => 
     expect(outcome.ok).toBe(false);
     expect(outcome.error).toContain('case-1');
     expect(outcome.modelCalls).toBe(0);
+  });
+
+  /**
+   * [[EXT-171]] — **the target and the runner take the SAME action when the gate never obtained a
+   * rating**, asserted rather than assumed.
+   *
+   * This target exists to describe production, and both decision sites had to be told the cause or
+   * the suite would go on measuring a negotiation production no longer opens — the [[BATCH-38]]
+   * defect class, an eval artefact asserting a mechanism production no longer has. The expectation
+   * is DERIVED from core's own mapping given the cause, never spelled, so a rename of the action
+   * vocabulary changes nothing here and a divergence cannot hide behind a literal.
+   */
+  describe('EXT-171 — a rating the gate never obtained escalates here exactly as it does in a session', () => {
+    /** No preflight finding, so `auto` really would negotiate this one. */
+    const NEGOTIABLE = 'rm -rf ./build';
+
+    /** The four gate failures, each driven by the gate actually failing that way. */
+    const CAUSE_DRIVERS: Record<
+      string,
+      () => { model: BaseChatModel; timeoutMs?: number; invoke?: ReturnType<typeof vi.fn> }
+    > = {
+      'no-model': () => ({ model: {} as unknown as BaseChatModel }),
+      timeout: () => {
+        const invoke = vi.fn(() => new Promise(() => {}));
+        return {
+          model: { withStructuredOutput: vi.fn(() => ({ invoke })) } as unknown as BaseChatModel,
+          timeoutMs: 5,
+          invoke,
+        };
+      },
+      // The EMPTY VERDICT the ruling was made about: `{}` fails core's structured-output boundary
+      // and settles as `unparseable`.
+      unparseable: () => {
+        const invoke = vi.fn(async () => ({}));
+        return {
+          model: { withStructuredOutput: vi.fn(() => ({ invoke })) } as unknown as BaseChatModel,
+          invoke,
+        };
+      },
+      threw: () => {
+        const invoke = vi.fn(async () => {
+          throw new Error('the provider refused');
+        });
+        return {
+          model: { withStructuredOutput: vi.fn(() => ({ invoke })) } as unknown as BaseChatModel,
+          invoke,
+        };
+      },
+    };
+
+    for (const [cause, driver] of Object.entries(CAUSE_DRIVERS)) {
+      it(`takes the runner's action at auto for the ${cause} cause`, async () => {
+        const { buildRaterClassifier } = await import('#src/raterTarget.js');
+        const { model, timeoutMs } = driver();
+
+        const classify = await buildRaterClassifier(
+          { type: 'rater', rung: 'auto' },
+          configOf(),
+          timeoutMs === undefined ? { model } : { model, timeoutMs }
+        );
+        const [outcome] = await classify(requestOf({ rounds: [NEGOTIABLE] }));
+
+        const asProductionDecides = mapVerdictToAction(
+          NEGOTIABLE,
+          failClosedVerdict(cause as never),
+          {
+            rung: 'auto',
+            failClosedCause: cause as never,
+          }
+        ).action;
+        expect(asProductionDecides, `${cause} escalates in a session`).toBe('escalate');
+        expect(outcome.action, `${cause} must escalate in the corpus too`).toBe(
+          asProductionDecides
+        );
+        // `modelLabel` claims to be what the MODEL said; nobody said anything.
+        expect(outcome.modelLabel, `${cause} rendered no rating`).toBeUndefined();
+        // The DECISION's label still stands — failing closed is `destructive` either way.
+        expect(outcome.label).toBe(FAIL_CLOSED_VERDICT.outcome);
+      });
+    }
+
+    /**
+     * **The cause must be unreachable on the deterministic path.** A `model_free` case makes no
+     * rating call, so there is no capture and no cause — and if one ever leaked onto that branch
+     * every deterministic eval case at `auto` would move from `reject` to `escalate`, a suite change
+     * nobody asked for and one no corpus author would think to look for.
+     */
+    it('leaves a model_free case at auto exactly where it was', async () => {
+      const { buildRaterClassifier } = await import('#src/raterTarget.js');
+      const { model, invoke } = fakeModel([{ outcome: FAIL_CLOSED_VERDICT.outcome, reason: 'x' }]);
+
+      const classify = await buildRaterClassifier({ type: 'rater', rung: 'auto' }, configOf(), {
+        model,
+      });
+      const [outcome] = await classify(requestOf({ modelFree: true, rounds: [NEGOTIABLE] }));
+
+      expect(invoke, 'a model_free case rings no model').not.toHaveBeenCalled();
+      expect(outcome.modelCalls).toBe(0);
+      // Derived with NO cause, which is the whole claim: no call means no capture means no cause.
+      expect(outcome.action).toBe(
+        mapVerdictToAction(NEGOTIABLE, undefined, { rung: 'auto' }).action
+      );
+    });
+
+    /**
+     * **The control, here as in core:** a rater that ANSWERED with core's could-not-assess wording
+     * is a rendered judgement, so it negotiates AND its label is reported. `isFailClosed` calls that
+     * verdict a gate failure, so a target still keyed on the text would both escalate it and drop
+     * its `modelLabel` — the two halves of this cell.
+     */
+    it('CONTROL: a model that ANSWERED "could not assess" still negotiates and still reports its label', async () => {
+      const { buildRaterClassifier } = await import('#src/raterTarget.js');
+      const answered: ShellSafetyVerdict = {
+        outcome: FAIL_CLOSED_VERDICT.outcome,
+        reason: `${COULD_NOT_ASSESS_PREFIX}: the command composes three unfamiliar tools.`,
+      };
+      expect(isFailClosed(answered), 'the TEXT-keyed predicate calls this a gate failure').toBe(
+        true
+      );
+      const { model } = fakeModel([answered]);
+
+      const classify = await buildRaterClassifier({ type: 'rater', rung: 'auto' }, configOf(), {
+        model,
+      });
+      const [outcome] = await classify(requestOf({ rounds: [NEGOTIABLE] }));
+
+      expect(outcome.action).toBe(
+        mapVerdictToAction(NEGOTIABLE, answered, { rung: 'auto' }).action
+      );
+      expect(outcome.action, 'a model answered, so the agent may still argue').toBe('reject');
+      expect(outcome.modelLabel, 'and the label it rendered is reported').toBe(answered.outcome);
+    });
   });
 });

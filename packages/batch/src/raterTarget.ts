@@ -56,12 +56,12 @@ import {
   runAlignmentCheck,
 } from '@gaunt-sloth/core/core/shell/alignment.js';
 import type { AlignmentDecision } from '@gaunt-sloth/core/core/shell/alignment.js';
+import type { RaterCallCapture } from '@gaunt-sloth/core/core/shell/approvalCapture.js';
 import { ShellNegotiationState } from '@gaunt-sloth/core/core/shell/negotiation.js';
 import {
   FAIL_CLOSED_VERDICT,
   RATER_OUTCOMES,
   effectivePreflightFloorFinding,
-  isFailClosed,
   isNegotiableCall,
   mapVerdictToAction,
   preflightFloorFinding,
@@ -681,6 +681,15 @@ async function classifyOneRound(
   const deterministicOnly = noRatingReason !== undefined;
   let verdict: ShellSafetyVerdict | undefined;
   let modelCalls = 0;
+  /**
+   * [[EXT-171]] — this round's own rating call, kept so the decision below can be told whether a
+   * rating was ever obtained. Declared out here and assigned ONLY inside the `else`, which is the
+   * point: on the deterministic path no call is made, so there is no capture and no cause, and the
+   * decision keeps today's action exactly. A cause leaking onto that branch would move every
+   * `model_free` and unrated-rung eval case at `auto` from `reject` to `escalate` — a suite change
+   * nobody asked for, and one no corpus author would think to look for.
+   */
+  let rating: RaterCallCapture | undefined;
   if (deterministicOnly) {
     // A round that claims a PREFLIGHT is driven with a rating for that preflight to override —
     // without one there is nothing to raise, and every command comes back identical. A round that
@@ -714,11 +723,27 @@ async function classifyOneRound(
       // prompt no session ever sends — so an `auto` suite's numbers may move here, toward the gate
       // it claims to describe. Nothing changes at the other rungs.
       negotiable,
+      // [[EXT-171]] — the sink core already offers, used here for the one field this file needs:
+      // WHY a rating never arrived. Taking it from the call rather than recognising it from the
+      // verdict's wording is the whole point — core's rating prompt tells the rater to answer
+      // `destructive` and say it could not assess a command it is unsure of, so the reason text
+      // cannot tell an unanswered gate from an obedient one.
+      onCapture: (capture) => {
+        rating = capture;
+      },
     });
     modelCalls = 1;
   }
 
-  const decision = mapVerdictToAction(trimmed, verdict, { rung });
+  // [[EXT-171]] — the same decision the runner makes, told the same fact: at a negotiating rung a
+  // rating the gate never obtained escalates instead of opening a negotiation. Passed from the
+  // capture, so the deterministic path above (no call, no capture) is untouched. This target
+  // exists to describe production, and a fix landing in only one of the two decision sites is how
+  // an eval artefact comes to assert a mechanism production no longer has.
+  const decision = mapVerdictToAction(trimmed, verdict, {
+    rung,
+    ...(rating?.failClosed ? { failClosedCause: rating.failClosed } : {}),
+  });
   // [[EXT-127]] — **the alignment check, driven exactly where production drives it.** Reached only
   // on a `destructive` decline at a negotiating rung, and only for the two arms the node grants it
   // authority over: a plain `reject`, or an `escalate` that §4.6's open-world floor produced. Its
@@ -795,14 +820,20 @@ async function classifyOneRound(
     // carries core's default — that IS the decision, and it is `destructive` whether a rater judged
     // the command or the call timed out. `modelLabel` claims to be what the MODEL said, so
     // reporting the default there would count a timeout as a rater judgement: EXT-66's finding, and
-    // EXT-62 measured a whole sweep column reading exactly that as rater coverage. Asked of core's
-    // own `isFailClosed` rather than recognised from the reason here — the distinction has one
-    // implementation and this file relays it like every other.
+    // EXT-62 measured a whole sweep column reading exactly that as rater coverage.
+    //
+    // [[EXT-171]] — **read off the call's own capture, exactly as the decision above is.** The
+    // question both are asking is "did a model answer?", and there is one honest source for it.
+    // Core's `isFailClosed` answers a reason-text question instead, and the rating prompt makes
+    // that question ambiguous on purpose: a rater told to return `destructive` and say it could
+    // not assess the command produces a verdict that predicate calls a gate failure. Suppressing
+    // `modelLabel` there hides a label the model really did render, which is the same confusion
+    // EXT-66 fixed pointing the other way.
     ...(deterministicOnly
       ? {}
       : {
           label: decision.verdict?.outcome,
-          ...(isFailClosed(verdict) ? {} : { modelLabel: verdict?.outcome }),
+          ...(rating?.failClosed ? {} : { modelLabel: verdict?.outcome }),
         }),
     action: negotiated.action,
     rationale: buildRationale(
