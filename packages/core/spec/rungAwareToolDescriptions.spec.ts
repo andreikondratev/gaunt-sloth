@@ -1,6 +1,5 @@
 /**
- * EXT-58 acceptance for spec §4.5 (rung-aware tool descriptions) and the granted-built-in list
- * §4.4 draws on.
+ * EXT-58 acceptance for spec §4.5 — rung-aware tool descriptions.
  *
  * Two halves:
  *
@@ -26,7 +25,6 @@ import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import {
   APPROVAL_RUNGS,
   applyRungAwareToolDescriptions,
-  describeGrantedBuiltInTools,
   isGrantedAtRung,
   RUNG_TOOL_DESCRIPTION_SUFFIXES,
   SHELL_TOOL_NAME,
@@ -273,63 +271,6 @@ describe('isGrantedAtRung', () => {
   });
 });
 
-describe('§4.4 granted-built-in list', () => {
-  const registered = [
-    'read_file',
-    'write_file',
-    'gth_grep',
-    SHELL_TOOL_NAME,
-    'mcp__srv__query',
-    'my_custom_tool',
-  ];
-
-  it('offers only registered built-ins, never the shell, never MCP or custom tools', () => {
-    const granted = describeGrantedBuiltInTools(registered, 'assisted', [SHELL_TOOL_NAME]);
-    expect(granted.map((t) => t.name)).toEqual(['read_file', 'write_file', 'gth_grep']);
-    // Every description is locally authored text, never a tool's own (possibly hostile) blurb.
-    for (const tool of granted) {
-      expect(tool.description.length).toBeGreaterThan(0);
-    }
-  });
-
-  /**
-   * Ungated is not the same as offerable. §4.5's justification for disclosing the posture is that
-   * the granted tools are "by construction, the constrained ones confined to the working folder";
-   * a network fetch is not one of those. Offering it would let a refused `curl` come back as a
-   * suggestion whose §7 clause promises the model it "will not interrupt the user" — a refused
-   * egress turned into a free one, through the rater rather than through the gate.
-   */
-  it('never offers gth_web_fetch, however ungated it is', () => {
-    for (const rung of APPROVAL_RUNGS) {
-      const granted = describeGrantedBuiltInTools(
-        ['read_file', 'gth_web_fetch', SHELL_TOOL_NAME],
-        rung,
-        [SHELL_TOOL_NAME]
-      );
-      expect(granted.map((t) => t.name)).not.toContain('gth_web_fetch');
-    }
-  });
-
-  it('never offers a tool this session did not register', () => {
-    const granted = describeGrantedBuiltInTools(['read_file'], 'assisted', [SHELL_TOOL_NAME]);
-    expect(granted.map((t) => t.name)).toEqual(['read_file']);
-  });
-
-  it('drops a tool the rung does not grant', () => {
-    // With a widened gate, `write_file` is gated and `manual` does not grant it — offering it
-    // would be offering a tool that would itself need approval.
-    const granted = describeGrantedBuiltInTools(registered, 'manual', [
-      SHELL_TOOL_NAME,
-      'write_file',
-    ]);
-    expect(granted.map((t) => t.name)).toEqual(['read_file', 'gth_grep']);
-  });
-
-  it('returns nothing when no tools are registered', () => {
-    expect(describeGrantedBuiltInTools([], 'assisted', [SHELL_TOOL_NAME])).toEqual([]);
-  });
-});
-
 describe('§4.5 wiring — the suffix follows the RESOLVED rung', () => {
   let GthLangChainAgent: typeof import('#src/core/GthLangChainAgent.js').GthLangChainAgent;
   let statusUpdate: Mock<StatusUpdateCallback>;
@@ -454,7 +395,7 @@ describe('§4.5 wiring — the suffix follows the RESOLVED rung', () => {
     });
   });
 
-  it('records the registered tool names for the rater granted-list', async () => {
+  it('records the tool names it registered with the graph', async () => {
     const agent = new GthLangChainAgent(statusUpdate, resolvers as never);
     await agent.init('code', baseConfig());
 

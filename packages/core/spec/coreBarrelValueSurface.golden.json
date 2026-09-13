@@ -42,10 +42,6 @@
       "kind": "object"
     },
     {
-      "name": "BUILT_IN_TOOL_SUMMARIES",
-      "kind": "object"
-    },
-    {
       "name": "COMPACTION_SUMMARY_PREFIX",
       "kind": "string"
     },
@@ -311,10 +307,6 @@
     },
     {
       "name": "createNamedProfile",
-      "kind": "function"
-    },
-    {
-      "name": "describeGrantedBuiltInTools",
       "kind": "function"
     },
     {

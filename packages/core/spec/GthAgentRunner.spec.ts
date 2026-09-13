@@ -2893,12 +2893,15 @@ describe('GthAgentRunner', () => {
   });
 
   /**
-   * EXT-58 §4.4 — the rater is told which built-ins are already granted at the current rung, so a
-   * non-`safe` outcome can point the model at a free call instead of an interruption. The list is
-   * built from what the AGENT actually registered, intersected with core's own summaries table, so
-   * it can name neither a tool this session lacks nor a tool whose description we did not author.
+   * [[EXT-173]] — §4.4's granted-alternative list is gone from the rating call the RUNNER makes.
+   *
+   * The unit-level cells pin `buildRaterPrompt`; this one pins the wiring, which is where the list
+   * was actually assembled (registered tool names intersected with a summaries table) and is the
+   * half a prompt-only assertion cannot see. The negatives are paired with positives from the same
+   * captured prompt, so a rating call that stopped happening altogether fails this cell rather than
+   * passing it.
    */
-  describe('granted-alternative suggestion reaches the rater and the human', () => {
+  describe('[[EXT-173]] the rating call carries no granted-tool list', () => {
     function streamOf(...chunks: string[]) {
       return {
         async *[Symbol.asyncIterator]() {
@@ -2937,7 +2940,7 @@ describe('GthAgentRunner', () => {
       return String(invoke.mock.calls[0][0][0].content);
     }
 
-    it('lists the granted built-ins — and never the gated shell', async () => {
+    it("names none of the session's granted built-ins, however many it registered", async () => {
       const runner = new GthAgentRunner(statusUpdateCallback);
       pendingOnce('sed -i s/a/b/ src/a.ts', ['read_file', 'edit_file', 'run_shell_command']);
       const { config, invoke } = raterConfig({ outcome: 'destructive', reason: 'rewrites a file' });
@@ -2947,48 +2950,19 @@ describe('GthAgentRunner', () => {
       await runner.processMessages([new HumanMessage('go')]);
 
       const system = raterSystemPrompt(invoke);
-      expect(system).toContain('ALREADY-GRANTED TOOLS');
-      expect(system).toContain('- read_file:');
-      expect(system).toContain('- edit_file:');
-      // The shell is the gated tool; offering it as its own alternative would be nonsense.
-      expect(system).not.toContain('- run_shell_command:');
+      // The rating call happened and carries the rater's own prompt — without this the negatives
+      // below would pass on any empty string.
+      expect(system).toContain('Return EXACTLY ONE of four outcomes');
+      expect(system).not.toContain('ALREADY-GRANTED TOOLS');
+      expect(system).not.toContain('- read_file:');
+      expect(system).not.toContain('- edit_file:');
+      expect(system).not.toContain('suggestedTool');
     });
 
-    it('never lists an MCP or custom tool, whose descriptions are not ours to trust', async () => {
-      const runner = new GthAgentRunner(statusUpdateCallback);
-      pendingOnce('rm -rf build', ['read_file', 'mcp__srv__query', 'my_custom_tool']);
-      const { config, invoke } = raterConfig({ outcome: 'destructive', reason: 'deletes a tree' });
-      await runner.init('code', config);
-      runner.setToolApprovalCallback(vi.fn().mockResolvedValue({ type: 'reject' }));
-
-      await runner.processMessages([new HumanMessage('go')]);
-
-      const system = raterSystemPrompt(invoke);
-      expect(system).toContain('- read_file:');
-      expect(system).not.toContain('mcp__srv__query');
-      expect(system).not.toContain('my_custom_tool');
-    });
-
-    it('carries a valid suggestion through to the human prompt', async () => {
+    it('hands the human a verdict with no alternative tool on it', async () => {
       const runner = new GthAgentRunner(statusUpdateCallback);
       pendingOnce('sed -i s/a/b/ src/a.ts', ['read_file', 'edit_file']);
-      const { config } = raterConfig({
-        outcome: 'destructive',
-        reason: 'rewrites a file in place; edit_file does this without a shell',
-        suggestedTool: 'edit_file',
-      });
-      await runner.init('code', config);
-      const human = vi.fn().mockResolvedValue({ type: 'reject' });
-      runner.setToolApprovalCallback(human);
-
-      await runner.processMessages([new HumanMessage('go')]);
-
-      expect(human.mock.calls[0][0].safetyVerdict.suggestedTool).toBe('edit_file');
-    });
-
-    it('drops a suggestion naming a tool this session never registered', async () => {
-      const runner = new GthAgentRunner(statusUpdateCallback);
-      pendingOnce('sed -i s/a/b/ src/a.ts', ['read_file']);
+      // A rater that answers with the retired field anyway: it must not reach the human.
       const { config } = raterConfig({
         outcome: 'destructive',
         reason: 'rewrites a file in place',
@@ -3000,21 +2974,10 @@ describe('GthAgentRunner', () => {
 
       await runner.processMessages([new HumanMessage('go')]);
 
-      expect(human.mock.calls[0][0].safetyVerdict.suggestedTool).toBeUndefined();
-      // …and the outcome is untouched: dropping a name never changes what the gate does.
-      expect(human.mock.calls[0][0].safetyVerdict.outcome).toBe('destructive');
-    });
-
-    it('adds no granted list when the agent exposes no tools', async () => {
-      const runner = new GthAgentRunner(statusUpdateCallback);
-      pendingOnce('rm -rf build', []);
-      const { config, invoke } = raterConfig({ outcome: 'destructive', reason: 'deletes a tree' });
-      await runner.init('code', config);
-      runner.setToolApprovalCallback(vi.fn().mockResolvedValue({ type: 'reject' }));
-
-      await runner.processMessages([new HumanMessage('go')]);
-
-      expect(raterSystemPrompt(invoke)).not.toContain('ALREADY-GRANTED TOOLS');
+      const verdict = human.mock.calls[0][0].safetyVerdict;
+      expect(verdict.outcome).toBe('destructive');
+      expect(verdict.reason).toBe('rewrites a file in place');
+      expect(Object.hasOwn(verdict, 'suggestedTool')).toBe(false);
     });
   });
 

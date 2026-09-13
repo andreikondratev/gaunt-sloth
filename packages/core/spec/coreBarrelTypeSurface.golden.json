@@ -282,11 +282,6 @@
       "arity": 0
     },
     {
-      "name": "GrantedToolSummary",
-      "file": "config/tool-descriptions.d.ts",
-      "arity": 0
-    },
-    {
       "name": "GthAcpSessionMode",
       "file": "config/schema.d.ts",
       "arity": 0

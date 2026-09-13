@@ -567,23 +567,18 @@ command comes back to the agent first, and the agent is the one who has to do so
 Each sentence also tells the agent to use that tool only when the result cannot be achieved with
 the other tools it has.
 
-The auto-rater backs that up at `assisted` and `auto`. When it does not rate a command safe
-and one of the tools the agent already has would do the same job, it names that tool in its
-explanation. At Assisted that explanation reaches you, on the rater line of the approval prompt; at
-Auto a **destructive** one goes to the agent as the reason its command was refused, and reaches you
-when the exchange has run out of rounds — a **catastrophic** one comes straight to you:
+The auto-rater's explanation travels with its decision at `assisted` and `auto`. At Assisted it
+reaches you, on the rater line of the approval prompt; at Auto a **destructive** one goes to the
+agent as the reason its command was refused, and reaches you when the exchange has run out of
+rounds — a **catastrophic** one comes straight to you:
 
 ```
-⚠ Auto-rater (destructive): rewrites a file in place; edit_file does this without a shell
+⚠ Auto-rater (destructive): rewrites a file in place, and the path is outside the project
 ```
 
-If you then decline, the agent is told that `edit_file` needs no approval and will not interrupt
-you — which is what makes it take the other route rather than re-arguing this one.
-
-A named alternative is a suggestion, never an approval: it does not run the command, and the
-suggested tool is gated on its own terms when the agent calls it. If nothing the agent already has
-can do the job — a path outside your working folder, an install, a call to a service — the rater
-names nothing.
+The rater judges the command in front of it and nothing else. It does not choose a different tool
+for the agent to call instead — what to do about a refusal is the agent's move, and the refusal
+tells it which moves it has.
 
 ## The extras: rater, allow, deny, escalate
 

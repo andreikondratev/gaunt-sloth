@@ -28,7 +28,9 @@ import {
  * ## The coverage map — read this before treating a green matrix as coverage
  *
  * Many legs collect this file; exactly TWO of them can fail on a defect it guards. Measured against
- * unfixed trunk, on the real providers:
+ * unfixed trunk, on the real providers — and read the `askStructured` case as the one that carries
+ * that guard now: [[EXT-173]] left the shell verdict with no optional key for a provider to
+ * mishandle, so the rater call below is smoke, not a regression guard.
  *
  * - **groq (`openai/gpt-oss-120b`) — the null-rejection guard.** The ChatGroq path hoists optional
  *   properties into `required` and types them `["string","null"]`. The model complies and answers
@@ -37,8 +39,8 @@ import {
  *   `.github/workflows/integration-tests-small.yml` that goes red without the fix.
  * - **openai (`gpt-5-mini`) — the 400 guard.** `@langchain/openai` does the opposite: it omits
  *   optional keys from `required`, violating OpenAI's own strict rule, and the API rejects the
- *   request outright (`'required' is required to be … including every key in properties. Missing
- *   'suggestedTool'`). openai is not in the small matrix — it is `BIG_TEST_PROVIDER` in
+ *   request outright (`'required' is required to be … including every key in properties`). openai
+ *   is not in the small matrix — it is `BIG_TEST_PROVIDER` in
  *   `.github/workflows/integration-tests.yml`, which runs the suite UNFILTERED and therefore
  *   collects this file for free.
  * - **Every other run is smoke, not a regression guard.** xai, inception, openrouter, xai-build,
@@ -245,13 +247,10 @@ describe.skipIf(!ambient.runnable)(
       expect(isFailClosed(verdict), `fail-closed verdict: ${JSON.stringify(verdict)}`).toBe(false);
       expect(typeof verdict.reason).toBe('string');
 
-      // Stated plainly so nobody credits this pair with more than it does: with no `grantedTools`
-      // supplied, `validateSuggestedTool` drops any suggestion, and the pre-fix fail-closed verdict
-      // carries no `suggestedTool` key either — so these two hold before AND after the fix. They
-      // pin the "absent, never null" contract at the rater's public surface; the NON-VACUOUS
-      // absent-vs-null evidence is the askStructured case below, which has no such normalizer.
-      expect(verdict.suggestedTool).toBeUndefined();
-      expect('suggestedTool' in verdict).toBe(false);
+      // [[EXT-173]] — the verdict schema has NO optional key any more, so this call cannot
+      // exercise the absent-vs-null contract at all: whatever the provider does with optionality,
+      // this schema gives it nothing to do it to. The non-vacuous evidence is the askStructured
+      // case below, whose schema still carries a nested optional.
     });
 
     it('a nested optional the model omits comes back absent, not null', async () => {

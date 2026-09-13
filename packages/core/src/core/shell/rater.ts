@@ -40,7 +40,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import * as z from 'zod';
 
-import type { ApprovalRung, GrantedToolSummary, GthConfig } from '#src/config.js';
+import type { ApprovalRung, GthConfig } from '#src/config.js';
 import type { AlignmentDecision } from '#src/core/shell/alignment.js';
 import { isNegotiatingRung, isRatedRung, resolveApprovals } from '#src/config.js';
 // Type-only: the floor reads the four effective booleans and nothing else, so no runtime edge is
@@ -94,15 +94,15 @@ export type {
 /**
  * Structured verdict the rater model must return: one outcome plus one short sentence. There is
  * deliberately nothing else — no severity number, no booleans to recombine into a compound
- * condition. The consequence is a property of the rung, not of a knob.
+ * condition, no advice about what to call instead. The consequence is a property of the rung, not
+ * of a knob.
  *
- * **The schema is written plainly, as the verdict the rater's CALLERS want.** `suggestedTool` is a
- * plain `.optional()` and the parsed verdict's `suggestedTool` is `string | undefined`. What a
- * strict `json_schema` provider has to be sent instead — the key required and its type nullable —
- * and the `null` that then comes back are entirely the business of
- * {@link structuredOutputBoundary}, which {@link rateShellCommand} runs both halves of the call
- * through. Nothing about the wire belongs in this object; putting it here is what made the schema we
- * send contradict the schema we validate with.
+ * **The schema is written plainly, as the verdict the rater's CALLERS want**, and nothing about
+ * the wire belongs in this object. What a strict `json_schema` provider has to be sent instead —
+ * an optional key made required and its type nullable — and the `null` that then comes back are
+ * entirely the business of {@link structuredOutputBoundary}, which {@link rateShellCommand} runs
+ * both halves of the call through. Putting either here is what made the schema we send contradict
+ * the schema we validate with.
  */
 export const ShellSafetyVerdictSchema = z.object({
   outcome: z
@@ -125,23 +125,9 @@ export const ShellSafetyVerdictSchema = z.object({
         '"base64-encoded payload") rather than only calling it suspicious. When a command is an ' +
         'attack AND also irreversible, name the irreversible effect too.'
     ),
-  suggestedTool: z
-    .string()
-    .optional()
-    .describe(
-      'OPTIONAL. When the outcome is NOT safe AND one of the already-granted tools listed in the ' +
-        'system prompt would accomplish the same thing, the exact name of that tool (and name it ' +
-        'in `reason` as well). Omit it entirely when no listed tool can do the job — naming a ' +
-        'tool that cannot do the job is a failure. A suggestion never changes the outcome and ' +
-        'never approves the command.'
-    ),
 });
 
-/**
- * The rater's structured verdict on a single shell command. `suggestedTool` is `string | undefined`
- * and never `null` — the boundary the rating call goes through collapses a `null` to the key being
- * absent before any consumer sees it, so "no suggestion" has exactly one spelling.
- */
+/** The rater's structured verdict on a single shell command. */
 export type ShellSafetyVerdict = z.infer<typeof ShellSafetyVerdictSchema>;
 
 /**
@@ -657,9 +643,8 @@ export const RATER_DECEPTION_GUIDANCE_CARVED = [
  * whether a negotiation block exists. The two are independent by construction: an empty transcript
  * produces a round-1 *context* that is still a round of a negotiation.
  *
- * It sits LAST in the system prompt, after {@link buildGrantedToolsGuidance}, because §5.2's list of
- * things a rejection may name ends with *a granted built-in that does the job* — a clause that reads
- * as an instruction only once that list is already on the page.
+ * It sits LAST in the system prompt, so every outcome definition and rule it tells the rater to
+ * write a rejection AGAINST is already on the page by the time it is read.
  *
  * The two named anti-patterns are stated as failures rather than merely left out: a bare *"Rejected.
  * This is destructive."* leaves the agent nothing to act on, and a rejection that restates the danger
@@ -671,8 +656,8 @@ export const RATER_NEGOTIABLE_REJECTION_GUIDANCE = [
   'by calling something else. Write for that reader, at every round including the first.',
   '',
   'WHEN YOU REJECT, SAY WHAT WOULD MAKE THE COMMAND ACCEPTABLE. Where you can identify one, name it:',
-  'a narrower path, a missing constraint, a flag to remove, or — where one is listed above and does',
-  'the job — an already-granted tool. Two shapes are FAILURES rather than answers:',
+  'a narrower path, a missing constraint, or a flag to remove. Two shapes are FAILURES rather than',
+  'answers:',
   '- "Rejected. This is destructive." leaves the agent nothing to act on, so it repeats itself and',
   '  the negotiation ends with a human interrupted for no new information.',
   '- "Rejected. This deletes the user’s keys. Explain yourself." is the same failure wearing a',
@@ -681,58 +666,18 @@ export const RATER_NEGOTIABLE_REJECTION_GUIDANCE = [
 ].join('\n');
 
 /**
- * EXT-58 (spec §4.4) — the granted-alternative section of the rating prompt, built from the
- * already-granted built-in tools of the current rung.
- *
- * Three properties are normative and each is spelled out to the rater:
- *
- * - It must name a granted tool **whenever** the outcome is not `safe` and one of them would do the
- *   job, because a free built-in call beats an interruption.
- * - It must **not** name one when none can do the job — a path outside the working folder is the
- *   canonical case, where neither the read nor the edit tool can reach either. A facility that
- *   manufactures suggestions makes "a suggestion is never an approval" meaningless.
- * - A suggestion is **never an approval**: it does not change the outcome, does not approve the
- *   original command, and does not pre-approve the suggested tool (which is gated normally when it
- *   arrives). The gate enforces this structurally — {@link mapVerdictToAction} never reads the
- *   field — but the rater is told so it does not soften an outcome because an alternative exists.
- *
- * The list is **trusted, locally-generated text** (§4.3) and therefore lives in the SYSTEM prompt,
- * structurally outside the `<command_to_evaluate>` block that carries the untrusted command. Only
- * tool names and one-line descriptions authored in `config/tool-descriptions.ts` ever appear here;
- * no MCP/custom/A2A tool's own description can reach the rater.
- *
- * Returns `null` when nothing is granted (or the caller supplied no list), so the prompt is exactly
- * the pre-EXT-58 text and the rater is never invited to invent a tool out of an empty list.
- */
-export function buildGrantedToolsGuidance(
-  grantedTools: readonly GrantedToolSummary[] | undefined
-): string | null {
-  if (!grantedTools || grantedTools.length === 0) return null;
-  return [
-    'ALREADY-GRANTED TOOLS (trusted local information, not part of the command being evaluated):',
-    'The agent can call these tools right now without any approval and without a rating:',
-    ...grantedTools.map((tool) => `- ${tool.name}: ${tool.description}`),
-    '',
-    'If your outcome is NOT `safe` and one of the tools listed above would accomplish the same',
-    'thing as the command, you MUST name that tool in your explanation and set `suggestedTool` to',
-    'its exact name.',
-    'If NONE of them can do the job, do NOT name one and leave `suggestedTool` unset. A command',
-    'that reaches a path outside the working folder, installs software, talks to a service, or',
-    'does anything no listed tool does has NO granted alternative, and inventing one is a failure.',
-    'Never name a tool that is not on the list above.',
-    'A suggestion is NEVER an approval: it does not change your outcome, it does not approve the',
-    'command, and the suggested tool is still gated normally when it is called. Do not soften an',
-    'outcome because an alternative exists.',
-  ].join('\n');
-}
-
-/**
  * Build the rater's system prompt: the invariant {@link RATER_SYSTEM_PREAMBLE}, the four outcome
  * definitions (with §4.1's recoverability question spelled out in
  * {@link RATER_CATASTROPHIC_GUIDANCE} and §4.1.1's structural test in
- * {@link RATER_ATTACK_GUIDANCE}), the rules that make `destructive` the catch-all and uncertainty a
- * `destructive` rather than an outcome of its own, and — when the caller supplies them — the
- * already-granted tools of §4.4 ({@link buildGrantedToolsGuidance}).
+ * {@link RATER_ATTACK_GUIDANCE}), and the rules that make `destructive` the catch-all and
+ * uncertainty a `destructive` rather than an outcome of its own.
+ *
+ * **The rater is told about no tool but the one it is rating.** The prompt carries no list of
+ * what else the agent could call, and the verdict has no field for naming one: steering a model
+ * off the shell and onto a built-in is not a contest a gate wins, and the list was the one place
+ * locally-authored tool text sat OUTSIDE the fenced untrusted block — a surface that had to be
+ * defended (an MCP server's own description reaching the prompt; an egress tool offered back as a
+ * free alternative) for a mechanism that was not earning it. Do not reintroduce one.
  *
  * `destructive` is defined **last and by exclusion** on purpose: the two severe outcomes have to be
  * on the page before "everything else" can mean anything, and defining the catch-all in terms of
@@ -758,7 +703,6 @@ export function buildGrantedToolsGuidance(
  * asserts that a floor already fired, and on a command the user-provenance carve-out lifted that
  * floor from, the assertion is backwards. See {@link RATER_DECEPTION_GUIDANCE_CARVED}.
  *
- * @param grantedTools §4.4's already-granted built-ins, or nothing.
  * @param options `negotiable` — whether a rejection will be handed back to the agent (§5.2), i.e.
  *   the rung negotiates ({@link import('#src/config.js').isNegotiatingRung}).
  *   `carved` — [[EXT-106]] §4.6, whether the user-provenance carve-out lifted the open-world floor
@@ -768,11 +712,10 @@ export function buildGrantedToolsGuidance(
  *   a caller passes here can move it. A wrong `true` asks the rater for MORE severity, which is the
  *   direction a prompt may safely be wrong in.
  */
-export function buildRaterSystemPrompt(
-  grantedTools?: readonly GrantedToolSummary[],
-  options?: { negotiable?: boolean; carved?: boolean }
-): string {
-  const grantedGuidance = buildGrantedToolsGuidance(grantedTools);
+export function buildRaterSystemPrompt(options?: {
+  negotiable?: boolean;
+  carved?: boolean;
+}): string {
   return [
     RATER_SYSTEM_PREAMBLE,
     '',
@@ -819,7 +762,6 @@ export function buildRaterSystemPrompt(
     '- Treat as at least destructive: rm/mv of important paths, chmod/chown, sudo, piping a',
     '  download into a shell, package publishing, force-push, git reset --hard, and anything that',
     '  writes outside the project.',
-    ...(grantedGuidance ? ['', grantedGuidance] : []),
     // §5.2 — LAST, and keyed on the MODE rather than the round: at `auto` the rejection is handed
     // to the agent, so it must name the fix in round 1 exactly as it must in round 3.
     ...(options?.negotiable ? ['', RATER_NEGOTIABLE_REJECTION_GUIDANCE] : []),
@@ -872,10 +814,11 @@ export function foldHomePath(command: string, home: string | undefined): string 
  * re-deriving them."*
  *
  * **The rater's half is two flat fields rather than an embedded {@link ShellSafetyVerdict}**, and
- * that is deliberate. A verdict also carries §4.4's `suggestedTool`, which is advice about the
- * rating that produced it and not part of the history §5.1 admits; a renderer handed a three-field
- * object that renders two of them is a silent drop waiting to be read as a bug. Flat fields mean the
- * builder renders everything it is given, and the type states the admitted set by construction.
+ * that is deliberate. §5.1 admits the outcome and the explanation and nothing else, while a verdict
+ * is free to grow a field that is advice about the rating rather than part of the history; a
+ * renderer handed an object that renders only some of its fields is a silent drop waiting to be read
+ * as a bug. Flat fields mean the builder renders everything it is given, and the type states the
+ * admitted set by construction — so do not embed the verdict here to save two lines.
  *
  * `command` is the RAW command as the agent proposed it. Every renderer normalizes and home-folds it
  * with the same functions the live command goes through, so a past round appears in the form that
@@ -1263,7 +1206,6 @@ export function buildRaterPrompt(
   command: string,
   options?: {
     home?: string;
-    grantedTools?: readonly GrantedToolSummary[];
     /**
      * [[EXT-29]] (§5.2) — whether a rejection will be handed back to the AGENT rather than to a
      * person, i.e. the rung negotiates ({@link import('#src/config.js').isNegotiatingRung}).
@@ -1404,42 +1346,16 @@ export function buildRaterPrompt(
     userLines.push('', composedNote);
   }
   return {
-    // §4.3/§4.4 — the granted-tool list is trusted, locally-generated text, so it goes in the
-    // SYSTEM prompt: structurally outside the fenced `<command_to_evaluate>` block, which is the
-    // only place attacker-influenceable text is admitted here at all. §5.2's WORDING rules key on
-    // the mode, because a rejection addressed to the agent must name the fix in round 1 too (§5.6's
-    // escalation example turns on exactly that).
-    system: buildRaterSystemPrompt(options?.grantedTools, {
+    // §5.2's WORDING rules key on the mode, because a rejection addressed to the agent must name
+    // the fix in round 1 too (§5.6's escalation example turns on exactly that). The fenced
+    // `<command_to_evaluate>` block below is the only place attacker-influenceable text is admitted
+    // here at all, and nothing the system prompt carries is derived from a tool's own text.
+    system: buildRaterSystemPrompt({
       negotiable: options?.negotiable === true,
       carved: options?.carved === true,
     }),
     user: userLines.join('\n'),
   };
-}
-
-/**
- * EXT-58 (§4.4) — keep a `suggestedTool` only when it names a tool that is actually granted.
- *
- * The rater is asked for an exact name from a list we supplied; a model can still hallucinate one,
- * or name a tool that is gated. Either would produce a §7 message promising the model a free call
- * it does not have, so an unrecognised name is DROPPED rather than passed on. Dropping the field
- * never changes the outcome or the reason — the explanation the human sees is the rater's own text
- * either way.
- *
- * Every "no suggestion" path returns an object with **no `suggestedTool` key at all**, never one
- * carrying an empty or null-ish value: a second spelling of "absent" is something the §7 rejection
- * message and every other reader would each have to handle for themselves.
- */
-function validateSuggestedTool(
-  verdict: ShellSafetyVerdict,
-  grantedTools: readonly GrantedToolSummary[] | undefined
-): ShellSafetyVerdict {
-  const { suggestedTool, ...rest } = verdict;
-  if (!suggestedTool) return rest;
-  const granted = new Set((grantedTools ?? []).map((tool) => tool.name));
-  if (granted.has(suggestedTool)) return { ...rest, suggestedTool };
-  debugLog(`rateShellCommand: dropping suggestedTool '${suggestedTool}' — not a granted tool.`);
-  return rest;
 }
 
 /**
@@ -1462,12 +1378,6 @@ export async function rateShellCommand(
     model?: BaseChatModel;
     home?: string;
     timeoutMs?: number;
-    /**
-     * EXT-58 (§4.4) — the already-granted built-ins of the current rung. Supplied, the rater is
-     * asked to name one whenever it does not return `safe` and one would do the job; omitted, the
-     * prompt is exactly as before and no suggestion is ever produced.
-     */
-    grantedTools?: readonly GrantedToolSummary[];
     /**
      * [[EXT-29]] (§5.2) — whether a rejection is addressed to the agent (the rung negotiates).
      * Passed straight to {@link buildRaterPrompt}; it changes the system prompt's wording rules and
@@ -1515,7 +1425,6 @@ export async function rateShellCommand(
     RATER_DEFAULT_TIMEOUT_MS;
   const { system, user } = buildRaterPrompt(command, {
     home: options?.home,
-    grantedTools: options?.grantedTools,
     negotiable: options?.negotiable,
     carved: options?.carved,
   });
@@ -1574,14 +1483,16 @@ export async function rateShellCommand(
     if (capture) capture.rawResponse = raced;
 
     // withStructuredOutput already coerces to the wire schema, but re-validate defensively: a fake
-    // or misbehaving model could return a non-conforming object. This is also where a `null`
-    // suggestion becomes the key being absent — a genuinely malformed verdict still fails closed.
+    // or misbehaving model could return a non-conforming object. The boundary also normalizes a
+    // `null` on any optional key to the key being absent — a genuinely malformed verdict still
+    // fails closed. The verdict schema has no optional key today, so that pass is currently an
+    // identity; it stays wired because the alternative is remembering to re-add it with the field.
     const parsed = boundary.safeParse(raced);
     if (!parsed.success) {
       debugLog('rateShellCommand: rater returned unparseable output; failing closed.');
       return settle(failClosedVerdict('unparseable'), 'unparseable');
     }
-    return settle(validateSuggestedTool(parsed.data, options?.grantedTools));
+    return settle(parsed.data);
   } catch (error) {
     // [[EXT-82]] — the provider's own account, sanitised here at the point the error is caught.
     //
@@ -1724,7 +1635,7 @@ export function isBelowDestructiveFloor(outcome: RaterOutcome): boolean {
  * Two properties, both delegated to {@link isBelowDestructiveFloor} so they hold for every caller:
  *
  * - **It only ever RAISES.** A `destructive`, `catastrophic` or `attack` verdict passes through
- *   untouched, keeping its own explanation (and any §4.4 suggestion) — the floor is agreeing with
+ *   untouched, keeping its own explanation — the floor is agreeing with
  *   it, not overriding it, and a floor that rewrote `catastrophic` would silently trade an
  *   unnegotiable escalation for a negotiable one.
  * - **`undefined` is below the floor.** Nothing has assessed the call, so there is no outcome for
@@ -2018,16 +1929,12 @@ export function isNegotiableCall(
  *    provenance (3) is: a command §4.6's carve-out lifted the floor from can reach `approve` again,
  *    so it is negotiable again.
  *
- * **EXT-58 (§4.4): the verdict's `suggestedTool` is not read here, and that is deliberate.** A
- * suggestion is never an approval — it must not change the action, must not approve the original
- * command, and must not pre-approve the suggested tool. The gate also never decides for itself that
- * a shell command is "equivalent" to a built-in and substitutes it: any such equivalence test would
- * be a second command parser, and a second command parser is a second place for the gate to be
- * bypassed. The suggestion is carried, untouched, to the human (§6) and to the model (§7) — nothing
- * else. Note that the fail-closed rewrite in (3) builds a FRESH verdict and therefore drops any
- * suggestion along with the reason it belonged to: a verdict the gate has just declared
- * untrustworthy must not keep recommending anything. A verdict the preflight leaves alone was never
- * declared untrustworthy — the gate is agreeing with it, not overriding it — so it keeps both.
+ * **The gate never decides for itself that a shell command is "equivalent" to a built-in and
+ * substitutes it.** Any such equivalence test would be a second command parser, and a second
+ * command parser is a second place for the gate to be bypassed. Nothing the rater returns may
+ * redirect a call to a different tool: the action here is a function of the outcome, the rung and
+ * the preflights, and the verdict's own text travels to the human (§6) and to the model (§7) as an
+ * explanation, never as an instruction.
  *
  * @param command The raw command string (used to recompute ambiguity + preflight independently
  *   of the rater, so the gate is robust even if the rater is wrong or manipulated).
@@ -2055,9 +1962,8 @@ export function mapVerdictToAction(
   // (3) A command that names a host (EXT-61), or that expands an environment variable into a
   // script, is FLOORED at `destructive` with an honest reason, even when the rater said `safe`. The
   // preflights raise; they never lower. Only `safe` sits below the floor, so `destructive`,
-  // `catastrophic` and `attack` all pass through untouched, keeping their real explanation (and any
-  // §4.4 suggestion) rather than losing it to a note that would also be FALSE — the rater did
-  // assess those.
+  // `catastrophic` and `attack` all pass through untouched, keeping their real explanation rather
+  // than losing it to a note that would also be FALSE — the rater did assess those.
   //
   // [[EXT-106]] §4.6 — **except where the user named every host in the command themselves**, which
   // is the one thing that lifts the open-world arm. It is read through the SAME `opts.provenance`

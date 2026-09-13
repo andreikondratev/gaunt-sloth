@@ -215,10 +215,11 @@ describe('interactiveSessionModule EXT-18 (--no-tui readline stdin re-ref)', () 
   });
 
   /**
-   * EXT-58 §4.4 → §7 — when the rater named an already-granted alternative, the rejection carries
-   * it AND says it needs no approval. That clause is what actually redirects the model.
+   * §7 carries the rater's explanation to the model. [[EXT-173]] — and nothing else about what to
+   * call instead: the granted-alternative clause is gone, so the negative below sits beside the
+   * explanation and the moves, which a rejection must still carry.
    */
-  it('carries the granted alternative and the no-approval-needed clause', async () => {
+  it('carries the rating explanation and offers no alternative tool', async () => {
     const { createInteractiveSession } = await import('#src/modules/interactiveSessionModule.js');
     await createInteractiveSession(sessionConfig, {});
 
@@ -228,17 +229,14 @@ describe('interactiveSessionModule EXT-18 (--no-tui readline stdin re-ref)', () 
       args: { command: "sed -i 's/a/b/' src/a.ts" },
       safetyVerdict: {
         outcome: 'destructive',
-        reason: 'rewrites a file in place; edit_file does this without a shell',
-        suggestedTool: 'edit_file',
+        reason: 'rewrites a file in place',
       },
     });
 
-    expect(decision.message).toContain(
-      'Explanation: rewrites a file in place; edit_file does this without a shell'
-    );
-    expect(decision.message).toContain(
-      '`edit_file` does this and is already approved at this level, so it will not interrupt the user.'
-    );
+    expect(decision.message).toContain('Explanation: rewrites a file in place');
+    expect(decision.message).toContain('call the same command with a justification');
+    expect(decision.message).not.toContain('already approved at this level');
+    expect(decision.message).not.toContain('will not interrupt the user');
   });
 
   it('refs stdin before rl.question() in the retry prompt after a failed turn', async () => {

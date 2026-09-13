@@ -10,15 +10,11 @@
  * when one exists, and name the moves it has (re-call with a justification, call a different
  * command) — see {@link REJECTION_MOVES} for why that list names nothing else.
  *
- * When the rater named an already-granted alternative (§4.4), the message MUST carry it **and** say
- * that the alternative needs no approval. That last clause is the sentence that actually redirects
- * behaviour: without it the model reads a tool name and still has no reason to believe calling it
- * is cheaper than arguing about the command it already chose.
- *
  * What this module deliberately does NOT do:
  *
- * - It does not decide anything. It renders a refusal that has already been decided elsewhere; a
- *   suggestion it carries is never an approval and changes no outcome (§4.4).
+ * - It does not decide anything. It renders a refusal that has already been decided elsewhere, and
+ *   it never offers the model a different tool to call instead: steering a model off the shell is
+ *   not a contest the gate wins, so the message names the moves and stops there.
  * - It does not serve a **halt** (§4.2). A halt is not a rejection and offers the model no moves,
  *   so it is an error (`AttackHaltError`) rather than a message — see `approvalStop.ts`.
  * - It does not serve a **deny-list** refusal. A deny entry is the user's own hardline, and
@@ -56,15 +52,6 @@ export type RejectionSource =
 export const REJECTION_MOVES =
   'You may call the same command with a justification, or call a different command.';
 
-/**
- * §7 — the clause that makes a suggestion actionable. Verbatim in substance from the spec:
- * *"`gth_edit_file` does this and is already approved at this level, so it will not interrupt the
- * user."*
- */
-export function buildGrantedAlternativeClause(toolName: string): string {
-  return `\`${toolName}\` does this and is already approved at this level, so it will not interrupt the user.`;
-}
-
 /** Inputs to {@link buildRejectionMessage}. */
 export interface RejectionMessageOptions {
   /** Who refused. */
@@ -72,10 +59,9 @@ export interface RejectionMessageOptions {
   /** The tool that was refused; defaults to a generic phrasing when absent. */
   toolName?: string;
   /**
-   * The rating that accompanied the escalation, when one exists. Carries both the explanation the
-   * model is owed and — when the rater named one — the granted alternative (§4.4). Absent at the
-   * unrated rungs (`manual`, `write`), where there is no rating at all and the descriptions of
-   * §4.5 are the only mechanism in play.
+   * The rating that accompanied the escalation, when one exists. Carries the explanation the model
+   * is owed. Absent at the unrated rungs (`manual`, `write`), where there is no rating at all and
+   * the descriptions of §4.5 are the only mechanism in play.
    */
   verdict?: ShellSafetyVerdict;
 }
@@ -86,8 +72,7 @@ export interface RejectionMessageOptions {
  * §7 shape, each part omitted when it does not apply:
  * 1. who refused what;
  * 2. the rater's explanation, when a rating exists;
- * 3. the moves — always;
- * 4. the granted alternative plus the no-approval-needed clause, when the rater named one.
+ * 3. the moves — always.
  */
 export function buildRejectionMessage(options: RejectionMessageOptions): string {
   const target = options.toolName ? `your call to ${options.toolName}` : 'your command';
@@ -102,9 +87,5 @@ export function buildRejectionMessage(options: RejectionMessageOptions): string 
     parts.push(`Explanation: ${reason}`);
   }
   parts.push(REJECTION_MOVES);
-  const suggested = options.verdict?.suggestedTool?.trim();
-  if (suggested) {
-    parts.push(buildGrantedAlternativeClause(suggested));
-  }
   return parts.join(' ');
 }

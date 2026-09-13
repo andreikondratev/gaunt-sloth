@@ -692,11 +692,9 @@ export interface GthAgentInterface {
   clearRaterClarifications?(): void;
 
   /**
-   * EXT-58 (spec §4.4) — the names of the tools registered with the graph at `init`. The runner
-   * intersects them with the built-in summaries table to tell the rater which already-granted
-   * built-ins it may offer as an alternative, so a suggestion can never name a tool the model does
-   * not have. Optional: an agent that does not track its tools simply omits it, and the rater then
-   * receives no granted list (and so suggests nothing).
+   * EXT-58 — the names of the tools registered with the graph at `init`, for callers that need to
+   * know what this session actually bound. Optional: an agent that does not track its tools simply
+   * omits it.
    */
   getRegisteredToolNames?(): string[];
 

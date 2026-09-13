@@ -62,7 +62,7 @@ const wireOf = (schema: z.ZodType<unknown>): EmittedSchema =>
 describe('structuredOutputBoundary — the wire shape', () => {
   const Flat = z.object({
     outcome: z.enum(['safe', 'destructive']).describe('OUTCOME-DESC'),
-    suggestedTool: z.string().optional().describe('SUGGEST-DESC'),
+    optionalNote: z.string().optional().describe('NOTE-DESC'),
   });
 
   it('puts an optional key in `required` and types it nullable', () => {
@@ -70,21 +70,21 @@ describe('structuredOutputBoundary — the wire shape', () => {
 
     // The pair that satisfies OpenAI's strict rule ("`required` must include every key in
     // `properties`") while still giving the model a legal way to say "nothing here".
-    expect(wire.required).toEqual(expect.arrayContaining(['outcome', 'suggestedTool']));
-    expect(admittedTypes(wire.properties?.suggestedTool)).toEqual(['null', 'string']);
+    expect(wire.required).toEqual(expect.arrayContaining(['outcome', 'optionalNote']));
+    expect(admittedTypes(wire.properties?.optionalNote)).toEqual(['null', 'string']);
   });
 
   it('carries every `.describe()` into the emitted schema, by its actual text', () => {
     const wire = wireOf(Flat);
 
-    expect(wire.properties?.suggestedTool.description).toBe('SUGGEST-DESC');
+    expect(wire.properties?.optionalNote.description).toBe('NOTE-DESC');
     expect(wire.properties?.outcome.description).toBe('OUTCOME-DESC');
   });
 
   it('adds no `default` keyword to what the provider is sent', () => {
     // `prefault` supplies the missing-key value without appearing in the schema; `.default(null)`
     // would do the same job but announce itself as a keyword the provider then has to accept.
-    expect(wireOf(Flat).properties?.suggestedTool.default).toBeUndefined();
+    expect(wireOf(Flat).properties?.optionalNote.default).toBeUndefined();
   });
 
   it('emits the same required/nullable/description triple through zod’s own converter', () => {
@@ -94,9 +94,9 @@ describe('structuredOutputBoundary — the wire shape', () => {
       structuredOutputBoundary(Flat).wireSchema as unknown as z.ZodType<unknown>
     ) as unknown as EmittedSchema;
 
-    expect(wire.required).toEqual(expect.arrayContaining(['outcome', 'suggestedTool']));
-    expect(wire.properties?.suggestedTool.description).toBe('SUGGEST-DESC');
-    expect(admittedTypes(wire.properties?.suggestedTool)).toEqual(['null', 'string']);
+    expect(wire.required).toEqual(expect.arrayContaining(['outcome', 'optionalNote']));
+    expect(wire.properties?.optionalNote.description).toBe('NOTE-DESC');
+    expect(admittedTypes(wire.properties?.optionalNote)).toEqual(['null', 'string']);
   });
 
   it('leaves a schema with no optional field untouched, by identity', () => {
@@ -128,37 +128,37 @@ describe('structuredOutputBoundary — the wire shape', () => {
 describe('structuredOutputBoundary — reading the answer back', () => {
   const Flat = z.object({
     outcome: z.string(),
-    suggestedTool: z.string().optional().describe('SUGGEST-DESC'),
+    optionalNote: z.string().optional().describe('NOTE-DESC'),
   });
 
   it('turns a `null` for an optional field into the key being absent', () => {
     const parsed = structuredOutputBoundary(Flat).safeParse({
       outcome: 'safe',
-      suggestedTool: null,
+      optionalNote: null,
     });
 
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
-    expect(parsed.data.suggestedTool).toBeUndefined();
+    expect(parsed.data.optionalNote).toBeUndefined();
     // Not merely `undefined`: the key must not exist, or "absent" acquires a second spelling.
-    expect(Object.hasOwn(parsed.data, 'suggestedTool')).toBe(false);
+    expect(Object.hasOwn(parsed.data, 'optionalNote')).toBe(false);
   });
 
   it('accepts a MISSING key too, which is how the providers that do not hoist answer', () => {
     const parsed = structuredOutputBoundary(Flat).safeParse({ outcome: 'safe' });
 
     expect(parsed.success).toBe(true);
-    if (parsed.success) expect(Object.hasOwn(parsed.data, 'suggestedTool')).toBe(false);
+    if (parsed.success) expect(Object.hasOwn(parsed.data, 'optionalNote')).toBe(false);
   });
 
   it('passes a real value through unchanged', () => {
     const parsed = structuredOutputBoundary(Flat).safeParse({
       outcome: 'safe',
-      suggestedTool: 'edit_file',
+      optionalNote: 'a note',
     });
 
     expect(parsed.success).toBe(true);
-    if (parsed.success) expect(parsed.data.suggestedTool).toBe('edit_file');
+    if (parsed.success) expect(parsed.data.optionalNote).toBe('a note');
   });
 
   it('still rejects a genuinely malformed answer', () => {
@@ -166,9 +166,9 @@ describe('structuredOutputBoundary — reading the answer back', () => {
 
     // A wrong type in the optional field, a wrong type in a required one, and a missing required
     // one: this removes a FALSE parse failure, it does not accept anything.
-    expect(boundary.safeParse({ outcome: 'safe', suggestedTool: 7 }).success).toBe(false);
-    expect(boundary.safeParse({ outcome: 7, suggestedTool: null }).success).toBe(false);
-    expect(boundary.safeParse({ suggestedTool: null }).success).toBe(false);
+    expect(boundary.safeParse({ outcome: 'safe', optionalNote: 7 }).success).toBe(false);
+    expect(boundary.safeParse({ outcome: 7, optionalNote: null }).success).toBe(false);
+    expect(boundary.safeParse({ optionalNote: null }).success).toBe(false);
     expect(boundary.safeParse('not an object').success).toBe(false);
   });
 

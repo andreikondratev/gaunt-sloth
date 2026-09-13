@@ -24,7 +24,6 @@ import {
   APPROVAL_RUNGS,
   BUILT_IN_TOOL_ACCESS,
   commandAnswersApprovals,
-  describeGrantedBuiltInTools,
   isAccessClassGrantedAtRung,
   isDeterministicRung,
   isGrantedAtRung,
@@ -450,39 +449,5 @@ describe('EXT-80 — the gated set and isGrantedAtRung cannot disagree', () => {
       expect(isGrantedAtRung(name, 'manual', gatedAt('manual'))).toBe(false);
       expect(isGrantedAtRung(name, 'write', gatedAt('write'))).toBe(true);
     }
-  });
-
-  /**
-   * The composition `GthAgentRunner.getGrantedBuiltInTools` performs for the rater's §4.4
-   * granted-alternative list: resolve the gated set for the rung in force, then report grants
-   * against it. Pinned here rather than through the runner because the rater is consulted only at
-   * the RATED rungs, so no runtime path reaches this composition at `manual` today — the
-   * property is structural, and this is what keeps it true if EXT-30 widens the rater.
-   *
-   * What it must never do is offer the model a tool the gate would stop: the rater suggesting
-   * `write_file` at `manual` would be suggesting the one thing guaranteed to interrupt the user.
-   */
-  it('never offers a rater alternative the gate would escalate', () => {
-    const registered = ['read_file', 'gth_grep', 'write_file', 'edit_file', SHELL_TOOL_NAME];
-    for (const rung of APPROVAL_RUNGS) {
-      const gated = resolveGatedToolNames({ rung, gateShell: true, boundToolNames: registered });
-      const offered = describeGrantedBuiltInTools(registered, rung, gated).map((t) => t.name);
-      for (const name of offered) {
-        expect(isGrantedAtRung(name, rung, gated)).toBe(true);
-      }
-    }
-  });
-
-  it('drops the write built-ins from the rater alternatives at manual, keeps them at write', () => {
-    const registered = ['read_file', 'gth_grep', 'write_file', 'edit_file', SHELL_TOOL_NAME];
-    const offeredAt = (rung: ApprovalRung): string[] =>
-      describeGrantedBuiltInTools(
-        registered,
-        rung,
-        resolveGatedToolNames({ rung, gateShell: true, boundToolNames: registered })
-      ).map((t) => t.name);
-
-    expect(offeredAt('manual')).toEqual(['read_file', 'gth_grep']);
-    expect(offeredAt('write')).toEqual(['read_file', 'gth_grep', 'write_file', 'edit_file']);
   });
 });

@@ -448,12 +448,14 @@ describe('EXT-11 TUI approval e2e (event-stream path)', () => {
   });
 
   /**
-   * EXT-58 §7 (+ §4.4) — the message the MODEL is handed on a TUI rejection must name its moves,
-   * and must carry the rater's granted alternative plus the clause saying that alternative needs no
-   * approval. The on-screen "Command rejected" notice is unchanged; this asserts the other half of
-   * the rejection, which no test saw before.
+   * EXT-58 §7 — the message the MODEL is handed on a TUI rejection must name its moves and carry
+   * the rater's explanation. [[EXT-173]] — and must offer no alternative tool: the negatives below
+   * sit beside the moves and the explanation, which the same message must still carry.
+   *
+   * The on-screen "Command rejected" notice is unchanged; this asserts the other half of the
+   * rejection, which no test saw before.
    */
-  it('rejection hands the model its moves and the granted alternative (§7)', async () => {
+  it('rejection hands the model its moves and its explanation, and no alternative (§7)', async () => {
     const decisions: ToolApprovalDecision[] = [];
     let suspended = false;
     const agent: GthAgentInterface = {
@@ -494,14 +496,15 @@ describe('EXT-11 TUI approval e2e (event-stream path)', () => {
       async cleanup() {},
     };
 
-    // A scripted rater that escalates and names an already-granted built-in.
+    // A scripted rater that escalates, and answers with the retired §4.4 field as well: nothing
+    // downstream may read it.
     const ratedConfig = {
       ...FULL_CONFIG,
       llm: {
         withStructuredOutput: () => ({
           invoke: async () => ({
             outcome: 'destructive',
-            reason: 'rewrites a file in place; edit_file does this without a shell',
+            reason: 'rewrites a file in place',
             suggestedTool: 'edit_file',
           }),
         }),
@@ -541,9 +544,12 @@ describe('EXT-11 TUI approval e2e (event-stream path)', () => {
     // [[EXT-106]] §5 — and NOT "ask the user": an exit the model could only take by writing
     // prose, which never reaches this gate.
     expect(message.toLowerCase()).not.toContain('ask the user');
-    expect(message).toContain(
-      '`edit_file` does this and is already approved at this level, so it will not interrupt the user.'
-    );
+    // The rater's own explanation still reaches the model…
+    expect(message).toContain('Explanation: rewrites a file in place');
+    // …and nothing points it at a different tool to call instead.
+    expect(message).not.toContain('already approved at this level');
+    expect(message).not.toContain('will not interrupt the user');
+    expect(message).not.toContain('edit_file');
 
     unmount();
   });

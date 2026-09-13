@@ -1,7 +1,7 @@
 /**
  * @packageDocumentation
  * EXT-58 — **rung-aware tool descriptions** (`docs/gaunt-sloth-2.0/approvals-and-rater-spec.md`
- * §4.5) and the table of built-in tools the rater may offer as a granted alternative (§4.4).
+ * §4.5).
  *
  * §4.5 is the *prevention* half of the approvals design. Shell commands are gated; built-in tools
  * at or below the current rung are not, so a model that reaches for the shell to do something a
@@ -130,65 +130,6 @@ export const BUILT_IN_TOOL_ACCESS: Readonly<Record<string, BuiltInToolAccess>> =
   gth_grep: 'read',
 };
 
-/** A built-in tool the rater may offer as an already-granted alternative (§4.4). */
-export interface GrantedToolSummary {
-  /** The registered tool name, exactly as the model sees it. */
-  name: string;
-  /** One line, authored here — locally-generated trusted text (§4.3), never a tool's own blurb. */
-  description: string;
-}
-
-/**
- * §4.3/§4.4 — the one-line descriptions handed to the rater with the granted tools' names.
- *
- * **Authored here on purpose.** §4.3 admits this list as *"trusted, locally-generated text, not
- * part of the fenced block"*, so it may not be assembled from tool `description` fields at large:
- * an MCP server's tool description is attacker-influenceable text, and placing it outside the
- * fenced block would open an injection channel straight past the rater's untrusted-input preamble.
- * Only tools named in THIS table are ever offered, so an MCP, custom or A2A tool can never
- * contribute text to the rater prompt.
- *
- * Restricted to tools that could plausibly stand in for a shell command — the file tools, content
- * search, and the fixed dev-command tools (whose command is human-authored config, so suggesting
- * `run_tests` over `npm test` is exactly the trade this section exists to make). `gth_checklist`,
- * `gth_status_update` and `show_a2ui_surface` are omitted: they substitute for nothing a model
- * would otherwise shell out for, and a suggestion list is only useful while it is short.
- *
- * **`gth_web_fetch` is deliberately NOT here**, though it is ungated at every rung. §4.5's
- * justification for disclosing the posture at all is that the granted tools are "by construction,
- * the constrained ones confined to the working folder" — a network fetch is not. Offering it would
- * let a refused `curl`/`wget` come back as a suggestion whose §7 clause tells the model, verbatim,
- * that the alternative "will not interrupt the user": a refused egress turned into a free one,
- * through the rater rather than through the gate. An `attack` halts before any message reaches the
- * model, but a merely `destructive` fetch would not. Same reasoning excludes MCP and custom tools,
- * which additionally supply text we did not author.
- */
-export const BUILT_IN_TOOL_SUMMARIES: Readonly<Record<string, string>> = {
-  read_file: 'Read one file in the working folder.',
-  read_multiple_files: 'Read several files in the working folder in one call.',
-  gth_read_binary: 'Read an image or other binary file in the working folder.',
-  list_directory: 'List the entries of a directory in the working folder.',
-  list_directory_with_sizes: 'List a directory in the working folder with entry sizes.',
-  directory_tree: 'Show a recursive tree of a directory in the working folder.',
-  search_files: 'Find files in the working folder by name pattern.',
-  get_file_info: 'Show size, timestamps and type of a file in the working folder.',
-  list_allowed_directories: 'List the directories the file tools are allowed to touch.',
-  write_file: 'Create or overwrite a file in the working folder.',
-  edit_file: 'Apply a targeted edit to a file in the working folder.',
-  create_directory: 'Create a directory in the working folder.',
-  move_file: 'Move or rename a file in the working folder.',
-  delete_file: 'Delete a file in the working folder.',
-  delete_directory: 'Delete a directory in the working folder.',
-  ls: 'List the entries of a directory in the working folder.',
-  glob: 'Find files in the working folder by glob pattern.',
-  grep: 'Search file contents in the working folder by regular expression.',
-  gth_grep: 'Search file contents in the working folder by regular expression.',
-  run_tests: "Run the project's configured test command.",
-  run_single_test: "Run one test file with the project's configured test command.",
-  run_lint: "Run the project's configured lint command.",
-  run_build: "Run the project's configured build command.",
-};
-
 /** The sentence §4.5 appends at this rung, or `null` when the rung appends nothing (`bypass`). */
 export function getRungToolDescriptionSuffix(rung: ApprovalRung): string | null {
   return RUNG_TOOL_DESCRIPTION_SUFFIXES[rung] ?? null;
@@ -313,36 +254,4 @@ export function applyRungAwareToolDescriptions<T extends DescribableTool>(
     tool.description = base.length > 0 ? `${base} ${suffix}` : suffix;
   }
   return tools;
-}
-
-/**
- * §4.3/§4.4 — the names and one-line descriptions of the built-in tools already granted at `rung`,
- * for the rater prompt.
- *
- * Filtered three ways, each of which matters:
- * - to tools **actually registered** in this session (a suggestion naming a tool the model does not
- *   have is worse than no suggestion);
- * - to tools in {@link BUILT_IN_TOOL_SUMMARIES}, so only locally-authored text ever reaches the
- *   rater prompt (never an MCP/custom tool's own description);
- * - to tools **granted at the rung** — suggesting a tool that would itself need approval defeats
- *   the point.
- *
- * Order follows the registration order so the prompt is stable across runs.
- */
-export function describeGrantedBuiltInTools(
-  registeredToolNames: readonly string[],
-  rung: ApprovalRung,
-  gatedTools: readonly string[]
-): GrantedToolSummary[] {
-  const seen = new Set<string>();
-  const summaries: GrantedToolSummary[] = [];
-  for (const name of registeredToolNames) {
-    if (seen.has(name)) continue;
-    seen.add(name);
-    const description = BUILT_IN_TOOL_SUMMARIES[name];
-    if (!description) continue;
-    if (!isGrantedAtRung(name, rung, gatedTools)) continue;
-    summaries.push({ name, description });
-  }
-  return summaries;
 }

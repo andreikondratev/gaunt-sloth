@@ -2,17 +2,11 @@
  * EXT-58 acceptance for spec §7 — what the model is told when a gated call is refused.
  *
  * The bar the spec sets: a rejection MUST name the moves available to the model, not merely the
- * refusal, and when the rater named an already-granted alternative (§4.4) the message MUST carry it
- * AND say the alternative needs no approval. That last clause is the sentence that actually
- * redirects behaviour — a tool name alone gives the model no reason to believe calling it is
- * cheaper than re-arguing the command it already chose.
+ * refusal. It names those moves and nothing else — [[EXT-173]] removed the granted-alternative
+ * clause, so the message never points the model at a different tool to call instead.
  */
 import { describe, expect, it } from 'vitest';
-import {
-  buildGrantedAlternativeClause,
-  buildRejectionMessage,
-  REJECTION_MOVES,
-} from '#src/core/shell/rejection.js';
+import { buildRejectionMessage, REJECTION_MOVES } from '#src/core/shell/rejection.js';
 
 describe('§7 rejection message', () => {
   it('names both moves, always', () => {
@@ -66,44 +60,30 @@ describe('§7 rejection message', () => {
     expect(message).toContain(REJECTION_MOVES);
   });
 
-  it('carries the granted alternative PLUS the no-approval-needed clause (§4.4 → §7)', () => {
+  /**
+   * [[EXT-173]] — §4.4's granted alternative is gone from §7's message. The negatives are paired
+   * with the two things the message must STILL carry, because a `not.toContain` over a message that
+   * had lost its reason and its moves would pass just as happily.
+   */
+  it('offers no alternative tool, while still carrying the reason and the moves', () => {
     const message = buildRejectionMessage({
       source: 'user',
       toolName: 'run_shell_command',
       verdict: {
         outcome: 'destructive',
-        reason: 'rewrites a file in place; edit_file does this without a shell',
-        suggestedTool: 'edit_file',
+        reason: 'rewrites a file in place',
       },
     });
-    expect(message).toContain(
-      '`edit_file` does this and is already approved at this level, so it will not interrupt the user.'
-    );
-    // The clause is what makes the name actionable; a bare name is not enough.
-    expect(message).toContain('is already approved at this level');
-    expect(message).toContain('will not interrupt the user');
-    // The moves survive alongside it — a suggestion narrows the options, it does not replace them.
+    expect(message).toContain('Explanation: rewrites a file in place');
     expect(message).toContain(REJECTION_MOVES);
-  });
-
-  it('adds no alternative clause when the rater named none', () => {
-    const message = buildRejectionMessage({
-      source: 'user',
-      toolName: 'run_shell_command',
-      verdict: { outcome: 'destructive', reason: 'reads a path outside the working folder' },
-    });
     expect(message).not.toContain('already approved at this level');
+    expect(message).not.toContain('will not interrupt the user');
+    expect(message).not.toContain('edit_file');
   });
 
   it('falls back to a generic target when no tool name is supplied', () => {
     expect(buildRejectionMessage({ source: 'rater' })).toContain(
       'The auto-rater rejected your command.'
-    );
-  });
-
-  it('renders the alternative clause exactly as §7 words it', () => {
-    expect(buildGrantedAlternativeClause('gth_grep')).toBe(
-      '`gth_grep` does this and is already approved at this level, so it will not interrupt the user.'
     );
   });
 });

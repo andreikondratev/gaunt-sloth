@@ -454,8 +454,7 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
    * 1. Appends the rung's approval sentence to every tool that is **not** auto-approved at that
    *    rung, and leaves every granted tool's description untouched (the absence of the sentence is
    *    what marks a tool free). See {@link applyRungAwareToolDescriptions}.
-   * 2. Records the registered tool names for {@link getRegisteredToolNames}, which feeds the
-   *    rater's granted-alternative list (§4.4).
+   * 2. Records the registered tool names for {@link getRegisteredToolNames}.
    * 3. EXT-70 §4.7.1 — records what the MCP servers declared about their own tools, for
    *    {@link getDeclaredMcpToolAnnotations}. This is the ONE place a `tools/list` annotation
    *    enters the approvals stack, and it enters as a claim: nothing here decides whether it is
@@ -503,8 +502,9 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
 
   /**
    * EXT-58 — the tool names registered with the graph at the last {@link init} (empty before it).
-   * The runner intersects these with the built-in summaries table to build the rater's
-   * granted-alternative list, so the rater can never name a tool this session does not have.
+   *
+   * Read-only reporting of what this session actually bound. Nothing in the approvals stack
+   * consumes it today: the gate derives its sets from the rung and the bound tools directly.
    */
   getRegisteredToolNames(): string[] {
     return [...this.registeredToolNames];

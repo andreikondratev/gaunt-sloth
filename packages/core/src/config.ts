@@ -23,8 +23,7 @@
  * - `config/schema.ts` — the Zod schema (single source of truth) + JSON-Schema generator. Its
  *   schema-owned *types* that appear in this barrel's own type surface are re-exported below; its
  *   runtime helpers stay behind the `config/schema.js` deep path.
- * - `config/tool-descriptions.ts` — EXT-58: the rung-aware tool-description suffixes (§4.5) and
- *   the granted-built-in table the rater's alternative suggestion draws on (§4.4).
+ * - `config/tool-descriptions.ts` — EXT-58: the rung-aware tool-description suffixes (§4.5).
  * - `config/filesystem-tools.ts` — the one interpretation of `filesystem`: which filesystem tools
  *   it registers, shared by the toolkit filter and the system-prompt notes.
  *
