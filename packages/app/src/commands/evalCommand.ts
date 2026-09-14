@@ -63,6 +63,10 @@ interface EvalCommandOptions {
   /** BATCH-25 `--compare-to <dir>` — a previous run's `-o` output root; each run unit is diffed
    * against the matching `results.json` under it. */
   compareTo?: string;
+  /** BATCH-33 `--drift <filter>` — how the run-over-run diff filters JUDGE-SCORE movement. Absent =
+   * the threshold-ward default. Parsed by the batch layer, which owns why the unfiltered form is
+   * not on offer. */
+  drift?: string;
 }
 
 /** Split each collected `--reporter` value on `,`, flatten, trim, drop blanks, and de-duplicate
@@ -430,7 +434,8 @@ async function printRunDiff(
   compareToRoot: string,
   outputRoot: string,
   cellOutputDir: string,
-  summary: EvalSuiteSummary
+  summary: EvalSuiteSummary,
+  driftSpec: string | undefined
 ): Promise<void> {
   const projectDir = getProjectDir();
   const relativePath = relative(
@@ -450,10 +455,18 @@ async function printRunDiff(
     return;
   }
 
-  const { diffRuns, renderRunDiff } = await import('@gaunt-sloth/batch/evalCompare.js');
-  const diff = diffRuns(baseline, summary);
+  const { diffRuns, renderRunDiff, parseJudgeDriftFilter } =
+    await import('@gaunt-sloth/batch/evalCompare.js');
+  // `undefined` leaves the threshold-ward default to `diffRuns` itself rather than restating it
+  // here, so the CLI cannot drift from the library's idea of quiet.
+  const driftFilter = driftSpec === undefined ? undefined : parseJudgeDriftFilter(driftSpec);
+  const diff = diffRuns(baseline, summary, driftFilter);
   for (const line of renderRunDiff(diff)) {
-    if (line.trimStart().startsWith('!') || line.trimStart().startsWith('REGRESSED')) {
+    if (
+      line.trimStart().startsWith('!') ||
+      line.trimStart().startsWith('REGRESSED') ||
+      line.trimStart().startsWith('JUDGE DRIFT')
+    ) {
       displayWarning(line);
     } else {
       display(line);
@@ -541,7 +554,16 @@ export function evalCommand(
     .option(
       '--compare-to <dir>',
       "A previous run's -o output root. Each run unit is diffed against the matching results.json " +
-        'under it: verdict regressions, verdict fixes, reclassifications, and metric deltas.'
+        'under it: verdict regressions, verdict fixes, reclassifications, metric deltas, and ' +
+        'judge-score drift.'
+    )
+    .option(
+      '--drift <filter>',
+      'How --compare-to filters JUDGE-SCORE movement. "threshold-ward" (default) reports only a ' +
+        'score that crossed the pass threshold or slid to within 1 point of it — the rest is ' +
+        'judge wobble, and printing it trains you to skip the section. ' +
+        '"threshold-ward:<0-3>" widens that shoulder; "min:<1-10>" reports any movement of N+ ' +
+        'points either way; "mean" reports only the suite-level mean; "off" reports none.'
     )
     .addHelpText(
       'after',
@@ -574,7 +596,8 @@ export function evalCommand(
         '\n' +
         '  $ gth eval eval/rater.yaml --export-blind blind.json      # relabel by a second person\n' +
         '  $ gth eval eval/rater.yaml --relabel-diff relabelled.json # then diff it back\n' +
-        '  $ gth eval eval/rater.yaml -o out/today --compare-to out/yesterday\n'
+        '  $ gth eval eval/rater.yaml -o out/today --compare-to out/yesterday\n' +
+        '  $ gth eval eval/js-basics.yaml -o out/today --compare-to out/yesterday --drift mean\n'
     )
     .action(async (suitePaths: string[], options: EvalCommandOptions) => {
       try {
@@ -587,7 +610,14 @@ export function evalCommand(
         const { concurrencyHint } = await import('@gaunt-sloth/batch/BatchRunner.js');
         const { resolveReporters } = await import('@gaunt-sloth/batch/reporters/registry.js');
         const { driveReporters } = await import('@gaunt-sloth/batch/reporters/drive.js');
-        const { expandSweep, renderComparison } = await import('@gaunt-sloth/batch/evalCompare.js');
+        const { expandSweep, renderComparison, parseJudgeDriftFilter } =
+          await import('@gaunt-sloth/batch/evalCompare.js');
+
+        // BATCH-33 — reject a malformed `--drift` BEFORE anything runs. The filter is not consulted
+        // until each unit's diff is printed, at the very end of a run that can take minutes and
+        // spend real model calls; validating it there would let a typo cost the whole run and then
+        // report the flag.
+        if (options.drift !== undefined) parseJudgeDriftFilter(options.drift);
 
         // The reporter selection (`--reporter`, else the default `['text']`) and the output ROOT are
         // invocation-level — the same for every suite. REPLACES the default: the `--reporter` value
@@ -907,7 +937,13 @@ export function evalCommand(
 
               // BATCH-25 — run-over-run diff against the matching unit under the baseline root.
               if (options.compareTo !== undefined) {
-                await printRunDiff(options.compareTo, outputRoot, cellOutputDir, summary);
+                await printRunDiff(
+                  options.compareTo,
+                  outputRoot,
+                  cellOutputDir,
+                  summary,
+                  options.drift
+                );
               }
             }
 

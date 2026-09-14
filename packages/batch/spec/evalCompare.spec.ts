@@ -214,4 +214,225 @@ describe('evalCompare', () => {
       ]);
     });
   });
+
+  /**
+   * BATCH-33 — judge-score drift. Every case here is a suite with NO `classification:` block, which
+   * is the shape the other three diff outputs are structurally blind to.
+   */
+  describe('judge drift', () => {
+    /** One judged cell: a rate, and the gate it is graded against. */
+    const judged = (id: string, rate: number, passThreshold = 6): EvalCaseResult => ({
+      id,
+      verdict: rate >= passThreshold ? 'PASS' : 'FAIL',
+      passThreshold,
+      sutOk: true,
+      durationMs: 1,
+      reasons: [],
+      judge: { attempted: true, ok: true, verdict: { rate, reason: 'because' } },
+    });
+    const suite = (cases: EvalCaseResult[]): EvalSuiteSummary => ({
+      total: cases.length,
+      passed: cases.filter((c) => c.verdict === 'PASS').length,
+      failed: cases.filter((c) => c.verdict === 'FAIL').length,
+      cases,
+    });
+
+    it('reports a slide toward the gate on a suite with NO classification block', async () => {
+      // The headline gap: 8 → 7 flips no verdict and moves no label, so before this the whole diff
+      // for this run was the words "no change."
+      const { diffRuns } = await import('#src/evalCompare.js');
+      const diff = diffRuns(suite([judged('a', 8)]), suite([judged('a', 7)]));
+      expect(diff.regressed).toEqual([]);
+      expect(diff.reclassified).toEqual([]);
+      expect(diff.judgeDrift).toEqual([
+        { id: 'a', before: 8, after: 7, delta: -1, passThreshold: 6, reason: 'near-threshold' },
+      ]);
+    });
+
+    it('stays QUIET on a stable suite whose cells wobble well clear of the gate', async () => {
+      // The acceptance property, as a deterministic counterpart to the live re-run: ±1 wobble at a
+      // margin of 2+ must print NOTHING, or the section fills with noise on every run and gets
+      // skipped. A test that only ever asserts firing cannot see this regress.
+      const { diffRuns, renderRunDiff } = await import('#src/evalCompare.js');
+      const diff = diffRuns(
+        suite([judged('a', 10), judged('b', 9), judged('c', 8), judged('d', 9)]),
+        suite([judged('a', 9), judged('b', 10), judged('c', 8), judged('d', 8)])
+      );
+      expect(diff.judgeDrift).toEqual([]);
+      const rendered = renderRunDiff(diff).join('\n');
+      expect(rendered).not.toMatch(/JUDGE DRIFT/);
+      expect(rendered).toMatch(/no change\./);
+    });
+
+    it('reports a CROSSING of the gate in either direction', async () => {
+      const { diffRuns } = await import('#src/evalCompare.js');
+      const down = diffRuns(suite([judged('a', 7)]), suite([judged('a', 5)]));
+      expect(down.judgeDrift).toEqual([
+        { id: 'a', before: 7, after: 5, delta: -2, passThreshold: 6, reason: 'crossed' },
+      ]);
+      const up = diffRuns(suite([judged('a', 5)]), suite([judged('a', 7)]));
+      expect(up.judgeDrift).toEqual([
+        { id: 'a', before: 5, after: 7, delta: 2, passThreshold: 6, reason: 'crossed' },
+      ]);
+    });
+
+    it('is silent on a big DOWNWARD move that stays clear of the gate', async () => {
+      // Direction alone is not the rule. 10 → 8 at a gate of 6 is the node's own example of the
+      // movement that matters LESS, and reporting it is how the section goes noisy.
+      const { diffRuns } = await import('#src/evalCompare.js');
+      expect(diffRuns(suite([judged('a', 10)]), suite([judged('a', 8)])).judgeDrift).toEqual([]);
+    });
+
+    it('is silent on an upward move that never crosses', async () => {
+      // Proximity alone is not the rule either: a case recovering 7 → 9 is near the gate on one
+      // side and must not report.
+      const { diffRuns } = await import('#src/evalCompare.js');
+      expect(diffRuns(suite([judged('a', 7)]), suite([judged('a', 9)])).judgeDrift).toEqual([]);
+    });
+
+    it('measures the shoulder against each case OWN threshold, not a global one', async () => {
+      // A case with `pass_threshold: 9` sitting at 9 is ON its gate even though 9 is a high score.
+      const { diffRuns } = await import('#src/evalCompare.js');
+      const diff = diffRuns(suite([judged('a', 10, 9)]), suite([judged('a', 9, 9)]));
+      expect(diff.judgeDrift).toEqual([
+        { id: 'a', before: 10, after: 9, delta: -1, passThreshold: 9, reason: 'near-threshold' },
+      ]);
+    });
+
+    it('uses the LOWEST turn rate for a multi-turn cell, whose top-level judge is unset', async () => {
+      // A multi-turn cell passes iff EVERY turn passes, so the weakest turn is the one nearest the
+      // gate. Reading only the top-level field would give every multi-turn suite an empty section.
+      const { diffRuns } = await import('#src/evalCompare.js');
+      const multi = (rates: number[]): EvalCaseResult => ({
+        id: 'm',
+        verdict: 'PASS',
+        passThreshold: 6,
+        sutOk: true,
+        durationMs: 1,
+        reasons: [],
+        turns: rates.map((rate) => ({
+          user: 'q',
+          ok: true,
+          verdict: 'PASS' as const,
+          reasons: [],
+          judge: { attempted: true, ok: true, verdict: { rate, reason: 'because' } },
+        })),
+      });
+      const diff = diffRuns(suite([multi([10, 8])]), suite([multi([10, 7])]));
+      expect(diff.judgeDrift).toEqual([
+        { id: 'm', before: 8, after: 7, delta: -1, passThreshold: 6, reason: 'near-threshold' },
+      ]);
+    });
+
+    it('WARNS when a case was judged in the baseline and produced no score now', async () => {
+      // "No drift" must not read as "the scores held" when the judge simply stopped answering.
+      const { diffRuns } = await import('#src/evalCompare.js');
+      const unjudged: EvalCaseResult = {
+        id: 'a',
+        verdict: 'FAIL',
+        passThreshold: 6,
+        sutOk: true,
+        durationMs: 1,
+        reasons: ['judge error'],
+        judge: { attempted: true, ok: false, error: 'timeout' },
+      };
+      const diff = diffRuns(suite([judged('a', 9)]), suite([unjudged]));
+      expect(diff.judgeDrift).toEqual([]);
+      expect(diff.warnings.join('\n')).toMatch(/not "the scores held"/);
+    });
+
+    it('WARNS when the gate itself moved between the two runs', async () => {
+      const { diffRuns } = await import('#src/evalCompare.js');
+      const diff = diffRuns(suite([judged('a', 8, 6)]), suite([judged('a', 8, 8)]));
+      expect(diff.warnings.join('\n')).toMatch(/the gate moving rather than the score/);
+    });
+
+    it('applies the threshold-ward filter by DEFAULT, with no filter argument', async () => {
+      // The default lives in diffRuns, not only in the CLI, so a caller that never heard of the
+      // flag still gets the quiet behaviour.
+      const { diffRuns, DEFAULT_JUDGE_DRIFT_FILTER } = await import('#src/evalCompare.js');
+      const diff = diffRuns(suite([judged('a', 10)]), suite([judged('a', 8)]));
+      expect(diff.judgeDriftFilter).toEqual(DEFAULT_JUDGE_DRIFT_FILTER);
+      expect(diff.judgeDriftFilter).toEqual({ mode: 'threshold-ward', tolerance: 1 });
+      expect(diff.judgeDrift).toEqual([]);
+    });
+
+    it('min-points reports any movement of N+, wherever it lands', async () => {
+      const { diffRuns } = await import('#src/evalCompare.js');
+      const filter = { mode: 'min-points' as const, points: 2 };
+      const far = diffRuns(suite([judged('a', 10)]), suite([judged('a', 8)]), filter);
+      expect(far.judgeDrift.map((entry) => entry.reason)).toEqual(['moved']);
+      const small = diffRuns(suite([judged('a', 10)]), suite([judged('a', 9)]), filter);
+      expect(small.judgeDrift).toEqual([]);
+    });
+
+    it('mean reports the suite aggregate and NO per-case rows', async () => {
+      const { diffRuns, renderRunDiff } = await import('#src/evalCompare.js');
+      const diff = diffRuns(
+        suite([judged('a', 10), judged('b', 8)]),
+        suite([judged('a', 9), judged('b', 7)]),
+        { mode: 'mean' }
+      );
+      expect(diff.judgeDrift).toEqual([]);
+      expect(diff.judgeDriftMean).toEqual({ before: 9, after: 8, delta: -1, cases: 2 });
+      expect(renderRunDiff(diff).join('\n')).toMatch(/judge mean: 9\.00 → 8\.00 \(-1\.00\)/);
+    });
+
+    it('off reports nothing at all, not even the lost-score warning', async () => {
+      const { diffRuns } = await import('#src/evalCompare.js');
+      const diff = diffRuns(suite([judged('a', 7)]), suite([judged('a', 5)]), { mode: 'off' });
+      expect(diff.judgeDrift).toEqual([]);
+      expect(diff.judgeDriftMean).toBeUndefined();
+    });
+
+    it('renders drift under its own heading and does NOT then claim "no change."', async () => {
+      // The contradiction this guards: a run that printed a JUDGE DRIFT section and then said
+      // nothing had changed underneath it.
+      const { diffRuns, renderRunDiff } = await import('#src/evalCompare.js');
+      const rendered = renderRunDiff(
+        diffRuns(suite([judged('a', 8)]), suite([judged('a', 6)]))
+      ).join('\n');
+      expect(rendered).toMatch(/JUDGE DRIFT — toward the pass threshold \(tolerance 1\) \(1\):/);
+      expect(rendered).toMatch(/a: 8 → 6 \(-2\) — now AT the pass threshold 6/);
+      expect(rendered).not.toMatch(/no change\./);
+    });
+
+    describe('parseJudgeDriftFilter', () => {
+      it('accepts the four documented forms', async () => {
+        const { parseJudgeDriftFilter } = await import('#src/evalCompare.js');
+        expect(parseJudgeDriftFilter('threshold-ward')).toEqual({
+          mode: 'threshold-ward',
+          tolerance: 1,
+        });
+        expect(parseJudgeDriftFilter('threshold-ward:2')).toEqual({
+          mode: 'threshold-ward',
+          tolerance: 2,
+        });
+        expect(parseJudgeDriftFilter('min:3')).toEqual({ mode: 'min-points', points: 3 });
+        expect(parseJudgeDriftFilter('mean')).toEqual({ mode: 'mean' });
+        expect(parseJudgeDriftFilter('off')).toEqual({ mode: 'off' });
+      });
+
+      it('REFUSES the values that would reconstitute the unfiltered report', async () => {
+        // A knob that admits its own degenerate value ships the raw form the union deliberately
+        // cannot express — `min:0` keeps every movement, and a shoulder wider than the scale keeps
+        // every downward one.
+        const { parseJudgeDriftFilter, MAX_JUDGE_DRIFT_TOLERANCE } =
+          await import('#src/evalCompare.js');
+        expect(() => parseJudgeDriftFilter('min:0')).toThrow(/unfiltered form/);
+        expect(() => parseJudgeDriftFilter('min:-1')).toThrow(/unfiltered form/);
+        expect(() =>
+          parseJudgeDriftFilter(`threshold-ward:${MAX_JUDGE_DRIFT_TOLERANCE + 1}`)
+        ).toThrow(/unfiltered form/);
+      });
+
+      it('rejects an unrecognised filter rather than silently defaulting', async () => {
+        const { parseJudgeDriftFilter } = await import('#src/evalCompare.js');
+        expect(() => parseJudgeDriftFilter('all')).toThrow(/unrecognised --drift filter/);
+        expect(() => parseJudgeDriftFilter('mean:2')).toThrow(/unrecognised --drift filter/);
+        expect(() => parseJudgeDriftFilter('min:two')).toThrow(/unrecognised --drift filter/);
+        expect(() => parseJudgeDriftFilter('min')).toThrow(/unrecognised --drift filter/);
+      });
+    });
+  });
 });

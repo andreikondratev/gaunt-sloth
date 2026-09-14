@@ -78,8 +78,20 @@ export {
   renderComparison,
   diffRuns,
   renderRunDiff,
+  parseJudgeDriftFilter,
+  DEFAULT_JUDGE_DRIFT_FILTER,
+  DEFAULT_JUDGE_DRIFT_TOLERANCE,
+  MAX_JUDGE_DRIFT_TOLERANCE,
 } from '#src/evalCompare.js';
-export type { ComparisonColumn, RunDiff, RunDiffEntry, SweepCell } from '#src/evalCompare.js';
+export type {
+  ComparisonColumn,
+  JudgeDriftEntry,
+  JudgeDriftFilter,
+  JudgeDriftMean,
+  RunDiff,
+  RunDiffEntry,
+  SweepCell,
+} from '#src/evalCompare.js';
 export { UNRECOGNIZED_LABEL, NO_EXPECTATION } from '#src/classificationTypes.js';
 export type {
   ClassificationExtractor,

@@ -1,6 +1,13 @@
 import type { EvalMetricTally } from '#src/classificationTypes.js';
 import { formatTally } from '#src/metrics.js';
-import type { EvalSuite, EvalSuiteSummary, EvalSweep, EvalSweepValue } from '#src/evalTypes.js';
+import type {
+  EvalCaseResult,
+  EvalSuite,
+  EvalSuiteSummary,
+  EvalSweep,
+  EvalSweepValue,
+  JudgeOutcome,
+} from '#src/evalTypes.js';
 
 /**
  * BATCH-25 — the comparison layer: run the same corpus across a sweep of configurations and emit
@@ -217,6 +224,145 @@ export interface RunDiffEntry {
   after: string;
 }
 
+/**
+ * BATCH-33 — how a run-over-run JUDGE-SCORE drift report is filtered.
+ *
+ * ## Why there is a filter at all, and why the raw form is not a member of this union
+ *
+ * A judge score is a model's 0-10 opinion, and it wobbles between identical runs. Reporting every
+ * per-case delta therefore prints a section on every run, most of it noise, and trains the reader to
+ * skip it — at which point the real slide is skipped along with it. That is strictly WORSE than
+ * reporting no drift at all: a section nobody reads still spends the run's credibility, which is the
+ * same failure BATCH-25's untrusted metric ran into.
+ *
+ * So the raw unfiltered form is deliberately not representable. There is no `all` member, and no
+ * value of the knobs below reaches one — {@link parseJudgeDriftFilter} rejects `min:0` and bounds
+ * the threshold-ward tolerance, because a knob that admits its own degenerate value ships the form
+ * this type exists to withhold.
+ *
+ * ## What each member is for
+ *
+ * - `threshold-ward` (**the default**) — report a case only when its score CROSSED the pass
+ *   threshold, or moved DOWN to within `tolerance` points of it. Distance to the gate is the thing
+ *   worth alerting on: a 10 → 8 that stays clear of a gate at 6 is a different event from a 7 → 6
+ *   sitting on it, and only the second is about to cost a verdict. It is the default because it is
+ *   the one filter whose false-positive rate on a stable suite is near zero — a corpus whose cells
+ *   sit well above their gate can wobble freely and print nothing.
+ * - `min-points` — report any movement of at least N points, either direction. The blunt
+ *   instrument: it sees large swings wherever they land, and pays for that by firing on a wobbly
+ *   judge no matter how much headroom the case had.
+ * - `mean` — report only the suite-level mean. Averaging over the corpus cancels the wobble, so it
+ *   is the quietest form of all and the one that cannot say WHICH case moved.
+ * - `off` — no drift report. Opting out is not the raw form; it prints less, not more.
+ */
+export type JudgeDriftFilter =
+  | { mode: 'threshold-ward'; tolerance: number }
+  | { mode: 'min-points'; points: number }
+  | { mode: 'mean' }
+  | { mode: 'off' };
+
+/** How many points above the gate still counts as sitting ON it, when the caller names no
+ * tolerance. One point: a stable corpus grades well clear of its gate, so this stays quiet through
+ * ordinary wobble while still catching the run before a slide breaks the verdict. */
+export const DEFAULT_JUDGE_DRIFT_TOLERANCE = 1;
+
+/**
+ * The widest tolerance a caller may ask for. The judge scale is 0-10 and a typical gate is 6, so a
+ * shoulder much wider than this covers the whole usable band and every downward move reports —
+ * the unfiltered form by another route, which is what the bound exists to refuse.
+ */
+export const MAX_JUDGE_DRIFT_TOLERANCE = 3;
+
+/** The filter {@link diffRuns} applies when the caller names none. */
+export const DEFAULT_JUDGE_DRIFT_FILTER: JudgeDriftFilter = {
+  mode: 'threshold-ward',
+  tolerance: DEFAULT_JUDGE_DRIFT_TOLERANCE,
+};
+
+/**
+ * Parse a `--drift` spec into a {@link JudgeDriftFilter}, throwing on anything unrecognised —
+ * including the degenerate values that would reconstitute the raw per-case report.
+ *
+ * Accepted: `threshold-ward` (or `threshold-ward:<tolerance>`), `min:<points>`, `mean`, `off`.
+ */
+export function parseJudgeDriftFilter(spec: string): JudgeDriftFilter {
+  const parts = spec.trim().split(':');
+  if (parts.length > 2) throw new Error(driftSpecError(spec));
+  const mode = parts[0].trim().toLowerCase();
+  const value = parts[1];
+
+  if (mode === 'off' || mode === 'mean') {
+    if (value !== undefined) throw new Error(driftSpecError(spec));
+    return mode === 'off' ? { mode: 'off' } : { mode: 'mean' };
+  }
+
+  if (mode === 'min') {
+    const points = driftNumber(value, spec);
+    // 0 or less would keep every movement — the unfiltered report this filter exists to avoid.
+    if (points < 1 || points > 10) {
+      throw new Error(
+        `--drift min:<points> takes 1-10, so "${spec}" is not accepted: it would report every ` +
+          'judge-score movement, which is the unfiltered form that trains readers to skip the ' +
+          'section.'
+      );
+    }
+    return { mode: 'min-points', points };
+  }
+
+  if (mode === 'threshold-ward' || mode === 'threshold') {
+    if (value === undefined)
+      return { mode: 'threshold-ward', tolerance: DEFAULT_JUDGE_DRIFT_TOLERANCE };
+    const tolerance = driftNumber(value, spec);
+    if (tolerance < 0 || tolerance > MAX_JUDGE_DRIFT_TOLERANCE) {
+      throw new Error(
+        `--drift threshold-ward:<tolerance> takes 0-${MAX_JUDGE_DRIFT_TOLERANCE}, so "${spec}" is ` +
+          'not accepted: a shoulder that wide reports nearly every downward move, which is the ' +
+          'unfiltered form that trains readers to skip the section.'
+      );
+    }
+    return { mode: 'threshold-ward', tolerance };
+  }
+
+  throw new Error(driftSpecError(spec));
+}
+
+function driftSpecError(spec: string): string {
+  return (
+    `unrecognised --drift filter "${spec}". Use "threshold-ward" (the default, optionally ` +
+    `"threshold-ward:<0-${MAX_JUDGE_DRIFT_TOLERANCE}>"), "min:<1-10>", "mean", or "off".`
+  );
+}
+
+function driftNumber(raw: string | undefined, spec: string): number {
+  if (raw === undefined || raw.trim() === '') throw new Error(driftSpecError(spec));
+  const value = Number(raw.trim());
+  if (!Number.isInteger(value)) throw new Error(driftSpecError(spec));
+  return value;
+}
+
+/** One case whose JUDGE SCORE moved between two runs, as kept by a {@link JudgeDriftFilter}. */
+export interface JudgeDriftEntry {
+  id: string;
+  before: number;
+  after: number;
+  /** `after - before`. Negative is a slide toward the gate. */
+  delta: number;
+  /** The gate the movement is measured against — THIS run's, since that is the one now in force. */
+  passThreshold: number;
+  /** Why the filter kept it: the score crossed the gate, slid onto the gate's shoulder, or simply
+   * moved far enough for a `min-points` filter. */
+  reason: 'crossed' | 'near-threshold' | 'moved';
+}
+
+/** The suite-level judge-score mean — the `mean` filter's whole output. */
+export interface JudgeDriftMean {
+  before: number;
+  after: number;
+  delta: number;
+  /** Cases carrying a rate on BOTH sides, i.e. the mean's denominator. */
+  cases: number;
+}
+
 /** The run-over-run diff. */
 export interface RunDiff {
   /** Cases in both runs. */
@@ -234,10 +380,79 @@ export interface RunDiff {
     after: number | null;
     delta: number | null;
   }[];
+  /**
+   * BATCH-33 — per-case judge-score movements the active filter kept. The signal a VERDICT-only
+   * diff structurally cannot see: a judge-graded suite with no `classification:` block has neither
+   * `reclassified` nor `metricDeltas`, so before this its diff was strictly binary and a score
+   * sliding toward its gate reported "no change." until the run it finally broke.
+   *
+   * EMPTY under the `mean` and `off` filters, which report no per-case rows at all.
+   */
+  judgeDrift: JudgeDriftEntry[];
+  /** The suite-level mean, under the `mean` filter only. */
+  judgeDriftMean?: JudgeDriftMean;
+  /** The filter that produced the two fields above, echoed so the render can name it: a quiet drift
+   * section means nothing unless the reader can see WHICH filter was quiet. */
+  judgeDriftFilter: JudgeDriftFilter;
   /** Ids in only one of the two runs — reported, so a shrunken corpus cannot read as "no change". */
   onlyInBefore: string[];
   onlyInAfter: string[];
   warnings: string[];
+}
+
+/**
+ * The judge rate representing one CELL, or `undefined` when no verdict was rendered for it.
+ *
+ * A single-turn cell carries its own {@link EvalCaseResult.judge}. A MULTI-TURN cell leaves that
+ * unset and grades per turn, so its representative rate is the LOWEST any turn scored: the cell
+ * passes iff every turn passes, which makes the weakest turn the one sitting nearest the gate and
+ * therefore the one this report is about. Reading only the top-level field would hand every
+ * multi-turn suite an empty drift section forever — the same silence this node exists to end.
+ */
+function judgeRateOf(result: EvalCaseResult): number | undefined {
+  const direct = rateOfOutcome(result.judge);
+  if (direct !== undefined) return direct;
+  const turnRates = (result.turns ?? [])
+    .map((turn) => rateOfOutcome(turn.judge))
+    .filter((rate): rate is number => rate !== undefined);
+  return turnRates.length === 0 ? undefined : Math.min(...turnRates);
+}
+
+/** A usable 0-10 rate, or `undefined`. A judge that errored, timed out, returned something
+ * unparseable or was never asked has no score to compare, and substituting one would report a slide
+ * nobody measured. */
+function rateOfOutcome(judge: JudgeOutcome | undefined): number | undefined {
+  if (judge?.ok !== true) return undefined;
+  const rate = judge.verdict?.rate;
+  return typeof rate === 'number' && Number.isFinite(rate) ? rate : undefined;
+}
+
+/**
+ * Does one movement survive the filter? Returns the reason it was kept, or `undefined`.
+ *
+ * The threshold-ward rule is two clauses and BOTH are load-bearing:
+ *
+ * - a CROSSING of the gate, either direction, always reports. That is the moment the score changed
+ *   what it is worth, and its numbers are what explain the verdict flip printed beside it.
+ * - otherwise, only a DOWNWARD move landing within `tolerance` of the gate. Direction alone is not
+ *   the rule — a 10 → 8 is downward and still clear of a gate at 6, and keeping it is exactly how
+ *   the section fills with wobble. Proximity alone is not the rule either, or a case recovering
+ *   6 → 7 would report. It is the pair, and a reader tempted to simplify one clause away should
+ *   expect the section to go noisy on the next stable re-run.
+ */
+function driftReason(
+  before: number,
+  after: number,
+  passThreshold: number,
+  filter: JudgeDriftFilter
+): JudgeDriftEntry['reason'] | undefined {
+  if (filter.mode === 'min-points') {
+    return Math.abs(after - before) >= filter.points ? 'moved' : undefined;
+  }
+  if (filter.mode !== 'threshold-ward') return undefined;
+  if (before >= passThreshold !== after >= passThreshold) return 'crossed';
+  if (after < before && after <= passThreshold + filter.tolerance) return 'near-threshold';
+  return undefined;
 }
 
 /** The key a cell is diffed on across runs: id plus identity, since a matrix cell's id alone is
@@ -253,20 +468,48 @@ function diffKey(result: { id: string; identity?: string }): string {
  * gate reads, verdict fixes are what a change claims to have done, and RECLASSIFICATIONS are what
  * a prompt edit actually moved — a case can keep its verdict while the label underneath it changes,
  * and that is exactly the drift a pass-rate comparison cannot see.
+ *
+ * A fourth, {@link RunDiff.judgeDrift}, covers the suites the other three cannot: `reclassified`
+ * and `metricDeltas` both need a `classification:` block, so an ordinary judge-graded corpus got a
+ * strictly binary diff and learned nothing until a score finally broke its gate. `filter` decides
+ * how much of that movement is worth printing — see {@link JudgeDriftFilter} for why it defaults to
+ * the threshold-ward one and why the unfiltered form is not on offer. **The default lives here, not
+ * only in the CLI**, so every caller gets the quiet behaviour without having to know to ask.
  */
-export function diffRuns(before: EvalSuiteSummary, after: EvalSuiteSummary): RunDiff {
+export function diffRuns(
+  before: EvalSuiteSummary,
+  after: EvalSuiteSummary,
+  filter: JudgeDriftFilter = DEFAULT_JUDGE_DRIFT_FILTER
+): RunDiff {
   const beforeByKey = new Map(before.cases.map((result) => [diffKey(result), result]));
   const afterByKey = new Map(after.cases.map((result) => [diffKey(result), result]));
 
   const regressed: RunDiffEntry[] = [];
   const fixed: RunDiffEntry[] = [];
   const reclassified: RunDiffEntry[] = [];
+  const ratePairs: { key: string; before: number; after: number; passThreshold: number }[] = [];
+  let lostRates = 0;
+  let movedGates = 0;
   let compared = 0;
 
   for (const [key, afterCase] of afterByKey) {
     const beforeCase = beforeByKey.get(key);
     if (!beforeCase) continue;
     compared += 1;
+
+    const beforeRate = judgeRateOf(beforeCase);
+    const afterRate = judgeRateOf(afterCase);
+    if (beforeRate !== undefined && afterRate !== undefined) {
+      ratePairs.push({
+        key,
+        before: beforeRate,
+        after: afterRate,
+        passThreshold: afterCase.passThreshold,
+      });
+      if (beforeCase.passThreshold !== afterCase.passThreshold) movedGates += 1;
+    } else if (beforeRate !== undefined) {
+      lostRates += 1;
+    }
 
     if (beforeCase.verdict === 'PASS' && afterCase.verdict === 'FAIL') {
       regressed.push({ id: key, before: 'PASS', after: 'FAIL' });
@@ -298,7 +541,52 @@ export function diffRuns(before: EvalSuiteSummary, after: EvalSuiteSummary): Run
     });
   }
 
+  // BATCH-33 — the judge-score drift, as much of it as the filter keeps. `mean` reports only the
+  // suite aggregate (no per-case rows); every other filter reports rows and no aggregate.
+  const judgeDrift: JudgeDriftEntry[] = [];
+  let judgeDriftMean: JudgeDriftMean | undefined;
+  if (filter.mode === 'mean') {
+    if (ratePairs.length > 0) {
+      const mean = (pick: (pair: (typeof ratePairs)[number]) => number): number =>
+        ratePairs.reduce((sum, pair) => sum + pick(pair), 0) / ratePairs.length;
+      const meanBefore = mean((pair) => pair.before);
+      const meanAfter = mean((pair) => pair.after);
+      judgeDriftMean = {
+        before: meanBefore,
+        after: meanAfter,
+        delta: meanAfter - meanBefore,
+        cases: ratePairs.length,
+      };
+    }
+  } else {
+    for (const pair of ratePairs) {
+      const reason = driftReason(pair.before, pair.after, pair.passThreshold, filter);
+      if (reason === undefined) continue;
+      judgeDrift.push({
+        id: pair.key,
+        before: pair.before,
+        after: pair.after,
+        delta: pair.after - pair.before,
+        passThreshold: pair.passThreshold,
+        reason,
+      });
+    }
+  }
+
   const warnings: string[] = [];
+  if (lostRates > 0 && filter.mode !== 'off') {
+    warnings.push(
+      `${lostRates} case(s) were judged in the baseline and produced no judge score in this run, ` +
+        'so their drift could not be computed. A quiet drift section here is not "the scores held".'
+    );
+  }
+  if (movedGates > 0 && filter.mode !== 'off') {
+    warnings.push(
+      `${movedGates} case(s) changed their pass threshold between the two runs. Drift is measured ` +
+        "against THIS run's gate, so some of the distance reported here is the gate moving rather " +
+        'than the score.'
+    );
+  }
   if (onlyInBefore.length > 0 || onlyInAfter.length > 0) {
     warnings.push(
       `the two runs do not cover the same cases: ${onlyInBefore.length} only in the baseline, ` +
@@ -313,6 +601,9 @@ export function diffRuns(before: EvalSuiteSummary, after: EvalSuiteSummary): Run
     fixed,
     reclassified,
     metricDeltas,
+    judgeDrift,
+    judgeDriftMean,
+    judgeDriftFilter: filter,
     onlyInBefore,
     onlyInAfter,
     warnings,
@@ -343,6 +634,40 @@ export function renderRunDiff(diff: RunDiff): string[] {
   list('fixed', diff.fixed);
   list('reclassified', diff.reclassified);
 
+  // BATCH-33 — judge drift under its own heading, so a judge-graded suite with no `classification:`
+  // block has something to read here at all. Nothing is printed when the filter kept nothing: a
+  // quiet section IS the report on a stable re-run, and adding a reassuring "no drift" line would
+  // put a row on every run, which is the noise the filter exists to prevent.
+  if (diff.judgeDrift.length > 0) {
+    lines.push(
+      `  JUDGE DRIFT — ${describeDriftFilter(diff.judgeDriftFilter)} (${diff.judgeDrift.length}):`
+    );
+    for (const entry of diff.judgeDrift) {
+      const sign = entry.delta >= 0 ? '+' : '';
+      const margin = entry.after - entry.passThreshold;
+      const where =
+        entry.reason === 'crossed'
+          ? `CROSSED the pass threshold ${entry.passThreshold}`
+          : entry.reason === 'near-threshold'
+            ? margin === 0
+              ? `now AT the pass threshold ${entry.passThreshold}`
+              : `now ${margin} above the pass threshold ${entry.passThreshold}`
+            : `pass threshold ${entry.passThreshold}`;
+      lines.push(
+        `    ${entry.id}: ${entry.before} → ${entry.after} (${sign}${entry.delta}) — ${where}`
+      );
+    }
+  }
+
+  if (diff.judgeDriftMean) {
+    const mean = diff.judgeDriftMean;
+    const sign = mean.delta >= 0 ? '+' : '';
+    lines.push(
+      `  judge mean: ${mean.before.toFixed(2)} → ${mean.after.toFixed(2)} ` +
+        `(${sign}${mean.delta.toFixed(2)}) over ${mean.cases} case(s)`
+    );
+  }
+
   if (diff.metricDeltas.length > 0) {
     lines.push('  metric deltas:');
     for (const delta of diff.metricDeltas) {
@@ -360,11 +685,29 @@ export function renderRunDiff(diff: RunDiff): string[] {
     diff.regressed.length === 0 &&
     diff.fixed.length === 0 &&
     diff.reclassified.length === 0 &&
-    diff.metricDeltas.every((delta) => delta.delta === 0)
+    diff.metricDeltas.every((delta) => delta.delta === 0) &&
+    // BATCH-33 — drift has to count here too, or a run that printed a JUDGE DRIFT section would
+    // print "no change." underneath it and contradict itself.
+    diff.judgeDrift.length === 0 &&
+    (diff.judgeDriftMean === undefined || diff.judgeDriftMean.delta === 0)
   ) {
     lines.push('  no change.');
   }
   return lines;
+}
+
+/** How the active drift filter is named in the report heading. */
+function describeDriftFilter(filter: JudgeDriftFilter): string {
+  switch (filter.mode) {
+    case 'threshold-ward':
+      return `toward the pass threshold (tolerance ${filter.tolerance})`;
+    case 'min-points':
+      return `movements of ${filter.points}+ point(s)`;
+    case 'mean':
+      return 'suite mean';
+    case 'off':
+      return 'off';
+  }
 }
 
 /** Does this suite declare a sweep? Small helper so the command reads declaratively. */

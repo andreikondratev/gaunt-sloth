@@ -406,6 +406,7 @@ Guide-shaped walkthrough: [Evaluate your agent](guides/evals.md) — and for tes
 - `--export-blind <file>` - Write the suite's cases — `id`, input(s) and `tags` only, **no expected labels, actions, rationales or rubrics** — to `<file>` as JSON, then exit without running anything. See [Blind relabel](#blind-relabel).
 - `--relabel-diff <file>` - Compare a second labeller's filled-in blind export to the corpus **by id**, then exit without running anything. See [Blind relabel](#blind-relabel).
 - `--compare-to <dir>` - A previous run's `-o` output root. Each run unit is diffed against the matching `results.json` under it. See [Run-over-run diff](#run-over-run-diff).
+- `--drift <filter>` - How `--compare-to` filters judge-score movement: `threshold-ward` (the default), `threshold-ward:<0-3>`, `min:<1-10>`, `mean`, or `off`. See [Judge-score drift](#judge-score-drift).
 - `-r, --reporter <names>` - Reporter(s) to render the run through (repeatable, or comma-separated). Built-in: `text` (the default console summary) and `junit` (writes a JUnit `results.xml`); names from the config [`reporters`](configuration/output.md#custom-eval-reporters-reporters) map work too — including installed reporter packages such as [`@gaunt-sloth/eval-reporter-teamcity`](https://www.npmjs.com/package/@gaunt-sloth/eval-reporter-teamcity) (live `##teamcity[...]` service messages). **Replaces the default set rather than adding to it** — `--reporter junit` drops the console summary, so pass `--reporter text,junit` to keep both. The always-on `results.json` + per-case JSON are written regardless.
 
 Global options apply too — notably `-i, --identity-profile <name>`, which selects the profile the cases run under (see [identity profiles](configuration/profiles.md#identity-profiles)).
@@ -861,7 +862,34 @@ Neither flag runs the suite or calls a model.
 gth eval eval/rater.yaml -o out/today --compare-to out/yesterday
 ```
 
-It reports verdict **regressions** (PASS → FAIL), verdict **fixes**, **reclassifications**, and **metric deltas**. Reclassification is the one a pass-rate comparison cannot see: a case can keep its verdict while the label underneath it moves, which is exactly what editing a rating prompt does. If the two runs do not cover the same cases it says so — a case that disappeared cannot regress, so "no regressions" there is not "nothing broke".
+It reports verdict **regressions** (PASS → FAIL), verdict **fixes**, **reclassifications**, **judge-score drift**, and **metric deltas**. Reclassification is the one a pass-rate comparison cannot see: a case can keep its verdict while the label underneath it moves, which is exactly what editing a rating prompt does. If the two runs do not cover the same cases it says so — a case that disappeared cannot regress, so "no regressions" there is not "nothing broke".
+
+#### Judge-score drift
+
+A verdict is a cliff: a case graded 10, then 8, then 7 against a `pass_threshold` of 6 is `PASS` every time, and the diff says `no change.` until the run it finally drops to 5. For an LLM-graded suite that slide **is** the regression — the flip is just the moment it becomes undeniable. `--compare-to` therefore also reports how each case's judge score moved:
+
+```
+RUN-OVER-RUN DIFF
+  compared: 12 case(s)
+  JUDGE DRIFT — toward the pass threshold (tolerance 1) (1):
+    handles-nested-generics: 8 → 7 (-1) — now 1 above the pass threshold 6
+```
+
+Judge scores wobble between identical runs, so printing every delta would fill this section with noise and teach you to skip it. By default it reports only movement **toward the gate**: a score that crossed its `pass_threshold`, or that fell to within 1 point of it. A 10 → 8 that stays clear of a gate at 6 is not reported; a 7 → 6 sitting on it is. Distance to the gate is what predicts the next failure.
+
+`--drift` changes that filter:
+
+| Value | Reports |
+|-------|---------|
+| `threshold-ward` | **Default.** A score that crossed its `pass_threshold`, or fell to within 1 point of it. |
+| `threshold-ward:<0-3>` | The same, with a wider shoulder — `threshold-ward:2` also reports a slide to 2 points above the gate. |
+| `min:<1-10>` | Any movement of N or more points, in either direction, wherever it lands. |
+| `mean` | Only the suite-level mean before and after — no per-case rows. |
+| `off` | No drift report. |
+
+There is deliberately no unfiltered setting, and `min:0` is rejected: a section that prints on every run is one nobody reads, which is worse than not having it.
+
+A multi-turn case is reported on its **lowest-scoring turn** — the cell passes only if every turn does, so the weakest turn is the one nearest the gate. A case that was judged in the baseline and produced no score this time (a judge timeout, an expired key) is called out rather than counted as steady.
 
 ### Judging
 
@@ -923,6 +951,9 @@ gth eval eval/rater.yaml --relabel-diff blind.json
 
 # Did today's rating-prompt edit move anything?
 gth eval eval/rater.yaml -o out/today --compare-to out/yesterday
+
+# Track whether a judge-graded suite is sliding toward its threshold over time
+gth eval eval/js-basics.yaml -o out/today --compare-to out/yesterday --drift mean
 ```
 
 ## batch
