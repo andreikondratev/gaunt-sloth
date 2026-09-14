@@ -423,3 +423,67 @@ jobs:
           echo "main now carries next version=$NEXT"
       - name: Push post-bump commit to main
         run: git push origin HEAD:main
+
+  post-publish-smoke:
+    name: Post-publish smoke (install from npm, prove all three bins)
+    # OPS-42 — the only check in either pipeline that exercises what the REGISTRY ACTUALLY SERVES.
+    # Everything before this job tests the tree we were about to publish; nothing tested the bytes a
+    # user receives, so the first party to discover a broken release was a user. Five packages ship
+    # in one step, and from inside CI a partial publish looks exactly like a clean one.
+    #
+    # IT BLOCKS NOTHING — IT DETECTS AND SHOUTS. The publish has already happened when this runs, so
+    # a red here is not a gate that stopped something: it is the alarm that starts a withdrawal.
+    # Under the GA release model, where everything publishes straight to `latest` and a broken
+    # version is withdrawn rather than prevented, that alarm is the entire safety mechanism. Nothing
+    # `needs:` this job and it carries no continue-on-error, so a red is loud and stops nothing.
+    #
+    # HOW IT KNOWS WHAT WAS PUBLISHED — the one thing that is easy to get backwards. This pipeline
+    # releases the version in packages/core/package.json and only THEN post-bumps `main`, so by the
+    # time this job runs `main` carries the NEXT version and the registry has the one just shipped.
+    # A job that reads `main` would ask for a version that does not exist and be red on every
+    # successful release — a false alarm pointing the reassuring way, which is how a release check
+    # earns being muted. So the version comes from the `gaunt-sloth@<version>` tag that the release
+    # job pushed at the commit it built, found by the tag that points at github.sha (frozen at
+    # dispatch, so the post-bump cannot move it). The release job declares no `outputs:` block, and
+    # adding one is not this work's to do — the grant covers adding this job and nothing else.
+    #
+    # RESPONSE TO A RED RUN, so nobody improvises a recovery they have never rehearsed. The script
+    # prints the matching one into the job summary, and its header carries the full version:
+    #   BROKEN inside npm's 72-hour unpublish window -> unpublish the version.
+    #   BROKEN outside it -> `npm deprecate` it, roll the channel dist-tag back to the last good
+    #     version, then ship the fix. (@gaunt-sloth/core has registry dependents, so after 72 hours
+    #     it cannot be unpublished at all — the window is the whole budget, and speed is the point.)
+    #   DIST_TAG -> move it with `npm dist-tag add`; the bytes are sound.
+    #   PARTIAL -> re-dispatch the release to finish the publish.
+    #   NOT_VISIBLE -> check npmjs.com; propagation and a failed publish are reported separately
+    #     for exactly this decision.
+    #
+    # KEY-FREE on purpose. A post-publish alarm that needs provider secrets goes red for reasons
+    # unrelated to packaging, and gets muted. Pack contents, publint, are-the-types-wrong, the
+    # Windows shim matrix and consumer interop are OPS-14's pre-publish clean room, not this.
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # read the release tag that names the published version
+    steps:
+      # scripts/ ONLY, into a subdirectory, with nothing installed: the package under test must come
+      # from the registry and nothing else may be resolvable. The smoke itself installs into a fresh
+      # temp prefix and runs the bins out of it by absolute path.
+      - name: Check out the helper script (no workspace, nothing installed)
+        uses: actions/checkout@v6
+        with:
+          path: ci-scripts
+          sparse-checkout: scripts
+          persist-credentials: false
+      - name: Use Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+      - name: Install the published release from npm and prove all three bins
+        # The logic is a script, not inline bash, for the reason the release-notes step gives: this
+        # step runs only on a real release dispatch, so inline it could be verified only by shipping
+        # a broken release. As a script it is unit-tested in packages/core/spec/postPublishSmoke.spec.ts
+        # and its deliberate-failure path can be demonstrated by hand.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node ci-scripts/scripts/post-publish-smoke.mjs

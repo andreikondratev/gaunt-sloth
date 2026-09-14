@@ -18,6 +18,7 @@ nobody runs.
 | `pnpm run it ollama xx-small` | the whole agent against a local model | a local GPU | nothing; run it before an agent-runtime merge |
 | `pnpm run it-tui` | the terminal UI in a real pseudo-terminal | nothing | **a TUI merge**, and the release |
 | `pnpm run test:embed` | the published packages as a consumer sees them | an npm install | nothing |
+| `scripts/post-publish-smoke.mjs` | what the registry actually serves, after a release | an npm install | nothing — it runs **after** the publish |
 | `evals/configs/` | one tool call, across providers | provider keys, real calls | **the release** |
 | `evals/self/` | gth's own behaviour, graded by `gth eval` | real calls; one sweep needs a local GPU | nothing |
 | `evals/{mcp-authz,adk,ag-ui}/` | a live SUT, graded by `gth eval` | real calls | nothing |
@@ -147,6 +148,34 @@ Packs the publishable tarballs, installs them into a temporary consumer **outsid
 and exercises the documented embed surface (`packages/review/embed-e2e/`). Deliberately kept out of
 the unit run: pack plus install takes far longer than the unit suite's timeout budget. Needs network
 for the install. Not in CI — run it by hand when you change what the packages export.
+
+## Post-publish smoke — `scripts/post-publish-smoke.mjs`
+
+The `post-publish-smoke` job of `release.yml`, and the only check that exercises **what the registry
+actually serves**. On a runner holding no workspace it installs the version just published, globally
+into a fresh prefix, and asserts all three bins — `gaunt-sloth`, `gsloth`, `gth` — report exactly
+that version and print help. Key-free. `pnpm run test:embed` is the pre-publish twin and tests
+tarballs we packed ourselves; this one tests the bytes a user receives.
+
+It **gates nothing**: the publish has already happened when it runs, so a red is the alarm that
+starts a withdrawal rather than something that stopped a release. Each outcome has its own exit code
+and its own remedy, printed into the job summary — `npm unpublish` inside npm's 72-hour window,
+`npm deprecate` plus a dist-tag roll-back outside it. Speed is the point: that window is the whole
+budget, so the registry-propagation retry is bounded to report fast, and "not visible yet" and
+"published broken" are reported as different things.
+
+The version under test comes from the `gaunt-sloth@<version>` git tag that points at the run's
+commit — never from `packages/core/package.json`, which by then carries the *next* version and would
+make the job red on every successful release.
+
+Run it by hand against any published version:
+
+```bash
+node scripts/post-publish-smoke.mjs --version 2.0.0-beta.10
+```
+
+It always installs into an explicit `--prefix` (a fresh temp dir by default) and never touches an
+ambient global prefix, so it is safe to run on a machine where `gth` is installed globally.
 
 ## Evals
 
