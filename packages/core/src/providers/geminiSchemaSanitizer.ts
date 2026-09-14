@@ -9,9 +9,13 @@
  * this transform is for:
  *
  *  - **`$ref` makes the converter THROW, not strip.** `InvalidInputError` is raised at tool-declaration
- *    time, so the call never leaves the process. `zod-to-json-schema` emits `$ref` for any reused or
- *    recursive sub-schema, so a tool that shares a sub-schema fails outright without this pass — which
- *    makes the sanitizer MORE load-bearing than a keyword-stripping reading of it suggests, not less.
+ *    time, so the call never leaves the process and a tool carrying a `$ref` fails outright without
+ *    this pass. The FAILURE MODE is what changed — a degraded schema became a thrown error — which
+ *    makes the sanitizer more load-bearing than a keyword-stripping reading of it suggests. **How
+ *    often it fires is a separate question, and [[GS2-68]] measured it as near-zero:**
+ *    `@langchain/mcp-adapters` dereferences `$ref` before this transform runs, and gaunt-sloth's own
+ *    zod tools inline and type their schemas, so the exposure is a raw non-adapter tool authoring
+ *    `$ref` itself. Do not read this bullet as "our tools would break".
  *  - **An exclusive bound is DISCARDED, losing the constraint.** `exclusiveMinimum: 5` simply vanishes;
  *    this transform rewrites it to `minimum: 5` so the bound still reaches Gemini. That rewrite is
  *    deliberately NOT strictly equivalent — an inclusive bound admits 5 where the original excluded it

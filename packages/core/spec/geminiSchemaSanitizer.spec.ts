@@ -432,8 +432,12 @@ describe('applyGeminiToolSchemaSanitizer wiring (GS2-58, real @langchain/google 
    * allowlist, so "the converter leaks unsupported keywords" is no longer a true statement to pin. Two
    * behaviours are not covered by that allowlist, and both are measured here:
    *
-   *  - `$ref` THROWS (`InvalidInputError`) rather than being stripped. `zod-to-json-schema` emits `$ref`
-   *    for any reused or recursive sub-schema, so without our pass those tools stop working outright.
+   *  - `$ref` THROWS (`InvalidInputError`) rather than being stripped, so a tool carrying one fails
+   *    outright without this pass. **[[GS2-68]] measured the practical exposure as near-zero** —
+   *    `@langchain/mcp-adapters` dereferences `$ref` upstream of us, and gaunt-sloth's own zod tools
+   *    inline and type their schemas — so this guards a RAW non-adapter tool that authors `$ref`
+   *    itself, not the everyday path. It is pinned because the failure mode changed from a degraded
+   *    schema to a thrown error, not because it fires often.
    *  - An exclusive bound is DISCARDED, losing the constraint entirely; ours rewrites it to an
    *    inclusive one so the bound survives to the wire.
    *
