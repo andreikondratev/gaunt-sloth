@@ -2,11 +2,24 @@
  * @packageDocumentation
  * GS2-58 — systemic Gemini tool-schema sanitizer at the `@langchain/google` provider boundary.
  *
- * Google Gemini's function-declaration schema is a SELECT SUBSET of OpenAPI 3.0. `@langchain/google`'s
- * own `removeAdditionalProperties` strips only `additionalProperties`, so every other JSON-Schema-draft
- * keyword the subset does not declare (`exclusiveMinimum`/`exclusiveMaximum`/`multipleOf`, `$defs`,
- * `patternProperties`, `const`, `$ref`, `allOf`/`oneOf`/`not`, …) is passed straight to the wire, and
- * Gemini 400s at tool-declaration send time — before any tool runs.
+ * Google Gemini's function-declaration schema is a SELECT SUBSET of OpenAPI 3.0. `@langchain/google`
+ * sanitizes against that subset itself — `sanitizeGeminiSchema`, an allowlist of its own — so most
+ * unsupported JSON-Schema keywords (`$defs`, `patternProperties`, `multipleOf`, `const`,
+ * `allOf`/`oneOf`/`not`, …) do not reach the wire on their own. TWO GAPS REMAIN, and they are what
+ * this transform is for:
+ *
+ *  - **`$ref` makes the converter THROW, not strip.** `InvalidInputError` is raised at tool-declaration
+ *    time, so the call never leaves the process. `zod-to-json-schema` emits `$ref` for any reused or
+ *    recursive sub-schema, so a tool that shares a sub-schema fails outright without this pass — which
+ *    makes the sanitizer MORE load-bearing than a keyword-stripping reading of it suggests, not less.
+ *  - **An exclusive bound is DISCARDED, losing the constraint.** `exclusiveMinimum: 5` simply vanishes;
+ *    this transform rewrites it to `minimum: 5` so the bound still reaches Gemini. That rewrite is
+ *    deliberately NOT strictly equivalent — an inclusive bound admits 5 where the original excluded it
+ *    — and is preferred to silently dropping the constraint altogether.
+ *
+ * Both gaps are measured against `@langchain/google` 0.2.6 and pinned as a two-path differential by
+ * `packages/core/spec/geminiSchemaSanitizer.spec.ts`, which is also how we will learn when upstream
+ * has caught up and this module can go.
  *
  * This is the DURABLE fix (GS2-58, fix-cycle 1): rather than a denylist that is always one unknown
  * keyword behind, {@link sanitizeGeminiToolSchema} is an ALLOWLIST — it keeps ONLY the fields the

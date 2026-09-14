@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ChatGoogle } from '@langchain/google/node';
+import { LangChainError } from '@langchain/core/errors';
 import {
   sanitizeGeminiToolSchema,
   applyGeminiToolSchemaSanitizer,
@@ -419,14 +420,127 @@ describe('applyGeminiToolSchemaSanitizer wiring (GS2-58, real @langchain/google 
     });
   }
 
-  it('baseline: the real converter passes unsupported keywords straight to the wire (the bug)', () => {
-    const model = newModel();
-    // invocationParams runs the REAL convertToolsToGeminiTools/schemaToGeminiParameters (no network).
-    const wire = JSON.stringify((model.invocationParams({ tools: [hostileTool] }) as any).tools);
-    expect(wire).toContain('$defs');
-    expect(wire).toContain('patternProperties');
-    expect(wire).toContain('exclusiveMinimum');
-    expect(wire).toContain('multipleOf');
+  /**
+   * THE DIFFERENTIAL CONTROL — what our sanitizer does that `@langchain/google` still cannot.
+   *
+   * This cell asserts the GAP BETWEEN TWO PATHS on identical input: the real converter alone, versus
+   * our sanitizer and then the same real converter. It is deliberately not a test of our output (the
+   * cell below already does that); it is a test of the DIFFERENCE, and the difference is the entire
+   * argument for this module existing.
+   *
+   * `@langchain/google` 0.2.6 sanitizes against Gemini's subset itself, via its own `GEMINI_SCHEMA_KEYS`
+   * allowlist, so "the converter leaks unsupported keywords" is no longer a true statement to pin. Two
+   * behaviours are not covered by that allowlist, and both are measured here:
+   *
+   *  - `$ref` THROWS (`InvalidInputError`) rather than being stripped. `zod-to-json-schema` emits `$ref`
+   *    for any reused or recursive sub-schema, so without our pass those tools stop working outright.
+   *  - An exclusive bound is DISCARDED, losing the constraint entirely; ours rewrites it to an
+   *    inclusive one so the bound survives to the wire.
+   *
+   * **The rewrite is deliberately not strictly equivalent** — `minimum: 5` admits 5 where
+   * `exclusiveMinimum: 5` excluded it. That is the GS2-58 choice: an off-by-one bound that reaches
+   * Gemini beats a constraint silently dropped. Pinned here so it is read as intentional, not filed
+   * as a bug.
+   *
+   * **This control is also how we learn to DELETE our own code.** If a future `@langchain/google`
+   * inlines `$ref` and translates exclusive bounds, the differential collapses and this cell goes red
+   * — and that red means *upstream has caught up, remove the sanitizer*, not *something broke*. The
+   * assertion it replaced could never say that: it only ever claimed "upstream is broken", so it went
+   * silent the moment that stopped being true, which is exactly what 0.2.6 made it do.
+   */
+  describe('differential vs the real converter (what upstream still cannot do)', () => {
+    /**
+     * A schema that reuses a sub-schema by reference — what zod emits for any shared/recursive type.
+     * The description deliberately avoids naming the keyword: assertions below read the PARAMETERS
+     * subtree rather than the whole wire string, and a keyword sitting in prose would satisfy a
+     * whole-string match for the wrong reason.
+     */
+    const refTool = {
+      name: 'ref_tool',
+      description: 'a tool whose schema reuses a shared sub-schema by reference',
+      schema: {
+        type: 'object',
+        $defs: { Size: { type: 'string', enum: ['s', 'm', 'l'] } },
+        properties: { size: { $ref: '#/$defs/Size' } },
+        required: ['size'],
+      },
+    };
+
+    /** A schema whose only constraint is an exclusive bound, so its loss is visible. */
+    const boundTool = {
+      name: 'bound_tool',
+      description: 'a tool with an exclusive numeric bound',
+      schema: {
+        type: 'object',
+        properties: { count: { type: 'integer', exclusiveMinimum: 5 } },
+        required: ['count'],
+      },
+    };
+
+    /** PATH A — upstream alone: the raw tool goes straight to the REAL converter. */
+    function wireUpstreamAlone(tool: unknown): string {
+      return JSON.stringify((newModel().invocationParams({ tools: [tool] }) as any).tools);
+    }
+
+    /**
+     * PATH B — ours, then upstream. `applyGeminiToolSchemaSanitizer` patches `bindTools`, so the tool
+     * must travel THROUGH `bindTools` to be sanitized; calling `invocationParams` directly bypasses
+     * the override entirely and would make both paths look identical.
+     */
+    function wireSanitizedFirst(tool: unknown): string {
+      const model = newModel();
+      let forwarded: unknown[] | undefined;
+      const realBind = model.bindTools.bind(model);
+      (model as any).bindTools = (tools: unknown[], kwargs?: unknown) => {
+        forwarded = tools;
+        return realBind(tools as never, kwargs as never);
+      };
+      applyGeminiToolSchemaSanitizer(model);
+      model.bindTools([tool as never]);
+      return JSON.stringify((model.invocationParams({ tools: forwarded }) as any).tools);
+    }
+
+    it('$ref: the real converter THROWS on its own; with ours first it converts and no $ref reaches the wire', () => {
+      let thrown: unknown;
+      try {
+        wireUpstreamAlone(refTool);
+      } catch (error) {
+        thrown = error;
+      }
+
+      // Keyed on TYPE, not on upstream's message prose, which is one reword away from lying.
+      // `InvalidInputError` itself is not importable — it lives in @langchain/google's internal
+      // `dist/utils/errors.js`, which the package `exports` map does not expose
+      // (ERR_PACKAGE_PATH_NOT_EXPORTED, measured) — so this pairs the branded-error type check that
+      // IS public with the class's own `name` field, which is an identifier rather than a sentence.
+      expect(
+        thrown,
+        'the real converter accepted $ref — upstream may have caught up'
+      ).toBeDefined();
+      expect(LangChainError.isInstance(thrown)).toBe(true);
+      expect((thrown as Error).name).toBe('InvalidInputError');
+
+      // Read the PARAMETERS subtree, not the whole wire: the tool name and description are prose on
+      // the same payload, so a whole-string match could be satisfied by a keyword mentioned there.
+      const params = JSON.parse(wireSanitizedFirst(refTool))[0].functionDeclarations[0].parameters;
+      const schemaJson = JSON.stringify(params);
+      expect(schemaJson).not.toContain('$ref');
+      expect(schemaJson).not.toContain('$defs');
+      // The property survives the reference collapse, untyped — the documented GS2-68 deferral.
+      expect(params.required).toEqual(['size']);
+      expect(params.properties.size).toEqual({});
+    });
+
+    it('exclusive bound: the real converter DISCARDS it; with ours first it arrives as an inclusive minimum', () => {
+      const alone = JSON.parse(wireUpstreamAlone(boundTool))[0].functionDeclarations[0].parameters;
+      // Upstream drops the keyword and does not translate it, so the constraint is gone entirely.
+      expect(alone.properties.count.exclusiveMinimum).toBeUndefined();
+      expect(alone.properties.count.minimum).toBeUndefined();
+
+      const ours = JSON.parse(wireSanitizedFirst(boundTool))[0].functionDeclarations[0].parameters;
+      expect(ours.properties.count.exclusiveMinimum).toBeUndefined();
+      expect(ours.properties.count.minimum).toBe(5);
+    });
   });
 
   it('after wiring: tools bound via the override reach the real converter with only supported keywords', () => {
