@@ -197,7 +197,8 @@ describe('the credential a Vertex hint names (CFG-58)', () => {
   /**
    * EXT-152 — the sixth population, and the one case here where the diagnosis was already RIGHT.
    * This session really is on ADC, so naming ADC is correct and must stay correct; what was wrong
-   * is that the remedy could not work. `google-auth-library` (measured on 10.9.1) resolves
+   * is that the remedy could not work. `google-auth-library` (measured on 10.9.1, re-measured
+   * unchanged on 11.0.2 — same order, same two line numbers) resolves
    * `GOOGLE_APPLICATION_CREDENTIALS` in `getApplicationDefaultAsync` at :258, BEFORE it reads at
    * :270 the well-known file that `gcloud auth application-default login` writes. So the user runs
    * the command, it reports success, and the failure survives it.

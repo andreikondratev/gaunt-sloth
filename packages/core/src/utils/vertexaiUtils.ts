@@ -128,10 +128,11 @@ function isCredentialContent(value: string): boolean {
  * `systemUtils` accessor like every other environment read in this package.
  *
  * It is not client-derived because there is nothing client-derived to be had. Measured on
- * google-auth-library 10.9.1: `GoogleAuth.keyFilename` is populated only from constructor options,
- * so on a Vertex client it is `undefined` both with and without the variable set, and stays
- * `undefined` after a resolution attempt. The only artifact a successful resolution leaves behind is
- * `jsonContent` — the parsed key file, which holds the private key and must never be printed.
+ * google-auth-library 10.9.1 and re-measured unchanged across the major bump to 11.0.2:
+ * `GoogleAuth.keyFilename` is populated only from constructor options, so on a Vertex client it is
+ * `undefined` both with and without the variable set, and stays `undefined` after a resolution
+ * attempt. The only artifact a successful resolution leaves behind is `jsonContent` — the parsed
+ * key file, which holds the private key and must never be printed.
  *
  * Mirrors `googleauth.js` rather than reinventing it: both spellings, upper case first, and an empty
  * value falls through to the well-known file instead of counting as set.
