@@ -105,9 +105,14 @@ import {
   neutralizeClosingTag,
   RATER_DEFAULT_TIMEOUT_MS,
   truncateUserMessage,
+  describeRaterCallFailure,
+  renderRaterCallFailure,
 } from '#src/core/shell/rater.js';
+import type { RaterCallFailure } from '#src/core/shell/rater.js';
 import type { RaterOutcome } from '#src/core/shell/raterVocabulary.js';
 import { debugLog, debugLogError } from '#src/utils/debugUtils.js';
+import { collectSecretValues } from '#src/utils/redactSecrets.js';
+import { env } from '#src/utils/systemUtils.js';
 
 /** The tool that hands the checker what it is ruling on. It must be called before any decision. */
 export const ALIGNMENT_TOOL_VIEW = 'viewCommandSuggestedByAgent';
@@ -753,8 +758,31 @@ export interface AlignmentCallCapture {
   /** What the checker decided, or the fail-closed escalation. */
   decision?: AlignmentDecision;
   /** Set when the decision is the gate's rather than the checker's. */
-  failClosed?: 'no-model' | 'timeout' | 'no-decision' | 'threw';
+  failClosed?: AlignmentFailClosedCause;
+  /**
+   * [[EXT-133]] — the provider's own account of a check that never reached the model, when the
+   * `threw` arm carried one. The classifier has carried this since [[EXT-82]], as
+   * `RaterCallCapture.providerError` in `./approvalCapture.js`; the checker did not,
+   * and the cost was measured rather than imagined: the EXT-127 sonnet sweep recorded ten cells of
+   * *"the auto-rater call failed"* with `durationMs` under a second, and neither the per-case JSON
+   * nor the run log kept one word of why — so the node it raised sat open for weeks with no way to
+   * tell a rejected request from an unreachable network.
+   *
+   * Sanitised where it is built ({@link describeRaterCallFailure}), for the same reason the
+   * classifier's is: the value is carried into a reason string a user reads live, where the
+   * archive's own redaction pass does not run.
+   */
+  providerError?: RaterCallFailure;
 }
+
+/**
+ * Why the gate produced a decision the checker never made.
+ *
+ * Named rather than inlined because two things now key on it — the capture field above and
+ * {@link alignmentFailClosed}'s reason table — and a union spelled twice is one edit away from a
+ * cause that records but never explains itself.
+ */
+export type AlignmentFailClosedCause = 'no-model' | 'timeout' | 'no-decision' | 'threw';
 
 /** Options for {@link runAlignmentCheck}. */
 export interface AlignmentCheckOptions {
@@ -797,6 +825,47 @@ export const ALIGNMENT_FAIL_CLOSED: AlignmentDecision = {
   kind: 'escalate',
   reason: `${ALIGNMENT_COULD_NOT_CHECK_PREFIX}, so the rater's own decision stands.`,
 };
+
+/**
+ * [[EXT-133]] — the fail-closed decision for a SPECIFIC cause, carrying the provider's own account
+ * when there was one.
+ *
+ * **What this changes is what a human is told, and nothing else.** `kind` stays `escalate` and the
+ * caller contract above is untouched: the classifier's action still stands on every one of these.
+ * The prefix is kept verbatim at the head of every reason, because {@link isAlignmentFailClosed} —
+ * and therefore both call sites' entire behaviour — keys on that prefix and not on the prose after
+ * it, which is what makes varying the tail safe.
+ *
+ * **Why the tail must vary.** A checker that could not be REACHED and a checker that looked at the
+ * command and DECLINED are different events with opposite remedies — one is a broken configuration
+ * the user can fix, the other is the gate working — and {@link ALIGNMENT_FAIL_CLOSED} rendered all
+ * four causes, plus every provider rejection, as one sentence that named none of them. That is the
+ * silence [[EXT-133]] was filed about: the failure is invisible because it fails in the SAFE
+ * direction, so it is read as a check that declined rather than one that never ran, and the natural
+ * response to a gate that seems to decline everything is to turn the rung down.
+ *
+ * Deliberately mirrors `failClosedVerdict` in `./rater.js`, down to the shape of the table, because
+ * the two gates fail in the same four ways and a reader comparing an archive's rater and checker
+ * records should not have to learn two vocabularies.
+ */
+export function alignmentFailClosed(
+  cause: AlignmentFailClosedCause,
+  options?: { timeoutMs?: number; failure?: RaterCallFailure }
+): AlignmentDecision {
+  const providerClause = options?.failure
+    ? renderRaterCallFailure(options.failure, 'the alignment check call')
+    : undefined;
+  const detail: Record<AlignmentFailClosedCause, string> = {
+    'no-model': 'no tool-capable checker model is configured, so nothing checked it',
+    timeout: `the checker did not answer within ${options?.timeoutMs ?? RATER_DEFAULT_TIMEOUT_MS}ms — this is the gate giving up, not a judgement about the command`,
+    'no-decision': `the checker answered but never called a decision tool within ${ALIGNMENT_MAX_TURNS} turns`,
+    threw: providerClause ?? 'the alignment check call failed',
+  };
+  return {
+    kind: 'escalate',
+    reason: `${ALIGNMENT_COULD_NOT_CHECK_PREFIX}: ${detail[cause]}. The rater's own decision stands.`,
+  };
+}
 
 /**
  * Whether a decision is one this gate produced because it could not obtain a check, as opposed to
@@ -958,7 +1027,7 @@ export async function runAlignmentCheck(
 
   if (!model || typeof model.bindTools !== 'function') {
     debugLog('runAlignmentCheck: no tool-capable model for the alignment checker; failing closed.');
-    return settle(ALIGNMENT_FAIL_CLOSED, 'no-model');
+    return settle(alignmentFailClosed('no-model'), 'no-model');
   }
 
   const toolSet = createAlignmentTools(subject, options.home);
@@ -979,7 +1048,7 @@ export async function runAlignmentCheck(
       const raced = await Promise.race([bound.invoke(conversation), deadline]);
       if (raced === TIMEOUT) {
         debugLog(`runAlignmentCheck: timed out after ${timeoutMs}ms; failing closed.`);
-        return settle(ALIGNMENT_FAIL_CLOSED, 'timeout');
+        return settle(alignmentFailClosed('timeout', { timeoutMs }), 'timeout');
       }
       const answer = raced as AIMessage;
       conversation.push(answer);
@@ -1020,10 +1089,26 @@ export async function runAlignmentCheck(
       if (decided) return settle(decided);
     }
     debugLog('runAlignmentCheck: the checker never called a decision tool; failing closed.');
-    return settle(ALIGNMENT_FAIL_CLOSED, 'no-decision');
+    return settle(alignmentFailClosed('no-decision'), 'no-decision');
   } catch (error) {
-    debugLogError('runAlignmentCheck', error);
-    return settle(ALIGNMENT_FAIL_CLOSED, 'threw');
+    // [[EXT-133]] — everything that READS the thrown value is guarded, for the reason the
+    // classifier's identical arm gives: describing a failure touches the error's own properties and
+    // the config's secret values, any of which a thrown value can make throw in turn. **Failing to
+    // EXPLAIN the failure must never become failing to fail CLOSED** — the diagnostic degrades to
+    // the detail-less spelling and the gate is unmoved.
+    let failure: RaterCallFailure | undefined;
+    try {
+      debugLogError('runAlignmentCheck', error);
+      failure = describeRaterCallFailure(error, {
+        command: subject.command,
+        home: options.home,
+        secrets: collectSecretValues(config, env),
+      });
+    } catch (describeError) {
+      debugLogError('runAlignmentCheck: could not describe the failure', describeError);
+    }
+    if (capture && failure) capture.providerError = failure;
+    return settle(alignmentFailClosed('threw', { failure }), 'threw');
   } finally {
     if (timer) clearTimeout(timer);
   }

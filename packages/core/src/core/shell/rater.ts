@@ -344,13 +344,21 @@ export function describeRaterCallFailure(
  *
  * A trailing full stop is trimmed because every caller supplies its own; a message that ends in one
  * would otherwise render a double period in the middle of a sentence.
+ *
+ * [[EXT-133]] — `call` names WHICH call failed, because the alignment checker is a second gate call
+ * that fails the same way and must not report itself as the auto-rater. It is a parameter rather
+ * than a second renderer so the one-writer property above survives: both gates still compose the
+ * status, the carried message and the withheld case identically, and only the subject differs.
  */
-export function renderRaterCallFailure(failure: RaterCallFailure): string {
+export function renderRaterCallFailure(
+  failure: RaterCallFailure,
+  call = 'the auto-rater call'
+): string {
   const message = failure.message?.replace(/[.\s]+$/, '');
   const rejected =
     failure.status === undefined
-      ? 'the auto-rater call failed'
-      : `the provider rejected the auto-rater call with HTTP ${failure.status}`;
+      ? `${call} failed`
+      : `the provider rejected ${call} with HTTP ${failure.status}`;
   if (message) return `${rejected}: ${message}`;
   if (failure.withheld) {
     return `${rejected}, and its message is withheld because it carried the request or a credential`;

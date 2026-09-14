@@ -10,9 +10,11 @@ import {
   ALIGNMENT_TOOL_ESCALATE,
   ALIGNMENT_TOOL_SUGGEST,
   ALIGNMENT_TOOL_VIEW,
+  type AlignmentCallCapture,
   type AlignmentRound,
   type AlignmentSubject,
   alignmentApprovalRefusal,
+  alignmentFailClosed,
   buildAlignmentMessages,
   buildAlignmentSystemPrompt,
   buildAlignmentUserMessage,
@@ -551,5 +553,148 @@ describe('[[EXT-127]] runAlignmentCheck', () => {
     );
     expect(decision.kind).not.toBe('approve');
     expect(isAlignmentFailClosed(decision)).toBe(true);
+  });
+});
+
+/**
+ * [[EXT-133]] — **a check that could not be reached must not read like a check that declined.**
+ *
+ * The node was filed because a `claude-sonnet-5` sweep produced ten cells of *"the call failed"*
+ * with no recorded reason anywhere — not in the per-case JSON, not in the run log. The cause of that
+ * sweep's failure is not reproducible at this commit (see the node), but the SILENCE is, and it is
+ * what made the node unanswerable for weeks. These pin the silence closed.
+ *
+ * Written against the four causes as a SET rather than one at a time, deliberately. The defect being
+ * pinned is not "cause X has the wrong words", it is "every cause produces the SAME words" — and an
+ * assertion that each reason contains the shared prefix passes just as happily when all four are
+ * byte-identical, which is exactly the state this replaces.
+ */
+describe('[[EXT-133]] a fail-closed alignment check says WHY', () => {
+  /** A model whose bound `invoke` throws whatever the caller hands over. */
+  const throwingModel = (error: unknown): BaseChatModel =>
+    ({
+      bindTools: () => ({
+        invoke: async () => {
+          throw error;
+        },
+      }),
+    }) as unknown as BaseChatModel;
+
+  it('gives each cause its own reason, so no two are confusable', () => {
+    const reasons = [
+      alignmentFailClosed('no-model').reason,
+      alignmentFailClosed('timeout', { timeoutMs: 30000 }).reason,
+      alignmentFailClosed('no-decision').reason,
+      alignmentFailClosed('threw').reason,
+    ];
+    // The differential IS the assertion: four causes, four distinct sentences.
+    expect(new Set(reasons).size).toBe(4);
+    // …and every one still identifies itself to the callers, which key on the prefix alone.
+    for (const reason of reasons)
+      expect(reason.startsWith(ALIGNMENT_COULD_NOT_CHECK_PREFIX)).toBe(true);
+  });
+
+  it('names the cause in words a user can act on', () => {
+    expect(alignmentFailClosed('no-model').reason).toContain('no tool-capable checker model');
+    expect(alignmentFailClosed('timeout', { timeoutMs: 30000 }).reason).toContain('30000ms');
+    expect(alignmentFailClosed('no-decision').reason).toContain('never called a decision tool');
+  });
+
+  it("carries the provider's own account of a rejected call into the reason", () => {
+    const reason = alignmentFailClosed('threw', {
+      failure: { status: 400, message: 'model not found' },
+    }).reason;
+    expect(reason).toContain('400');
+    expect(reason).toContain('model not found');
+    // Named as the CHECKER's call: the classifier is a different call that fails the same way, and
+    // an archive that labelled both "the auto-rater" would send a reader to the wrong model.
+    expect(reason).toContain('the alignment check call');
+    expect(reason).not.toContain('auto-rater');
+  });
+
+  it('records the provider error on the capture, not only in the reason', async () => {
+    const error = Object.assign(new Error('overloaded_error: server is busy'), { status: 529 });
+    const captures: AlignmentCallCapture[] = [];
+    const decision = await runAlignmentCheck(subjectOf(), CONFIG, {
+      model: throwingModel(error),
+      userMessages: [],
+      onCapture: (capture) => captures.push(capture),
+    });
+    expect(captures).toHaveLength(1);
+    expect(captures[0].failClosed).toBe('threw');
+    expect(captures[0].providerError).toEqual({
+      status: 529,
+      message: 'overloaded_error: server is busy',
+    });
+    // The live reason and the archived record describe the same failure.
+    expect(decision.reason).toContain('529');
+  });
+
+  it('never repeats the rated command back through the provider message', async () => {
+    // A provider that echoes our request would otherwise put the command in a user-visible string.
+    const error = new Error('invalid request: rm -rf ./dist was rejected');
+    const captures: AlignmentCallCapture[] = [];
+    const decision = await runAlignmentCheck(subjectOf({ command: 'rm -rf ./dist' }), CONFIG, {
+      model: throwingModel(error),
+      userMessages: [],
+      onCapture: (capture) => captures.push(capture),
+    });
+    expect(captures[0].providerError?.withheld).toBe(true);
+    expect(captures[0].providerError?.message).toBeUndefined();
+    expect(decision.reason).not.toContain('rm -rf ./dist');
+  });
+
+  it('still fails CLOSED when describing the failure is itself impossible', async () => {
+    // The guard that matters: a thrown value whose own `message` getter throws must not turn a
+    // gate failure into an unhandled rejection. The decision is what is asserted, not the prose.
+    const hostile = {
+      get message() {
+        throw new Error('nope');
+      },
+    };
+    const decision = await runAlignmentCheck(subjectOf(), CONFIG, {
+      model: throwingModel(hostile),
+      userMessages: [],
+    });
+    expect(isAlignmentFailClosed(decision)).toBe(true);
+    expect(decision.kind).toBe('escalate');
+  });
+
+  it('reads differently from a checker that looked at the command and DECLINED', async () => {
+    const declined = await runAlignmentCheck(subjectOf(), CONFIG, {
+      model: (() => {
+        let turn = 0;
+        const invoke = vi.fn(async () => {
+          const calls =
+            turn++ === 0
+              ? [{ name: ALIGNMENT_TOOL_VIEW, args: {} }]
+              : [
+                  {
+                    name: ALIGNMENT_TOOL_ESCALATE,
+                    args: { reason: 'the user never asked for it' },
+                  },
+                ];
+          return new AIMessage({
+            content: '',
+            tool_calls: calls.map((c, i) => ({ ...c, id: `c-${turn}-${i}` })),
+          });
+        });
+        return { bindTools: vi.fn(() => ({ invoke })) } as unknown as BaseChatModel;
+      })(),
+      userMessages: ['do something else entirely'],
+    });
+    const unreachable = await runAlignmentCheck(subjectOf(), CONFIG, {
+      model: throwingModel(Object.assign(new Error('connection refused'), { status: 503 })),
+      userMessages: ['do something else entirely'],
+    });
+
+    // Both escalate — that is the contract and it is deliberately unchanged.
+    expect(declined.kind).toBe('escalate');
+    expect(unreachable.kind).toBe('escalate');
+    // The whole point of the node: a human, and the archive, can tell them apart.
+    expect(isAlignmentFailClosed(declined)).toBe(false);
+    expect(isAlignmentFailClosed(unreachable)).toBe(true);
+    expect(declined.reason).toBe('the user never asked for it');
+    expect(unreachable.reason).toContain('503');
   });
 });
