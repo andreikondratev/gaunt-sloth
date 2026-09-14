@@ -14,10 +14,11 @@
  *
  * Stream discipline (matches how the plain surface prints tool activity today): the block goes out
  * through `displayToolIndication` — same stdout channel, same `consoleLevel` gate and session-log
- * treatment as the existing tool notices — so scripted consumers that already silence INFO chatter
- * silence a successful call too. **The level it is gated at is the call's OUTCOME, not this call
- * site** (`TOOL_STATUS_LEVEL` below), so a quieted console keeps the failures. Colour is used exactly when the
- * resolved `useColour` (the CFG-30 ladder in `config/colour.ts`) says so — TUI-C35 removed the
+ * treatment as the existing tool notices. **The level it is gated at is the call's OUTCOME, not
+ * this call site** (`TOOL_STATUS_LEVEL` below), so a quieted console keeps the failures — and a
+ * successful row outranks the INFO chatter announcing the same call, so silencing that chatter
+ * does not silence the row. Colour is used exactly when the resolved `useColour` (the CFG-30
+ * ladder in `config/colour.ts`) says so — TUI-C35 removed the
  * local `&& stdout.isTTY` narrowing this module used to apply on top, which was redundant against
  * the ladder's own rung-4 TTY auto-detection everywhere except `FORCE_COLOR` on a pipe, the one
  * case that variable exists to serve. An ordinary piped run is therefore still clean monochrome
@@ -48,11 +49,20 @@ const INDENT = '    ';
 /**
  * [[TUI-C108]] — **how loud a finished tool call is, decided by how it ENDED.**
  *
- * A non-interactive `gth review` spends three lines on every tool call, and the reporter of
- * issue #445 wants only the failures. That was not expressible before this map, because the row's
- * level was a property of the call site: each `consoleLevel` rung that hid a success hid a failure
- * with it. Keying the level on the tone instead makes `consoleLevel: "display"` mean "tell me when
- * a tool BROKE", which is the setting that was being asked for.
+ * Keying the level on the tone is what makes the outcome expressible at all: a level fixed at the
+ * call site forces every `consoleLevel` rung that hides a success to hide a failure with it, so
+ * "tell me when a tool BROKE" lands on no setting.
+ *
+ * [[TUI-C109]] — **`success` sits at DISPLAY, one rung above the chatter announcing the same
+ * call.** The status row is the line that names the tool and carries its arguments
+ * (`✓ 📁 read_file(path=README.md)`), so it is the one line per call worth keeping once a run is
+ * quieted; `Requested tools:` and `Thinking...` are INFO and drop away beneath it. That is what
+ * `consoleLevel: "display"` is asked for, and paired with `toolOutputPreviewLines: 0` it is
+ * exactly one line per tool call.
+ *
+ * Outcome-levelling survives that raise because `warn` and `error` stay strictly louder: every
+ * rung that keeps a success keeps a failure too, and `warning` and above still keep the failures
+ * alone. The row is the reporter's kept line; it is not a return to one level for every outcome.
  *
  * It reads off {@link toolStatusDisplay}'s tone rather than re-deriving from `isError`, so the
  * level cannot disagree with the glyph and words printed beside it — including the case where a
@@ -63,7 +73,7 @@ const INDENT = '    ';
  * asked for failures only — is not shown a negotiation round that is still in progress.
  */
 const TOOL_STATUS_LEVEL: Record<ToolStatusTone, StatusLevel> = {
-  success: StatusLevel.INFO,
+  success: StatusLevel.DISPLAY,
   warn: StatusLevel.WARNING,
   error: StatusLevel.ERROR,
 };

@@ -155,6 +155,16 @@ and `info`; a warning notice from `debug` through `warning`. From `display` onwa
 command whose feedback is informational prints nothing at all. An enabled session log records every
 notice in full either way, whatever the level.
 
+A tool call quietens in two steps rather than one. At `info` you get all three of its lines: the
+`Requested tools:` announcement, the `Thinking...` line while the model works, and the status row
+the call finishes with — `✓ 📁 read_file(path=README.md)`, carrying the arguments it was called
+with. At `display` the two announcements go and the row stays, along with as much of the tool's
+output as the preview depth allows; pairing it with
+[`toolOutputPreviewLines: 0`](#tool-output-preview-depth-tooloutputpreviewlines) is what leaves
+exactly one line per tool call. From `warning` onwards the successful row goes too, and a tool call
+shows up only when something was wrong with it — a failure keeps its row and enough of the error to
+explain itself, and an auto-rater clarification keeps its own.
+
 ## Tool output preview depth (toolOutputPreviewLines)
 
 Reviewing a large pull request, the agent reads a dozen files, and each read prints ten greyed lines
