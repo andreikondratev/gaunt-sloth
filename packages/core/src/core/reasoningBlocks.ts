@@ -58,10 +58,6 @@ export function segmentAssistantContent(content: unknown): ThinkSegment[] {
   }
   const segments: ThinkSegment[] = [];
   for (const block of content) {
-    if (typeof block === 'string') {
-      if (block.length > 0) segments.push({ kind: 'answer', text: block });
-      continue;
-    }
     if (!isContentBlock(block)) continue;
     const text = typeof block.text === 'string' ? block.text : '';
     if (text.length === 0) continue;

@@ -33,9 +33,14 @@ describe('reasoningBlocks (CFG-33)', () => {
       ],
     },
     { label: 'a bare functionCall block', content: [{ type: 'functionCall', text: '' }] },
-    // `.text` maps a bare string in the array straight through, alongside typed blocks. Nothing in
-    // gsloth constructs this shape, but the equivalence claim is about what `.text` returns, not
-    // about the shapes we happen to build — so the table has to cover it or the claim is untested.
+    // `.text` is defined over `contentBlocks` (@langchain/core 1.2.10 onward), which types every
+    // element and then keeps only `type: 'text'`. A bare string element carries no type, so it is
+    // not part of `.text` — and `MessageContent` never permitted one anyway: it is
+    // `string | Array<ContentBlock>`, and a string does not satisfy the `ContentBlock` interface.
+    // Nothing in gsloth constructs this shape, and every caller feeds provider output rather than
+    // content we build. The row stays because the equivalence claim is about what `.text` returns
+    // for anything we may be HANDED, not about the shapes we happen to construct — so a future
+    // change that reintroduced a bare-string path here would be caught rather than silently drift.
     {
       label: 'a bare string beside a text block',
       content: ['bare string, ', { type: 'text', text: 'then a block' }],
