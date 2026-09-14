@@ -67,22 +67,45 @@ function liveLine(text: string): RegExp {
 }
 
 /**
- * The job with its whole-line comments removed, for the assertions that say a construct must NOT
- * appear. This job documents the traps it avoids by name — the post-bump trap quotes
- * `packages/core/package.json`, the loudness note quotes `continue-on-error` — and a substring
- * search over the raw text cannot tell a warning about a construct from the construct itself. The
- * stripped form is also the honest one: a commented-out `ref: main` is inert YAML.
+ * The job with its comments removed — whole-line AND trailing — for the assertions that say a
+ * construct must NOT appear. This job documents the traps it avoids by name — the post-bump trap
+ * quotes `packages/core/package.json`, the loudness note quotes `continue-on-error` — and a
+ * substring search over the raw text cannot tell a warning about a construct from the construct
+ * itself. Trailing comments are stripped for the same reason and not only whole lines: the guard
+ * must not red because someone explained a live line in prose beside it, which is exactly the
+ * false-alarm shape this job exists to avoid producing. The stripped form is also the honest one —
+ * a commented-out `ref: main` is inert YAML.
  */
 function code(text: string): string {
   return text
     .split('\n')
     .filter((line) => !/^\s*#/.test(line))
+    .map((line) => line.replace(/\s+#.*$/, ''))
     .join('\n');
 }
 
 describe('OPS-42 the post-publish smoke is wired into the release pipeline', () => {
   it('has the helper script', () => {
     expect(existsSync(HELPER), 'scripts/post-publish-smoke.mjs is missing').toBe(true);
+  });
+
+  it('reads live YAML, not the prose beside it', () => {
+    // The negative assertions below run over `code()`, so this pins what it strips. A guard that
+    // fired because someone explained a live line in prose would be the same false alarm the job
+    // itself is built to avoid producing.
+    const stripped = code(
+      [
+        '    # ref: main here would be the post-bump trap',
+        '      contents: read # and never packages/core/package.json',
+        '      run: node ci-scripts/scripts/post-publish-smoke.mjs',
+      ].join('\n')
+    );
+    expect(stripped).not.toContain('ref: main');
+    expect(stripped).not.toContain('packages/core/package.json');
+    // Control: the live YAML on those same lines survives, so the stripping is not just emptying
+    // the text and passing every assertion for the wrong reason.
+    expect(stripped).toContain('contents: read');
+    expect(stripped).toContain('node ci-scripts/scripts/post-publish-smoke.mjs');
   });
 
   it('runs the helper as a job of the release workflow', () => {
