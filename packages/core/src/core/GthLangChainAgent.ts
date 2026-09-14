@@ -7,7 +7,9 @@ import {
   resolveInterruptToolNames,
   resolveShellApprovalGate,
 } from '#src/config.js';
+import type { GthAdvertisedTool, GthAdvertisedTools } from '#src/core/types.js';
 import { GthAgentInitOptions, GthCommand, StatusLevel } from '#src/core/types.js';
+import { approvalSubjectForToolName } from '#src/core/approvals/mcpSubjects.js';
 import { GthAbstractAgent } from '#src/core/GthAbstractAgent.js';
 import { debugLog, debugLogObject } from '#src/utils/debugUtils.js';
 import { buildSystemMessages, formatToolCalls, readModePrompt } from '#src/utils/llmUtils.js';
@@ -820,7 +822,8 @@ export class GthLangChainAgent extends GthAbstractAgent {
     debugLog(`User config tools loaded: ${flattenedConfigTools.length}`);
 
     // Combine all tools, then apply the allowedTools name allow-list when configured.
-    let tools = [...resolvedTools, ...flattenedConfigTools];
+    const advertisedTools = [...resolvedTools, ...flattenedConfigTools];
+    let tools = advertisedTools;
     if (Array.isArray(allowedTools)) {
       // Filter named tools by the allow-list. Entries match by exact name, or glob-style when
       // they contain `*` (e.g. `mcp__unimarket__*`) — see isToolAllowed. ServerTools
@@ -830,6 +833,21 @@ export class GthLangChainAgent extends GthAbstractAgent {
       // filter and cannot target them.
       tools = tools.filter((tool) => !tool.name || isToolAllowed(tool.name, allowedTools));
     }
+
+    // BATCH-32 — record the inventory for `gth eval`'s tool-coverage denominator.
+    //
+    // **It is taken from `advertisedTools` (pre-filter), NOT from `tools`**, and the two differ
+    // exactly when an allow-list is configured. Reading it off `tools` would report the narrowed
+    // list as the whole surface: narrow `allowedTools` to the three tools a suite calls and every
+    // suite reads 100%, with the tools nobody exercises gone from the bottom of the fraction
+    // instead of named as uncovered. The allow-list is a deliberate choice a run should be able to
+    // SEE, so the removed tools are carried as their own category rather than subtracted.
+    //
+    // Unconditional — outside the `tools.length > 0` header below — because "no tools were
+    // advertised" is a finding, not the absence of one. Leaving it unrecorded would make a session
+    // that loaded nothing indistinguishable from an agent that cannot report an inventory at all,
+    // and a coverage floor would then pass vacuously on the run where every tool went missing.
+    this.recordAdvertisedTools(this.buildAdvertisedTools(advertisedTools, tools));
 
     if (tools.length > 0) {
       const toolNames = tools
@@ -1360,5 +1378,64 @@ export class GthLangChainAgent extends GthAbstractAgent {
       ...(systemPrompt ? { systemPrompt } : {}),
     });
     debugLog('React agent created successfully');
+  }
+
+  /**
+   * BATCH-32 — build the advertised-tool inventory from the pre-allow-list list and the list that
+   * survived it, for {@link GthAbstractAgent.recordAdvertisedTools}.
+   *
+   * `advertised` is every tool loaded; `retained` is what the `allowedTools` filter left (the same
+   * array when no allow-list is configured, in which case nothing is filtered out). The difference
+   * is computed by NAME rather than by object identity: the filter preserves identity today, but a
+   * coverage report keyed on names must not silently start reporting everything as filtered-out if
+   * some future step maps or wraps a tool on its way through.
+   *
+   * ## Attribution is resolved against the CONFIGURED server keys, never by splitting the name
+   *
+   * An MCP tool is registered as `mcp__<server>__<tool>`, but a configured `mcpServers` key may
+   * itself contain the separator, so splitting on it attributes such a tool to a shorter key that
+   * also happens to be configured — one server's tool reported under another server's name. This
+   * delegates to `approvalSubjectForToolName`, which scans the configured keys instead and yields
+   * `UNRESOLVED_MCP_SERVER` where zero or two of them explain a name. That is the same resolution
+   * the approvals gate uses, so a per-server coverage breakdown and a per-server trust decision can
+   * never disagree about which server a tool belongs to.
+   *
+   * ## Nameless tools are counted, not listed
+   *
+   * A nameless ServerTool has no name to put in either half of the fraction (see
+   * {@link GthAdvertisedTools.unnamed}), so it is tallied and excluded from `tools`. Duplicate
+   * names collapse to one entry: the model sees one tool per name, and counting a name twice in
+   * the denominator would make full coverage arithmetically unreachable.
+   */
+  private buildAdvertisedTools(
+    advertised: readonly { name?: string }[],
+    retained: readonly { name?: string }[]
+  ): GthAdvertisedTools {
+    const configuredMcpServers = Object.keys(this.config?.mcpServers ?? {});
+    const describe = (name: string): GthAdvertisedTool => {
+      const subject = approvalSubjectForToolName(name, configuredMcpServers);
+      return subject.kind === 'mcpTool' ? { name, server: subject.server } : { name };
+    };
+
+    const namesOf = (list: readonly { name?: string }[]): string[] =>
+      list.map((tool) => tool?.name).filter((name): name is string => !!name);
+
+    const retainedNames = new Set(namesOf(retained));
+    const tools: GthAdvertisedTool[] = [];
+    const filteredOut: GthAdvertisedTool[] = [];
+    const seen = new Set<string>();
+    for (const name of namesOf(advertised)) {
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const entry = describe(name);
+      tools.push(entry);
+      if (!retainedNames.has(name)) filteredOut.push(entry);
+    }
+
+    return {
+      tools,
+      filteredOut,
+      unnamed: advertised.length - namesOf(advertised).length,
+    };
   }
 }

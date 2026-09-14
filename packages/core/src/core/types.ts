@@ -130,6 +130,67 @@ export interface GthToolResult {
 }
 
 /**
+ * BATCH-32 — one tool the agent ADVERTISED to the model, with the server it came from.
+ *
+ * "Advertised" is the whole point of the shape: this is a tool the model was offered, whether or
+ * not it was ever called, and whether or not an `allowedTools` allow-list later removed it. It is
+ * the denominator half of `gth eval`'s tool-coverage figure, and the numerator (`GthRunStats.tools`)
+ * is the names that were actually invoked.
+ */
+export interface GthAdvertisedTool {
+  /** The registered tool name, exactly as the model would call it. */
+  name: string;
+  /**
+   * The `mcpServers` key this tool belongs to, resolved against the user's own configured keys —
+   * never by splitting the name (a key may itself contain the separator, and splitting then
+   * attributes a tool to a shorter key that also happens to be configured).
+   *
+   * Three states, and the distinction is load-bearing for a per-server breakdown:
+   * - **absent** — the name is outside the MCP namespace: a built-in, or a tool the user wired into
+   *   their own `tools` config. It belongs to no server.
+   * - **a non-empty string** — the configured `mcpServers` key that explains the name.
+   * - **the empty string** — `UNRESOLVED_MCP_SERVER` from `core/approvals/mcpSubjects.js`: an
+   *   MCP-namespaced name that no configured key explains, or that two nested keys both explain.
+   *   The tool is real and counts; only its attribution is unknown, and a report must say so
+   *   rather than guess.
+   */
+  server?: string;
+}
+
+/**
+ * BATCH-32 — what the agent offered the model at the last `init`: the coverage DENOMINATOR, plus
+ * the two categories that would otherwise distort it.
+ *
+ * **`tools` is the list from BEFORE the `allowedTools` allow-list narrows anything**, and that is
+ * the entire reason this type exists rather than the post-filter list the `Loaded tools:` header
+ * already prints. A denominator that has already had the filtered-out tools removed from it reports
+ * a flattering number: narrow an allow-list to the three tools a suite happens to call and coverage
+ * reads 3/3, with the 38 tools nobody exercises silently gone from the bottom of the fraction.
+ * {@link filteredOut} is therefore reported as its own category rather than dropped.
+ */
+export interface GthAdvertisedTools {
+  /** Every NAMED tool loaded, before any allow-list narrowing. In load order, deduplicated. */
+  tools: GthAdvertisedTool[];
+  /**
+   * The subset of {@link tools} an `allowedTools` allow-list removed, so a report can name them
+   * instead of letting them vanish. Empty when no allow-list is configured.
+   */
+  filteredOut: GthAdvertisedTool[];
+  /**
+   * How many loaded tools carry no name at all — provider-native "magic objects" such as Anthropic
+   * web search, which the allow-list deliberately retains because a name-based filter cannot target
+   * them.
+   *
+   * **A count, never names, because there are none to give.** A nameless tool cannot appear in the
+   * numerator (`GthRunStats.tools` is names) and so must not appear in the denominator either: it
+   * would be permanently uncoverable and would make 100% unreachable, which turns a coverage floor
+   * into a number nobody can satisfy. Counting it in neither place and REPORTING the count is what
+   * keeps the fraction honest without hiding that these tools exist.
+   */
+  unnamed: number;
+}
+
+/**
  * Typed events emitted by the agent's {@link GthAgentInterface#streamWithEvents} path.
  * This is the renderer contract shared by every consumer of an agent run — the AG-UI
  * SSE encoder, the (future) TUI, and any embedder — so it is intentionally agnostic of
@@ -737,6 +798,25 @@ export interface GthAgentInterface {
    * the runner records no analytics for that turn. Reading must never throw.
    */
   getRunStats?(): GthRunStats;
+
+  /**
+   * BATCH-32 — what this agent ADVERTISED to the model at the last `init`: the full pre-allow-list
+   * tool inventory, the tools an `allowedTools` list removed, and how many nameless ones were
+   * retained. `gth eval` reads it as the coverage denominator beside {@link getRunStats}'s numerator.
+   *
+   * **Not part of {@link GthRunStats}, deliberately.** Run stats are a per-TURN tally the
+   * accumulator folds messages into and {@link resetRunStats} clears at every turn boundary; the
+   * inventory is set once at `init` and is a property of the session, not of a turn. Putting it in
+   * the tally would mean either clearing it each turn (so a multi-turn eval loses it) or exempting
+   * one field from the reset (a rule the accumulator has nowhere to state).
+   *
+   * `undefined` means **no inventory was observed** — an agent that does not implement this, or one
+   * that never reached `init`. That is distinct from an inventory whose `tools` is empty, which
+   * means the agent initialised and genuinely offered the model no named tools. A consumer must not
+   * collapse the two: the first cannot supply a denominator at all, the second supplies a
+   * denominator of zero. Optional; reading must never throw.
+   */
+  getAdvertisedTools?(): GthAdvertisedTools | undefined;
 
   /**
    * [[EXT-159]] — forget the previous turn's termination reason so the next turn starts with none.

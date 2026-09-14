@@ -8,6 +8,7 @@ import {
 import {
   AgentResolvers,
   AgentStreamEvent,
+  GthAdvertisedTools,
   GthAgentInitOptions,
   GthAgentInterface,
   GthCommand,
@@ -387,6 +388,16 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
    */
   private declaredMcpToolAnnotations: ReadonlyMap<string, DeclaredToolAnnotations> = new Map();
 
+  /**
+   * BATCH-32 — the tool inventory this agent advertised to the model at the last `init`, or
+   * `undefined` before one (see {@link getAdvertisedTools}).
+   *
+   * **{@link resetRunStats} must never clear it.** It is set once at `init` and describes the
+   * session, not the turn; a multi-turn eval reads it after several turn boundaries have already
+   * gone past.
+   */
+  private advertisedTools: GthAdvertisedTools | undefined;
+
   constructor(statusUpdate: StatusUpdateCallback, resolvers?: AgentResolvers) {
     this.statusUpdate = (level: StatusLevel, message: string) => {
       statusUpdate(level, message);
@@ -536,6 +547,26 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
   /** GS2-16 — the analytics harvested since the last {@link resetRunStats}. Never throws. */
   getRunStats(): GthRunStats {
     return finalizeRunStats(this.runStatsAcc);
+  }
+
+  /**
+   * BATCH-32 — record what this agent advertised to the model, for {@link getAdvertisedTools}.
+   * Called by a concrete agent at `init`, at the point where BOTH the full loaded list and the
+   * post-allow-list one are still in scope. Structural twin of
+   * {@link registerApprovalsAwareTools}'s annotation capture: one capture site, at registration.
+   */
+  protected recordAdvertisedTools(advertised: GthAdvertisedTools): void {
+    this.advertisedTools = advertised;
+  }
+
+  /**
+   * BATCH-32 — the tool inventory advertised at the last `init`, or `undefined` before one.
+   *
+   * `undefined` (never observed) and an inventory with an empty `tools` (observed, nothing offered)
+   * are different answers and both are reportable; see {@link GthAgentInterface.getAdvertisedTools}.
+   */
+  getAdvertisedTools(): GthAdvertisedTools | undefined {
+    return this.advertisedTools;
   }
 
   /** GS2-16 — fold one message (or chunk) into the run tally. Fully guarded (fail-soft). */

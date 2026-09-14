@@ -15,7 +15,7 @@ import { HumanMessage } from '@langchain/core/messages';
 import { ProgressIndicator } from '#src/utils/ProgressIndicator.js';
 import type { AgentResolvers, GthAgentFactory, GthCommand } from '#src/core/types.js';
 import { recordSessionSafe } from '#src/history/recordSession.js';
-import type { GthRunStats } from '#src/core/types.js';
+import type { GthAdvertisedTools, GthRunStats } from '#src/core/types.js';
 import { getProjectDir, stdout } from '#src/utils/systemUtils.js';
 import { ApprovalStopError, approvalStopRows } from '#src/core/shell/approvalStop.js';
 import { displayTermination } from '#src/core/terminationNotice.js';
@@ -30,6 +30,16 @@ import type { GthTerminationReason } from '#src/core/terminationReason.js';
 export interface SingleShotResult extends GthRunStats {
   /** `true` when the run completed without error, `false` when it failed. */
   ok: boolean;
+  /**
+   * BATCH-32 — what the agent ADVERTISED to the model for this run: the full pre-`allowedTools`
+   * inventory, the tools the allow-list removed, and the count of nameless ones.
+   *
+   * A sibling of the run stats rather than a field inside them: `GthRunStats` is the per-turn tally
+   * the accumulator folds messages into, and this is fixed at `init`. `undefined` means no
+   * inventory was observed (an agent that does not report one), which is a different answer from an
+   * inventory listing no tools.
+   */
+  advertisedTools?: GthAdvertisedTools;
   /** The SUT's full answer text (`runner.processMessages()`'s return value). Empty on failure. */
   answer: string;
   /**
@@ -177,6 +187,16 @@ export async function runSingleShot(
       /* fail-soft: analytics must never affect this run */
     }
 
+    // BATCH-32: what this run's agent advertised to the model — `gth eval`'s coverage denominator.
+    // Read post-cleanup alongside the stats above, from the snapshot the runner took before it
+    // dropped the agent.
+    let advertisedTools: GthAdvertisedTools | undefined;
+    try {
+      advertisedTools = runner.getAdvertisedTools?.();
+    } catch {
+      /* fail-soft: reporting what was advertised must never affect this run */
+    }
+
     // GS2-7 (B20): local, fail-soft session history. A no-op when `history.enabled` is false; never
     // throws
     // (recordSessionSafe is fully guarded) so a DB problem can't abort or alter this run.
@@ -209,7 +229,13 @@ export async function runSingleShot(
       }
     }
 
-    return { ok: succeeded, answer: responseText, terminationReason, ...runStats };
+    return {
+      ok: succeeded,
+      answer: responseText,
+      terminationReason,
+      ...runStats,
+      ...(advertisedTools ? { advertisedTools } : {}),
+    };
   } finally {
     // EXT-53: the indicator owns a 1s setInterval — an active libuv handle that keeps Node's event
     // loop from ever draining, so leaking it hangs the CLI forever after the work is done. The

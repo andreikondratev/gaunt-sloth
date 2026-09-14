@@ -141,19 +141,22 @@ export async function buildProductionRunCell(
     // an orphaned-process leak, one per cell.
     const resolvers = createResolvers();
     try {
-      const { ok, answer, tokensInput, tokensOutput, tools, toolResults } = await runSingleShot(
-        `${options.sourcePrefix}-${cell.id}`,
-        preamble,
-        content,
-        cellConfig,
-        resolvers,
-        options.command,
-        // batch/eval ask for the lean backend, same as exec/ask — the only one shipped;
-        // config.agent.backend names no other.
-        resolveAgentFactory(cellConfig, 'lean'),
-        { displayCommand: options.displayCommand }
-      );
-      return { ok, answer, tokensInput, tokensOutput, tools, toolResults };
+      const { ok, answer, tokensInput, tokensOutput, tools, toolResults, advertisedTools } =
+        await runSingleShot(
+          `${options.sourcePrefix}-${cell.id}`,
+          preamble,
+          content,
+          cellConfig,
+          resolvers,
+          options.command,
+          // batch/eval ask for the lean backend, same as exec/ask — the only one shipped;
+          // config.agent.backend names no other.
+          resolveAgentFactory(cellConfig, 'lean'),
+          { displayCommand: options.displayCommand }
+        );
+      // BATCH-32: `advertisedTools` is threaded through with the rest — it is `gth eval`'s coverage
+      // denominator, and this adapter is the only place the agent's inventory can reach the runner.
+      return { ok, answer, tokensInput, tokensOutput, tools, toolResults, advertisedTools };
     } catch (error) {
       // runSingleShot itself is documented to never throw for a normal LLM/tool failure (it
       // returns false instead); this guards the rare case of a genuinely unexpected exception so
@@ -226,15 +229,29 @@ export async function buildProductionRunConversation(
         resolveAgentFactory(cellConfig, 'lean'),
         { displayCommand: options.displayCommand }
       );
-      return turns.map(({ ok, answer, tokensInput, tokensOutput, tools, toolResults, error }) => ({
-        ok,
-        answer,
-        tokensInput,
-        tokensOutput,
-        tools,
-        toolResults,
-        error,
-      }));
+      // BATCH-32: `advertisedTools` rides along per turn (the same inventory on each — the
+      // conversation builds its agent once), so a multi-turn suite contributes a denominator too.
+      return turns.map(
+        ({
+          ok,
+          answer,
+          tokensInput,
+          tokensOutput,
+          tools,
+          toolResults,
+          advertisedTools,
+          error,
+        }) => ({
+          ok,
+          answer,
+          tokensInput,
+          tokensOutput,
+          tools,
+          toolResults,
+          advertisedTools,
+          error,
+        })
+      );
     } finally {
       try {
         await resolvers.cleanupTools?.();

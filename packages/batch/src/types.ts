@@ -7,6 +7,7 @@
  * `packages/app/src/commands/batchCommand.ts`, which is what keeps {@link RunCellFn} injectable —
  * unit tests here fake it, the CLI wires the real one.
  */
+import type { AdvertisedToolInventory } from '#src/toolCoverage.js';
 
 /** One row/record parsed from `--over <path.csv|path.jsonl>`. Values are always strings for csv. */
 export type MatrixRow = Record<string, string>;
@@ -72,6 +73,13 @@ export interface CellRunOutcome {
    * {@link tools} but un-deduped and carrying each result's error status + payload. Only the
    * in-process `gth-agent` runner can populate this (external adk-agent/ag-ui targets never do). */
   toolResults?: ToolResultRecord[];
+  /**
+   * BATCH-32 — what the agent ADVERTISED to the model for this cell: the tool-coverage denominator,
+   * to {@link tools}'s numerator. Only the in-process `gth-agent` runner can populate it (an
+   * external adk-agent/ag-ui target never advertises its inventory over the wire), and a test fake
+   * leaves it unset — which is why absence means "no denominator available", never "no tools".
+   */
+  advertisedTools?: AdvertisedToolInventory;
   /** A human-readable failure reason, set when `ok` is `false`. */
   error?: string;
 }

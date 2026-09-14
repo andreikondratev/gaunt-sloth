@@ -45,6 +45,7 @@ Code block with language yaml will not be highlighted in comment for docs/COMMAN
 Code block with language yaml will not be highlighted in comment for docs/COMMANDS as it was not included in the highlightLanguages option
 Code block with language yaml will not be highlighted in comment for docs/COMMANDS as it was not included in the highlightLanguages option
 Code block with language yaml will not be highlighted in comment for docs/COMMANDS as it was not included in the highlightLanguages option
+Code block with language yaml will not be highlighted in comment for docs/COMMANDS as it was not included in the highlightLanguages option
 Code block with language yaml will not be highlighted in comment for docs/configuration/content-sources as it was not included in the highlightLanguages option
 Code block with language yaml will not be highlighted in comment for docs/guides/evals as it was not included in the highlightLanguages option
 Code block with language yaml will not be highlighted in comment for docs/guides/evals as it was not included in the highlightLanguages option

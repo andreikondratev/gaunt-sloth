@@ -28,6 +28,7 @@ import type {
   EvalMetricSpec,
 } from '#src/classificationTypes.js';
 import { parseMetricPredicate } from '#src/metrics.js';
+import type { ToolCoverageSpec } from '#src/toolCoverage.js';
 
 /**
  * Raw suite-file shape (snake_case, as authored). BATCH-12 adds the identity matrix on top of the
@@ -240,6 +241,24 @@ const RawSweepSchema = z.object({
     .min(1, 'sweep must declare at least one axis'),
 });
 
+/**
+ * BATCH-32 — the `tool_coverage:` block. Every field is optional: a bare `tool_coverage: {}` is
+ * legal and means "report coverage, gate nothing", which is also what omitting the block does.
+ *
+ * `min` is a percentage rather than a fraction because that is how the figure is printed, and a
+ * floor spelled in different units from the number it grades is a misconfiguration waiting to
+ * happen (`min: 0.8` meaning "80%" would silently pass every run).
+ */
+const RawToolCoverageSchema = z.object({
+  waive: z.array(z.string().min(1, 'a waive pattern must be a non-empty string')).optional(),
+  require: z.array(z.string().min(1, 'a require pattern must be a non-empty string')).optional(),
+  min: z
+    .number()
+    .min(0, 'tool_coverage.min is a percentage between 0 and 100')
+    .max(100, 'tool_coverage.min is a percentage between 0 and 100')
+    .optional(),
+});
+
 const RawSuiteSchema = z.object({
   target: z.object({
     type: z.string(),
@@ -272,6 +291,9 @@ const RawSuiteSchema = z.object({
   // suite parses to exactly the same `EvalSuite` it did before.
   classification: RawClassificationSchema.optional(),
   metrics: z.array(RawMetricSchema).optional(),
+  // BATCH-32: tool coverage. Optional and inert when absent — coverage is still reported, it just
+  // has no waivers and gates nothing.
+  tool_coverage: RawToolCoverageSchema.optional(),
   sweep: RawSweepSchema.optional(),
   cases: z.array(RawCaseSchema).min(1, 'suite must declare at least one case'),
 });
@@ -902,14 +924,69 @@ export function parseEvalSuite(yamlText: string, sourcePath?: string): EvalSuite
     );
   }
 
+  const toolCoverage = buildToolCoverageSpec(data.tool_coverage, target.type, suffix);
+
   return {
     target,
     judgeProfile,
     identities,
     classification,
     metrics,
+    ...(toolCoverage !== undefined ? { toolCoverage } : {}),
     sweep,
     cases,
+  };
+}
+
+/**
+ * BATCH-32 — normalize the suite's `tool_coverage:` block, and refuse it on a target that cannot
+ * produce the figure it configures.
+ *
+ * ## Why a declared block is a parse error rather than an ignored one
+ *
+ * The same reason `must_call` is rejected for an `adk-agent` target: an assertion that can never be
+ * graded must never silently pass. A `min: 80` that is quietly ignored is worse than one that fails
+ * — it reports green forever on a target it never measured, which is precisely the "metric nobody
+ * can trust" this feature exists to avoid.
+ *
+ * The three unsupported targets fail for three different reasons, so the message names the one that
+ * applies rather than a generic refusal:
+ * - **`adk-agent`** — A2A's wire carries no intermediate tool calls at all, so NEITHER half of the
+ *   fraction exists.
+ * - **`ag-ui`** — the wire does stream `TOOL_CALL_START`, so the numerator is real; what is missing
+ *   is the DENOMINATOR, because the out-of-process agent never declares the inventory it loaded.
+ * - **`rater`** — no agent runs and no tool is ever offered; there is nothing to cover.
+ *
+ * Only the in-process `gth-agent` target holds both halves, which is the asymmetry that makes tool
+ * coverage `gth eval`'s job and not something a user can assemble on their own side.
+ */
+function buildToolCoverageSpec(
+  raw: z.infer<typeof RawToolCoverageSchema> | undefined,
+  targetType: EvalTarget['type'],
+  suffix: string
+): ToolCoverageSpec | undefined {
+  if (raw === undefined) return undefined;
+
+  if (targetType !== 'gth-agent') {
+    const because =
+      targetType === 'adk-agent'
+        ? 'A2A exposes no tool calls at all, so neither the covered tools nor the advertised list ' +
+          'can be observed'
+        : targetType === 'ag-ui'
+          ? 'the AG-UI wire streams the tools that were CALLED but never the list the agent ' +
+            'loaded, so there is no denominator to measure against'
+          : 'a "rater" target runs no agent and is offered no tools, so there is nothing to cover';
+    throw new Error(
+      `Invalid eval suite${suffix}: \`tool_coverage\` is not supported for a "${targetType}" ` +
+        `target — ${because}. Coverage needs the in-process \`gth-agent\` target, which is the ` +
+        'only one holding both halves of the figure; remove the block.'
+    );
+  }
+
+  return {
+    waive: raw.waive ?? [],
+    require: raw.require ?? [],
+    ...(raw.min !== undefined ? { min: raw.min } : {}),
   };
 }
 

@@ -40,6 +40,7 @@ import type {
   RunClassifyFn,
   RunConversationFn,
   SweepCell,
+  ToolCoverageReport,
 } from '@gaunt-sloth/batch';
 
 interface EvalCommandOptions {
@@ -613,6 +614,9 @@ export function evalCommand(
         const { driveReporters } = await import('@gaunt-sloth/batch/reporters/drive.js');
         const { expandSweep, renderComparison, parseJudgeDriftFilter } =
           await import('@gaunt-sloth/batch/evalCompare.js');
+        // BATCH-32 — the run-level coverage union printed beside `EVAL TOTAL:`.
+        const { aggregateToolCoverage } = await import('@gaunt-sloth/batch/toolCoverage.js');
+        const { renderToolCoverage } = await import('@gaunt-sloth/batch/toolCoverageRender.js');
 
         // BATCH-33 — reject a malformed `--drift` BEFORE anything runs. The filter is not consulted
         // until each unit's diff is printed, at the very end of a run that can take minutes and
@@ -875,6 +879,11 @@ export function evalCommand(
         // so a gate breached in one suite of many would otherwise be lost between the per-suite
         // report that printed it and the exit code that should have honoured it.
         let anyMetricGateFailed = false;
+        // BATCH-32 — each suite's coverage report, kept for the run-level union below and tracked
+        // here for the same reason `anyMetricGateFailed` is: the combined summary is a bare
+        // concatenation of cases and carries no per-suite coverage block.
+        const coverageReports: ToolCoverageReport[] = [];
+        let anyCoverageGateFailed = false;
         for (const suite of suites) {
           let suiteOutputDir = outputRoot;
           if (!single) {
@@ -933,6 +942,18 @@ export function evalCommand(
               combinedCases.push(...summary.cases);
               if ((summary.classification?.gateFailures.length ?? 0) > 0) {
                 anyMetricGateFailed = true;
+              }
+              // BATCH-32 — a suite's coverage report feeds two separate things, and keeping them
+              // separate is the point. Its GATE is graded against the suite that declared it (the
+              // `metrics:` precedent) and ORed into the run's exit here; its NUMBERS join the
+              // run-level union printed beside `EVAL TOTAL:`. Re-applying a declared floor to that
+              // union would make the same suite pass alone and fail inside a directory, with
+              // nothing in either output saying the threshold had moved.
+              if (summary.toolCoverage) {
+                coverageReports.push(summary.toolCoverage);
+                if (summary.toolCoverage.gateFailures.length > 0) {
+                  anyCoverageGateFailed = true;
+                }
               }
               if (cell) columns.push({ name: cell.name, summary });
 
@@ -1000,6 +1021,19 @@ export function evalCommand(
           } else {
             displayWarning(totalLine);
           }
+
+          // BATCH-32 — the run-level coverage figure, beside `EVAL TOTAL:` and for the same reason
+          // that line exists. Coverage is a DIRECTORY-level property: one suite covering 3 tools is
+          // fine if its sibling covers the other 38, so the union across the run is the number that
+          // answers "is this surface tested", and each suite's own block above is the detail. Like
+          // `EVAL TOTAL:` it is printed only for a multi-suite run — with one suite the reporter's
+          // block already IS the aggregate, and repeating it would imply a second measurement.
+          const aggregate = aggregateToolCoverage(coverageReports);
+          if (aggregate) {
+            for (const line of renderToolCoverage(aggregate, { scope: 'TOTAL' })) {
+              display(line);
+            }
+          }
         }
 
         // BATCH-24: cases run one at a time unless the user asks for more, so say so once at the
@@ -1027,9 +1061,12 @@ export function evalCommand(
 
         // BATCH-25 — a breached hard metric gate forces exit 1 even when every case passed. It is a
         // product signal, never a harness one, so a harness error still dominates it.
+        // BATCH-32 — a breached coverage floor or an unmet `require:` is the same kind of signal and
+        // is ORed in here, because the combined summary carries no per-suite coverage block and a
+        // gate breached in one suite of many would otherwise be printed and then not honoured.
         const exitCode = anyHarnessError
           ? 2
-          : anyMetricGateFailed
+          : anyMetricGateFailed || anyCoverageGateFailed
             ? Math.max(classifyEvalExit(combined), 1)
             : classifyEvalExit(combined);
         if (exitCode !== 0) {

@@ -26,6 +26,7 @@ import type {
 import { UNRECOGNIZED_LABEL } from '#src/classificationTypes.js';
 import { extractClassificationValue, readRaw } from '#src/classification.js';
 import { buildClassificationReport } from '#src/classificationReport.js';
+import { computeToolCoverage, type AdvertisedToolInventory } from '#src/toolCoverage.js';
 
 /** Options for {@link runEvalSuite}. */
 export interface RunEvalSuiteOptions {
@@ -252,6 +253,13 @@ export async function runEvalSuite(
   // the same unique `inputIndex`. Populated only on the `options.classify` path.
   const classifyOutcomes = new Map<number, ClassifyOutcome[]>();
 
+  // BATCH-32 — every cell's advertised-tool inventory, collected at the ONE point both dispatch
+  // paths pass through. Each cell resolves its own tools (a fresh MCP client per cell), so the
+  // inventories can legitimately differ and the coverage denominator is their union; collecting
+  // here rather than reading it back off the graded results keeps the multi-turn path — whose pool
+  // outcome carries no inventory of its own — from silently contributing nothing.
+  const advertisedInventories: AdvertisedToolInventory[] = [];
+
   const dispatchRunCell: RunCellFn = async (cell) => {
     const unit = unitByInputIndex.get(cell.inputIndex)!;
 
@@ -318,7 +326,9 @@ export async function runEvalSuite(
 
     // Single-turn: the proven `runSingleShot`-backed path, byte-for-byte (unchanged dispatch).
     if (unit.evalCase.turns.length <= 1) {
-      return runCellFor(unit.identity)(cell);
+      const outcome = await runCellFor(unit.identity)(cell);
+      if (outcome.advertisedTools) advertisedInventories.push(outcome.advertisedTools);
+      return outcome;
     }
     // Multi-turn: run the whole conversation ONCE (agent/tools built once), stash the per-turn
     // outcomes for grading, and report a synthetic pool outcome (`ok` iff every turn ran) so the
@@ -327,6 +337,10 @@ export async function runEvalSuite(
       unit.evalCase.turns.map((turn) => turn.user)
     );
     conversationOutcomes.set(cell.inputIndex, outcomes);
+    // BATCH-32: one conversation = one agent = one inventory, repeated on every turn, so take the
+    // first turn that reports one rather than pushing N copies of the same list.
+    const conversationInventory = outcomes.find((o) => o.advertisedTools)?.advertisedTools;
+    if (conversationInventory) advertisedInventories.push(conversationInventory);
     return { ok: outcomes.length > 0 && outcomes.every((o) => o.ok) };
   };
 
@@ -372,6 +386,18 @@ export async function runEvalSuite(
     cases: results,
   };
 
+  // BATCH-32 — tool coverage. Attached whenever an inventory was observed, WITHOUT waiting for the
+  // suite to opt in: "nothing in a run says how much of the surface it touched" is the whole defect
+  // this closes, so a suite that declares no `tool_coverage:` block still gets the number (it just
+  // waives nothing and gates nothing). A suite whose cells reported no inventory gets no block at
+  // all — see `computeToolCoverage` on why a `0/0` would be worse than silence.
+  const toolCoverage = computeToolCoverage({
+    inventories: advertisedInventories,
+    exercised: collectExercisedTools(results),
+    spec: suite.toolCoverage,
+  });
+  if (toolCoverage) summary.toolCoverage = toolCoverage;
+
   // BATCH-25 — the classifier report (matrices + declared metrics) is attached ONLY for a suite that
   // declares `classification:`, so a #405-era `results.json` is byte-for-byte unchanged.
   if (spec) {
@@ -384,6 +410,28 @@ export async function runEvalSuite(
     );
   }
   return summary;
+}
+
+/**
+ * BATCH-32 — every tool name any cell of the run actually invoked: the coverage NUMERATOR.
+ *
+ * Reads the per-turn traces as well as the per-cell one, because a multi-turn cell leaves `tools`
+ * unset at the top level and carries its trace per turn — a numerator that read only the flat field
+ * would report every multi-turn suite as covering nothing, which is the failure mode most likely to
+ * be mistaken for a real coverage gap.
+ *
+ * Counts a tool that was requested or executed, error result or not: the question is which tools the
+ * suite reached. What a tool RETURNED is graded by the tool-result assertions, per case.
+ */
+export function collectExercisedTools(results: readonly EvalCaseResult[]): string[] {
+  const exercised = new Set<string>();
+  for (const result of results) {
+    for (const tool of result.tools ?? []) exercised.add(tool);
+    for (const turn of result.turns ?? []) {
+      for (const tool of turn.tools ?? []) exercised.add(tool);
+    }
+  }
+  return [...exercised];
 }
 
 /**
@@ -583,6 +631,12 @@ export function classifyEvalExit(summary: EvalSuiteSummary): EvalExitCode {
   // BATCH-25 — every cell passed, but a declared metric breached its hard threshold. Still a
   // product signal (exit 1), never a harness one: the run worked, the aggregate is out of bounds.
   if ((summary.classification?.gateFailures.length ?? 0) > 0) {
+    return 1;
+  }
+  // BATCH-32 — same shape, same reason: a declared coverage floor or a `require:` entry the run did
+  // not satisfy. "Every case passed" and "the suite exercised enough of the surface to mean it" are
+  // different claims, and only the second notices a 42nd tool arriving uncovered.
+  if ((summary.toolCoverage?.gateFailures.length ?? 0) > 0) {
     return 1;
   }
   // Every cell passed.

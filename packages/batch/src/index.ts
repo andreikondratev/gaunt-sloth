@@ -70,6 +70,22 @@ export {
   renderConfusionMatrix,
   renderMetric,
 } from '#src/classificationRender.js';
+// BATCH-32 — tool coverage: which of the agent's advertised tools a suite exercised.
+export {
+  computeToolCoverage,
+  aggregateToolCoverage,
+  WAIVER_SHARE_WARN_THRESHOLD,
+} from '#src/toolCoverage.js';
+export type {
+  AdvertisedToolInventory,
+  AdvertisedToolRecord,
+  ToolCoverageInput,
+  ToolCoverageReport,
+  ToolCoverageServerReport,
+  ToolCoverageSpec,
+} from '#src/toolCoverage.js';
+export { renderToolCoverage } from '#src/toolCoverageRender.js';
+export type { RenderToolCoverageOptions } from '#src/toolCoverageRender.js';
 export { buildBlindExport, diffRelabel, renderRelabelDiff } from '#src/blindExport.js';
 export type { BlindExport, BlindExportCase, RelabelDiff, RelabelEntry } from '#src/blindExport.js';
 export {

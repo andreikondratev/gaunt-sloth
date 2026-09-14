@@ -31,6 +31,7 @@ import {
   type ApprovalLifetime,
   type ApprovalOutcomeCallback,
   type AttackHaltCallback,
+  type GthAdvertisedTools,
   GthAgentFactory,
   GthAgentInterface,
   GthCommand,
@@ -395,6 +396,17 @@ export class GthAgentRunner {
    * {@link getRunStats} before cleanup. Defaults to an empty tally.
    */
   private lastRunStats: GthRunStats = { tools: [] };
+
+  /**
+   * BATCH-32 — snapshot of the agent's advertised-tool inventory, captured at {@link cleanup} for
+   * the same reason {@link lastRunStats} is: the single-shot path reads it after cleanup has
+   * already nulled the agent.
+   *
+   * Unlike the run stats this is NOT reset per turn — the inventory is fixed at `init` and
+   * describes the session — so nothing clears it back to `undefined` once observed. `undefined`
+   * therefore means what it means on the agent: no inventory was ever observed.
+   */
+  private lastAdvertisedTools: GthAdvertisedTools | undefined;
 
   /**
    * [[EXT-159]] — why the current turn ended, as classified by the sites the RUNNER owns (the two
@@ -3663,6 +3675,34 @@ export class GthAgentRunner {
     return this.lastRunStats;
   }
 
+  /** BATCH-32 — read the live agent's advertised-tool inventory (fail-soft). */
+  private captureAdvertisedTools(): GthAdvertisedTools | undefined {
+    try {
+      return this.agent?.getAdvertisedTools?.();
+    } catch {
+      /* fail-soft: reporting what was advertised must never affect a run */
+      return undefined;
+    }
+  }
+
+  /**
+   * BATCH-32 — what the agent advertised to the model at `init` (the `gth eval` coverage
+   * denominator). Reads live from the agent when one is present, otherwise the snapshot captured
+   * at {@link cleanup} — the same discipline {@link getRunStats} uses, because the non-interactive
+   * verbs read it after cleanup. Never throws.
+   *
+   * A live read that yields nothing does NOT erase an existing snapshot: an agent replaced
+   * mid-session (or one that never implemented the accessor) would otherwise turn an observed
+   * inventory back into "never observed", and a consumer reads that as a target that cannot supply
+   * a denominator at all.
+   */
+  public getAdvertisedTools(): GthAdvertisedTools | undefined {
+    if (this.agent) {
+      this.lastAdvertisedTools = this.captureAdvertisedTools() ?? this.lastAdvertisedTools;
+    }
+    return this.lastAdvertisedTools;
+  }
+
   /**
    * Rotate the thread the runner drives by minting a fresh `runConfig` (new `thread_id`),
    * so subsequent turns start from an empty checkpointer thread rather than retrieving the
@@ -3849,6 +3889,9 @@ export class GthAgentRunner {
     // GS2-16: snapshot the agent's run stats BEFORE nulling it, so a post-cleanup reader
     // (runSingleShot records history after calling cleanup) still gets this turn's analytics.
     this.lastRunStats = this.captureRunStats();
+    // BATCH-32 — and the advertised-tool inventory, for the same reason: `gth eval` reads the
+    // coverage denominator off the finished run, by which point the agent is gone.
+    this.lastAdvertisedTools = this.captureAdvertisedTools() ?? this.lastAdvertisedTools;
     // [[EXT-159]] — and the agent's termination reason with it, for the same reason: the
     // single-shot path asks why the run ended after the agent has already been nulled.
     this.captureAgentTerminationReason();

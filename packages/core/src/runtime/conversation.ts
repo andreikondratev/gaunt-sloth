@@ -17,7 +17,7 @@ import { ProgressIndicator } from '#src/utils/ProgressIndicator.js';
 import type { AgentResolvers, GthAgentFactory, GthCommand } from '#src/core/types.js';
 import type { SingleShotOptions } from '#src/runtime/singleShot.js';
 import { recordSessionSafe } from '#src/history/recordSession.js';
-import type { GthRunStats } from '#src/core/types.js';
+import type { GthAdvertisedTools, GthRunStats } from '#src/core/types.js';
 import { getProjectDir, stdout } from '#src/utils/systemUtils.js';
 import { ApprovalStopError, approvalStopRows } from '#src/core/shell/approvalStop.js';
 import { displayTermination } from '#src/core/terminationNotice.js';
@@ -37,6 +37,15 @@ export interface ConversationTurnResult extends GthRunStats {
   answer: string;
   /** Set when `ok` is `false`: why this turn failed. */
   error?: string;
+  /**
+   * BATCH-32 — what the agent advertised to the model (`gth eval`'s coverage denominator).
+   *
+   * **Conversation-level, not a per-turn delta** — the one field here that is not. A conversation
+   * builds its agent ONCE, so the inventory is fixed for the whole run and the same value appears
+   * on every turn. It is repeated rather than returned separately because this function's contract
+   * is one result per turn; a caller that unions across turns gets the right answer either way.
+   */
+  advertisedTools?: GthAdvertisedTools;
   /**
    * [[EXT-159]] — why this turn ended, as a value.
    *
@@ -203,7 +212,23 @@ export async function runConversation(
         }
         displayTermination(terminationReason);
 
-        results.push({ ok, answer, error, terminationReason, ...runStats });
+        // BATCH-32: the advertised-tool inventory, read live like the stats above. Fixed at the
+        // agent's `init` and therefore identical on every turn — see the field's docblock.
+        let advertisedTools: GthAdvertisedTools | undefined;
+        try {
+          advertisedTools = runner.getAdvertisedTools?.();
+        } catch {
+          /* fail-soft: reporting what was advertised must never affect the conversation */
+        }
+
+        results.push({
+          ok,
+          answer,
+          error,
+          terminationReason,
+          ...runStats,
+          ...(advertisedTools ? { advertisedTools } : {}),
+        });
 
         // A failed turn breaks the conversation's context — stop rather than run later turns on it.
         if (!ok) break;

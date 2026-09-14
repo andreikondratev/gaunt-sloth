@@ -455,6 +455,7 @@ A suite is a single YAML document with these top-level keys:
 | `identities` | no | The identity matrix — run every case once per listed profile. See [Identity matrix](#identity-matrix) below. |
 | `classification` | no | Turns the suite into a **classifier eval**: declares the label (and optionally action) enum and how to read a value out of an answer. See [Classifier suites](#classifier-suites) below. |
 | `metrics` | no | Aggregate metrics over the corpus, each optionally gating the exit code. Requires `classification`. See [Declared metrics](#declared-metrics). |
+| `tool_coverage` | no | Waivers, a floor and required tools for the **tool coverage** figure — which of the agent's advertised tools the suite exercised. The figure itself is reported without this block; `gth-agent` target only. See [Tool coverage](#tool-coverage). |
 | `sweep` | no | Run the whole suite once per config cell and emit one comparison table. See [Config sweep](#config-sweep). |
 
 Each entry in `cases` has an `id` (unique; letters, digits, `-`, `_`, `.` only — it doubles as an output filename) and is **either** single-turn **or** multi-turn — never both, never neither:
@@ -556,6 +557,52 @@ cases:
 Turn 2 (`How many did you just list?`) only makes sense because it shares the conversation with turn 1. A `(case × identity)` cell passes only if **every** turn's applicable assertions pass; when one fails, the report names the failing turn (`turn N: …`).
 
 On a [`rater`](#the-rater-target) suite the same `turns:` array means something else — the rounds of one negotiation, with two keys of their own. See [Negotiation cases](#negotiation-cases).
+
+### Tool coverage
+
+Your MCP server advertises 41 tools and you want to know how many your suites actually exercise — because "every case passed" over three of them reads like reassurance it has not earned, and nothing tells you when tool 42 arrives with no case touching it.
+
+Run any suite against the `gth-agent` target and the report now ends with the number:
+
+```
+TOOL COVERAGE: 3/41 tools exercised
+  a tool counts as covered once a case CALLED it, error result or not
+  uncovered: mcp__unimarket__buy, mcp__unimarket__cancel, mcp__unimarket__refund, …
+```
+
+The denominator is **every tool the agent loaded**, not the tools your suite happens to call, so the figure can only improve by writing cases. The same block is written to `results.json` under `toolCoverage`, with the covered and uncovered names in full.
+
+A read-only suite should not be marked down for never calling the mutating tools. Declare those deliberately, in the suite where a reviewer can see them:
+
+```yaml
+target: { type: gth-agent }
+tool_coverage:
+  waive: ["mcp__unimarket__buy", "mcp__unimarket__refund", "mcp__unimarket__cancel"]
+  require: ["mcp__unimarket__search"]
+  min: 60
+cases:
+  - id: finds-a-listing
+    prompt: "Find me a listing for a blue widget"
+    must_call: ["mcp__unimarket__search"]
+```
+
+| Key | Meaning |
+|-----|---------|
+| `waive` | Patterns (the same globs [`must_call`](#assertion-keys) uses) whose tools **leave the denominator**. The waived count is printed next to the fraction, and waiving half or more of the surface warns — a suite waiving 38 of 41 tools reports 100% while covering three, and the count beside the number is what stops that reading as full coverage. |
+| `require` | Patterns that must **each** match a tool some case actually called. A percentage floor can always be met by covering something else; this is how you pin the one tool that matters. |
+| `min` | Minimum percentage (0–100) of the post-waiver denominator that must be exercised. |
+
+A breached `min` or an unmet `require` exits `1`, the same product signal a failed assertion gives — so a coverage floor gates CI exactly like an assertion does. A floor over an empty denominator **fails**: nothing advertised (an MCP server that never connected, or a waiver list that swallowed the whole surface) is the one run where a vacuous pass would be indistinguishable from perfect coverage.
+
+Three things the block reports rather than quietly folding into the number:
+
+- **Tools [`allowedTools`](configuration/tools.md) removed.** They stay in the denominator and are listed separately. Subtracting them would let any suite reach 100% by narrowing the allow-list to what it already calls.
+- **Provider-native tools with no name** (Anthropic web search and its kind) are counted in neither half — a tool that cannot appear in a trace by name could never be covered, and counting it would put 100% out of reach.
+- **Per-server totals**, once more than one server is configured in [`mcpServers`](configuration/mcp.md); a single percentage hides which server is the uncovered one.
+
+Across a directory run the suites share one surface, so a run-level `TOOL COVERAGE TOTAL:` line follows `EVAL TOTAL:` — a union, not a sum. One suite covering 3 tools is fine when its sibling covers the other 38, and only the union says so. Each suite's own `min`/`require` is still graded against **that suite**, so a suite's threshold means the same thing run alone and run as part of a directory.
+
+`tool_coverage` needs the in-process `gth-agent` target and is a parse error on any other: `ag-ui` streams the tools that were *called* but never the list the agent loaded, `adk-agent` exposes neither over A2A, and `rater` runs no agent at all. That is a refusal rather than a silently-ignored block, because a `min: 80` that is quietly skipped reports green forever over a target it never measured.
 
 ### Classifier suites
 
@@ -908,7 +955,7 @@ gth eval eval/ -o eval/out --reporter junit           # every suite in a directo
 
 - **One suite** → output is written directly into the `-o` dir, exactly as before.
 - **Many suites** → each writes into its own `<output>/<suite-name>/` subdir (`results.json`, per-cell JSON, and `results.xml` if `--reporter junit`), so a CI glob like `eval/out/**/*.xml` collects them and suites never clobber each other. On a name clash the later suite gets a `-2`/`-3` suffix and a warning.
-- The **aggregate exit** is `0` only if every cell of every suite passed, `1` if any gradeable cell failed, and `2` if **any** suite hit a harness error (a bad suite doesn't stop the good ones — they still run and write output, but the run as a whole reports `2`). A final `EVAL TOTAL:` line summarizes the combined pass/fail count.
+- The **aggregate exit** is `0` only if every cell of every suite passed, `1` if any gradeable cell failed, and `2` if **any** suite hit a harness error (a bad suite doesn't stop the good ones — they still run and write output, but the run as a whole reports `2`). A final `EVAL TOTAL:` line summarizes the combined pass/fail count, followed by a `TOOL COVERAGE TOTAL:` line unioning every suite's [tool coverage](#tool-coverage).
 
 ### Exit codes (eval)
 
@@ -917,7 +964,7 @@ gth eval eval/ -o eval/out --reporter junit           # every suite in a directo
 | Code | Meaning |
 |------|---------|
 | `0` | Every case (in a matrix, every cell) passed. |
-| `1` | The suite ran and produced gradeable answers, but at least one case, cell, or turn failed an assertion or fell below its judge threshold — **or** a declared metric breached a `gate: fail` threshold, which can happen with every case passing. A real **product** signal. |
+| `1` | The suite ran and produced gradeable answers, but at least one case, cell, or turn failed an assertion or fell below its judge threshold — **or** a declared metric breached a `gate: fail` threshold, **or** a [`tool_coverage`](#tool-coverage) floor or `require` entry went unmet, any of which can happen with every case passing. A real **product** signal. |
 | `2` | A precondition or harness error: the suite file failed to load or parse, a declared identity or judge profile didn't resolve, a `(case × identity)` had no applicable block, or the agent produced no output to grade at all. An **environment** signal — nothing was meaningfully evaluated. |
 
 CI should treat `1` and `2` differently: `1` means your agent regressed; `2` means the harness or environment is broken.

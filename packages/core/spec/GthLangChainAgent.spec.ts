@@ -790,6 +790,135 @@ describe('GthLangChainAgent', () => {
       expect(toolsArg.some((t) => !t.name)).toBe(true);
     });
 
+    // BATCH-32 — the advertised-tool inventory `gth eval` reads as its coverage denominator.
+    describe('getAdvertisedTools', () => {
+      it('BATCH-32: the denominator keeps tools allowedTools removed, and names them separately', async () => {
+        const resolveTools = vi
+          .fn()
+          .mockResolvedValue([
+            { name: 'mcp__jira__getJiraIssue' },
+            { name: 'mcp__jira__searchJiraIssuesUsingJql' },
+            { name: 'gh_pr' },
+          ] as StructuredToolInterface[]);
+        const agent = new GthLangChainAgent(statusUpdateCallback, {
+          resolveTools,
+          resolveMiddleware: async (m) => m ?? [],
+        });
+
+        const config = {
+          ...mockConfig,
+          allowedTools: ['mcp__jira__getJiraIssue'],
+        } as GthConfig;
+
+        await agent.init(undefined, config);
+
+        // The agent BOUND one tool (the assertion above this block pins that). The inventory must
+        // still carry all three: a denominator taken from the bound list would read 1/1 — full
+        // coverage over a surface narrowed to exactly what the allow-list let through.
+        const advertised = agent.getAdvertisedTools();
+        expect(advertised?.tools.map((t) => t.name)).toEqual([
+          'mcp__jira__getJiraIssue',
+          'mcp__jira__searchJiraIssuesUsingJql',
+          'gh_pr',
+        ]);
+        expect(advertised?.filteredOut.map((t) => t.name)).toEqual([
+          'mcp__jira__searchJiraIssuesUsingJql',
+          'gh_pr',
+        ]);
+      });
+
+      it('BATCH-32: attributes an MCP tool to its configured server key, and a built-in to none', async () => {
+        const resolveTools = vi
+          .fn()
+          .mockResolvedValue([
+            { name: 'mcp__jira__getJiraIssue' },
+            { name: 'mcp__unimarket__buy' },
+            { name: 'read_file' },
+          ] as StructuredToolInterface[]);
+        const agent = new GthLangChainAgent(statusUpdateCallback, {
+          resolveTools,
+          resolveMiddleware: async (m) => m ?? [],
+        });
+
+        const config = {
+          ...mockConfig,
+          mcpServers: { jira: {}, unimarket: {} },
+        } as unknown as GthConfig;
+
+        await agent.init(undefined, config);
+
+        expect(agent.getAdvertisedTools()?.tools).toEqual([
+          { name: 'mcp__jira__getJiraIssue', server: 'jira' },
+          { name: 'mcp__unimarket__buy', server: 'unimarket' },
+          { name: 'read_file' },
+        ]);
+      });
+
+      it('BATCH-32: an MCP-named tool no configured key explains is left unattributed, not guessed', async () => {
+        const resolveTools = vi
+          .fn()
+          .mockResolvedValue([{ name: 'mcp__ghost__vanish' }] as StructuredToolInterface[]);
+        const agent = new GthLangChainAgent(statusUpdateCallback, {
+          resolveTools,
+          resolveMiddleware: async (m) => m ?? [],
+        });
+
+        const config = { ...mockConfig, mcpServers: { jira: {} } } as unknown as GthConfig;
+
+        await agent.init(undefined, config);
+
+        // Still counted — it is a real advertised tool — but attributed to no server rather than
+        // to the wrong one.
+        expect(agent.getAdvertisedTools()?.tools).toEqual([
+          { name: 'mcp__ghost__vanish', server: '' },
+        ]);
+      });
+
+      it('BATCH-32: counts nameless server tools without putting them in the denominator', async () => {
+        const resolveTools = vi.fn().mockResolvedValue([]);
+        const agent = new GthLangChainAgent(statusUpdateCallback, {
+          resolveTools,
+          resolveMiddleware: async (m) => m ?? [],
+        });
+
+        const config = {
+          ...mockConfig,
+          tools: [
+            { type: 'web_search_20250305' },
+            { name: 'gh_pr' },
+          ] as unknown as StructuredToolInterface[],
+        } as GthConfig;
+
+        await agent.init(undefined, config);
+
+        const advertised = agent.getAdvertisedTools();
+        // A nameless tool cannot be named in a trace, so counting it in the denominator would make
+        // 100% unreachable. It is tallied instead.
+        expect(advertised?.tools.map((t) => t.name)).toEqual(['gh_pr']);
+        expect(advertised?.unnamed).toBe(1);
+      });
+
+      it('BATCH-32: records an EMPTY inventory when the agent advertised nothing', async () => {
+        const resolveTools = vi.fn().mockResolvedValue([]);
+        const agent = new GthLangChainAgent(statusUpdateCallback, {
+          resolveTools,
+          resolveMiddleware: async (m) => m ?? [],
+        });
+
+        await agent.init(undefined, mockConfig);
+
+        // Observed-and-empty, NOT undefined: a run where every tool went missing must be
+        // distinguishable from a target that cannot report an inventory at all, or a coverage floor
+        // passes vacuously on exactly the run that broke.
+        expect(agent.getAdvertisedTools()).toEqual({ tools: [], filteredOut: [], unnamed: 0 });
+      });
+
+      it('BATCH-32: reports no inventory before init', () => {
+        const agent = new GthLangChainAgent(statusUpdateCallback);
+        expect(agent.getAdvertisedTools()).toBeUndefined();
+      });
+    });
+
     it('should disable all tools and skip resolution when allowedTools is empty', async () => {
       const resolveTools = vi
         .fn()

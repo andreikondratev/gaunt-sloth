@@ -4,6 +4,7 @@ import { stdout } from '@gaunt-sloth/core/utils/systemUtils.js';
 import type { EvalCaseResult, EvalSuiteSummary } from '#src/evalTypes.js';
 import type { EvalReporter, EvalRunContext } from '#src/reporters/reporterTypes.js';
 import { renderClassificationReport } from '#src/classificationRender.js';
+import { renderToolCoverage } from '#src/toolCoverageRender.js';
 
 /**
  * The built-in default reporter: the human-readable, `review`-flavored summary — one PASS/FAIL line
@@ -76,6 +77,21 @@ export function createTextReporter(): EvalReporter {
           // Warnings and gate failures carry `!` / `GATE FAILED` and are the lines a reader must
           // not skim past, so they get the warning channel; the matrices and tallies are data.
           if (line.trimStart().startsWith('!') || line.startsWith('METRIC GATE FAILED')) {
+            displayWarning(line);
+          } else {
+            display(line);
+          }
+        }
+      }
+
+      // BATCH-32 — the coverage block, for any run that observed an advertised-tool inventory.
+      // Before the verdict line for the same reason the classifier block is: the verdict stays the
+      // last thing on screen.
+      if (summary.toolCoverage) {
+        for (const line of renderToolCoverage(summary.toolCoverage)) {
+          // A warning or a breached gate is the line a reader must not skim past; the fraction and
+          // its detail rows are data. Same split the classifier block uses.
+          if (line.trimStart().startsWith('!') || line.startsWith('TOOL COVERAGE GATE FAILED')) {
             displayWarning(line);
           } else {
             display(line);

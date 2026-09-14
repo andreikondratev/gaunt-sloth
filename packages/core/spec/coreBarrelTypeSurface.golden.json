@@ -287,6 +287,16 @@
       "arity": 0
     },
     {
+      "name": "GthAdvertisedTool",
+      "file": "core/types.d.ts",
+      "arity": 0
+    },
+    {
+      "name": "GthAdvertisedTools",
+      "file": "core/types.d.ts",
+      "arity": 0
+    },
+    {
       "name": "GthAgentFactory",
       "file": "core/types.d.ts",
       "arity": 0

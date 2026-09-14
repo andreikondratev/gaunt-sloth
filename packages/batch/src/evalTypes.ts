@@ -13,6 +13,11 @@ import type { ApprovalRung } from '@gaunt-sloth/core/config/shell-policy.js';
 import type { PreflightFloorKind } from '@gaunt-sloth/core/core/shell/raterVocabulary.js';
 import type { ToolResultRecord } from '#src/types.js';
 import type {
+  AdvertisedToolInventory,
+  ToolCoverageReport,
+  ToolCoverageSpec,
+} from '#src/toolCoverage.js';
+import type {
   EvalCaseClassification,
   EvalClassificationReport,
   EvalClassificationSpec,
@@ -469,6 +474,12 @@ export interface TurnRunOutcome {
   /** BATCH-21 — this turn's per-tool-call result records (parallel to {@link tools}; a per-turn
    * delta like everything else here). Only the in-process `gth-agent` runner populates it. */
   toolResults?: ToolResultRecord[];
+  /**
+   * BATCH-32 — the advertised-tool inventory (the coverage denominator). **The one field here that
+   * is NOT a per-turn delta**: a conversation builds its agent once, so the inventory is fixed for
+   * the whole conversation and every turn repeats it.
+   */
+  advertisedTools?: AdvertisedToolInventory;
   error?: string;
 }
 
@@ -721,6 +732,16 @@ export interface EvalSuite {
    */
   metrics: EvalMetricSpec[];
   /**
+   * BATCH-32 — the suite's `tool_coverage:` declaration: waivers, an optional floor, and required
+   * tools. Absent = coverage is still REPORTED (that is the whole point of the node: a run that
+   * exercises 3 of 41 tools must say so without being asked), but nothing gates on it.
+   *
+   * A top-level key of its own rather than a `metrics:` entry: a metric is a predicate over LABELLED
+   * cases and its machinery assumes a `classification:` block, whereas coverage applies to suites
+   * with no labels at all — most of them.
+   */
+  toolCoverage?: ToolCoverageSpec;
+  /**
    * BATCH-25 — the config sweep: named cells the WHOLE suite is run once per, so one corpus
    * produces one comparison table instead of N unrelated runs. Absent = a single run.
    *
@@ -887,4 +908,11 @@ export interface EvalSuiteSummary {
   /** BATCH-25 — the confusion matrices + declared metrics. Omitted entirely for a suite with no
    * `classification:` block, so a pre-BATCH-25 `results.json` is byte-for-byte unchanged. */
   classification?: EvalClassificationReport;
+  /**
+   * BATCH-32 — which of the agent's advertised tools this suite exercised. Omitted entirely when no
+   * cell reported an inventory: an external target, or a run whose SUT never initialised. That
+   * absence is the honest answer, and it is why this is optional rather than a zeroed block — a
+   * `0/0` coverage figure looks like a measurement and is not one.
+   */
+  toolCoverage?: ToolCoverageReport;
 }
