@@ -820,6 +820,11 @@ export const ALIGNMENT_COULD_NOT_CHECK_PREFIX = 'The alignment check could not b
  * moment a checker model went missing, which is exactly the failure EXT-66 measured on the rater's
  * timeout: a rung drifting toward interrupting about everything while every layer reports success.
  * The safe reading of "we could not ask" is "then nothing this component would have said applies".
+ *
+ * **[[EXT-133]] — do not return this constant to fail a check closed; call
+ * {@link alignmentFailClosed} instead.** This shape names none of the four causes, so returning it
+ * compiles, type-checks and passes every structural test while restoring exactly the silence EXT-133
+ * removed — it was the mutation used to prove the new tests can fail.
  */
 export const ALIGNMENT_FAIL_CLOSED: AlignmentDecision = {
   kind: 'escalate',
