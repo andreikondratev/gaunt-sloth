@@ -41,8 +41,8 @@
 // ---------------------------------------------------------------------------------------------
 // The release job pushes an annotated `<package>@<version>` git tag, at the version it is about to
 // publish, from the commit it built. This reads the `gaunt-sloth@<version>` tag that points at
-// GITHUB_SHA and takes the version from its name. Two calls to the GitHub API, no checkout of the
-// workspace, and nothing inferred.
+// GITHUB_SHA and takes the version from its name. Two GitHub API calls in the normal case (list the
+// refs, dereference the newest), no checkout of the workspace, and nothing inferred.
 //
 // Why GITHUB_SHA is the right anchor: for a workflow_dispatch it is frozen at the commit the run
 // was dispatched from, so the post-bump — which moves the `main` REF — cannot move it. Measured
@@ -139,9 +139,9 @@
 // NO dependencies beyond node: builtins and scripts/dist-tag.mjs — this runs from a sparse checkout
 // that holds scripts/ and nothing else, with nothing installed.
 //
-// CLI:
+// CLI — these four flags and no others; an unknown one is a hard error rather than a silent no-op:
 //   node scripts/post-publish-smoke.mjs [--version <v>] [--prefix <dir>] [--registry <url>]
-//                                       [--timeout-ms <n>] [--json]
+//                                       [--schedule <comma-separated seconds>]
 // With no --version it discovers the published version from the tag at GITHUB_SHA, using
 // GITHUB_REPOSITORY and the `gh` CLI. With --version it smokes exactly that version and skips
 // discovery, which is how the deliberate-failure demonstration and the unit tests drive it.

@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, sep } from 'node:path';
 
@@ -151,6 +151,33 @@ describe('scripts/post-publish-smoke.mjs', () => {
     expect(typeof descriptor?.value).toBe('function');
     expect(descriptor?.get).toBeUndefined();
     expect(descriptor?.configurable).toBe(false);
+  });
+
+  describe('parseArgs', () => {
+    it('rejects an unknown flag instead of ignoring it', async () => {
+      const { parseArgs } = await import(HELPER);
+      expect(
+        parseArgs(['--version', '1.2.3', '--prefix', '/p', '--schedule', '0,5'])
+      ).toMatchObject({ version: '1.2.3', prefix: '/p', schedule: [0, 5] });
+      // A mistyped flag must not look like a clean run of the default configuration — on a release
+      // alarm, a silently ignored `--version` would smoke whatever the environment pointed at.
+      expect(() => parseArgs(['--timeout-ms', '5'])).toThrow(/unknown argument/);
+    });
+
+    it('documents only flags it actually implements', async () => {
+      const { parseArgs } = await import(HELPER);
+      const source = readFileSync(new URL(HELPER, import.meta.url), 'utf8');
+      const cli = source.slice(source.indexOf('// CLI'), source.indexOf('import {'));
+      const flags = [...new Set([...cli.matchAll(/--[a-z-]+/g)].map((m) => m[0]))];
+      // Control: a missed slice would leave nothing to check and pass for the wrong reason.
+      expect(flags.length).toBeGreaterThanOrEqual(4);
+      for (const flag of flags) {
+        expect(
+          () => parseArgs([flag, '1']),
+          `the header documents ${flag} but parseArgs rejects it`
+        ).not.toThrow();
+      }
+    });
   });
 
   describe('versionFromTagRef', () => {
