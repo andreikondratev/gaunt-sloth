@@ -871,17 +871,19 @@ A verdict is a cliff: a case graded 10, then 8, then 7 against a `pass_threshold
 ```
 RUN-OVER-RUN DIFF
   compared: 12 case(s)
-  JUDGE DRIFT — toward the pass threshold (tolerance 1) (1):
-    handles-nested-generics: 8 → 7 (-1) — now 1 above the pass threshold 6
+  JUDGE DRIFT — toward the pass threshold (tolerance 0) (1):
+    handles-nested-generics: 7 → 6 (-1) — now AT the pass threshold 6
 ```
 
-Judge scores wobble between identical runs, so printing every delta would fill this section with noise and teach you to skip it. By default it reports only movement **toward the gate**: a score that crossed its `pass_threshold`, or that fell to within 1 point of it. A 10 → 8 that stays clear of a gate at 6 is not reported; a 7 → 6 sitting on it is. Distance to the gate is what predicts the next failure.
+Judge scores wobble between identical runs, so printing every delta would fill this section with noise and teach you to skip it. By default it reports only movement **toward the gate**: a score that crossed its `pass_threshold`, or that fell to it. A 10 → 8 that stays clear of a gate at 6 is not reported; a 7 → 6 sitting on it is. Distance to the gate is what predicts the next failure.
+
+The default tolerance is `0` because a point of movement is roughly the width of the noise: asked to re-rate one fixed answer twelve times, a local judge returned scores spanning a full point. A wider shoulder would report cells that merely wobbled. If your judge is steadier, `--drift threshold-ward:1` reports a slide to one point above the gate as well, which warns you a run earlier.
 
 `--drift` changes that filter:
 
 | Value | Reports |
 |-------|---------|
-| `threshold-ward` | **Default.** A score that crossed its `pass_threshold`, or fell to within 1 point of it. |
+| `threshold-ward` | **Default.** A score that crossed its `pass_threshold`, or fell to at-or-below it. |
 | `threshold-ward:<0-3>` | The same, with a wider shoulder — `threshold-ward:2` also reports a slide to 2 points above the gate. |
 | `min:<1-10>` | Any movement of N or more points, in either direction, wherever it lands. |
 | `mean` | Only the suite-level mean before and after — no per-case rows. |

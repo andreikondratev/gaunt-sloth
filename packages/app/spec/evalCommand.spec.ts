@@ -451,6 +451,68 @@ cases:
     );
   });
 
+  // BATCH-33: the --drift flag's WIRING. The filter's behaviour is pinned in the batch package;
+  // what only this layer can prove is that the option name resolves and its value actually reaches
+  // the parser. Every batch-side test passes just as well if `--drift` is misspelled here, because
+  // `options.drift` would then be undefined forever and the library default would silently apply.
+  describe('--drift wiring (BATCH-33)', () => {
+    it('registers --drift as an option of the eval command', async () => {
+      const { evalCommand } = await import('#src/commands/evalCommand.js');
+      const program = new Command();
+      evalCommand(program, {});
+      const drift = program.commands[0].options.find((option) => option.long === '--drift');
+      expect(drift).toBeDefined();
+      expect(drift?.required).toBe(true);
+    });
+
+    it('rejects a bad --drift value as a harness error (exit 2) BEFORE anything runs', async () => {
+      // The value reaching the parser is the whole point: this fails if the option is named
+      // something else, or if validation were deferred until after the suite had been run.
+      const { evalCommand } = await import('#src/commands/evalCommand.js');
+      const program = new Command();
+      evalCommand(program, {});
+
+      await program.parseAsync([
+        'na',
+        'na',
+        'eval',
+        'suite.yaml',
+        '-o',
+        outputDir,
+        '--drift',
+        'bogus',
+      ]);
+
+      expect(systemUtilsMock.setExitCode).toHaveBeenCalledWith(2);
+      expect(consoleUtilsMock.displayError).toHaveBeenCalledWith(
+        expect.stringContaining('unrecognised --drift filter')
+      );
+      expect(runSingleShot).not.toHaveBeenCalled();
+    });
+
+    it('accepts a valid --drift value and runs the suite normally', async () => {
+      // The negative test above passes if EVERY --drift value were rejected, so this is its
+      // control: a good value must reach the same code path and not raise.
+      const { evalCommand } = await import('#src/commands/evalCommand.js');
+      const program = new Command();
+      evalCommand(program, {});
+
+      await program.parseAsync([
+        'na',
+        'na',
+        'eval',
+        'suite.yaml',
+        '-o',
+        outputDir,
+        '--drift',
+        'mean',
+      ]);
+
+      expect(systemUtilsMock.setExitCode).not.toHaveBeenCalledWith(2);
+      expect(runSingleShot).toHaveBeenCalled();
+    });
+  });
+
   // BATCH-10 Task 2: the judge can run under a separate identity profile than the SUT.
   describe('separate judge profile (--judge / suite judge_profile)', () => {
     // Build a config-per-profile resolver: initConfig returns a judge-specific config (its own

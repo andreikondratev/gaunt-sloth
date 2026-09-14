@@ -238,30 +238,49 @@ describe('evalCompare', () => {
     });
 
     it('reports a slide toward the gate on a suite with NO classification block', async () => {
-      // The headline gap: 8 → 7 flips no verdict and moves no label, so before this the whole diff
-      // for this run was the words "no change."
+      // The headline gap: 7 → 6 still PASSES, flips no verdict and moves no label, so before this
+      // the whole diff for this run was the words "no change." It is the node's own example of the
+      // movement that matters.
       const { diffRuns } = await import('#src/evalCompare.js');
-      const diff = diffRuns(suite([judged('a', 8)]), suite([judged('a', 7)]));
+      const diff = diffRuns(suite([judged('a', 7)]), suite([judged('a', 6)]));
       expect(diff.regressed).toEqual([]);
       expect(diff.reclassified).toEqual([]);
       expect(diff.judgeDrift).toEqual([
-        { id: 'a', before: 8, after: 7, delta: -1, passThreshold: 6, reason: 'near-threshold' },
+        { id: 'a', before: 7, after: 6, delta: -1, passThreshold: 6, reason: 'near-threshold' },
       ]);
     });
 
-    it('stays QUIET on a stable suite whose cells wobble well clear of the gate', async () => {
-      // The acceptance property, as a deterministic counterpart to the live re-run: ±1 wobble at a
-      // margin of 2+ must print NOTHING, or the section fills with noise on every run and gets
-      // skipped. A test that only ever asserts firing cannot see this regress.
+    it('stays QUIET on a stable suite whose cells wobble ABOVE the gate', async () => {
+      // The acceptance property, as a deterministic counterpart to the live re-run: a ±1 wobble
+      // anywhere above the gate must print NOTHING, or the section fills with noise on every run
+      // and gets skipped. A test that only ever asserts firing cannot see this regress.
+      //
+      // Cell 'e' is the measured case — a live judge re-rating ONE fixed answer twelve times
+      // returned 7s and 8s, so 8 → 7 against a gate of 6 is the exact width of the noise. This
+      // assertion is what fixes the default tolerance at 0: it fails at a shoulder of 1.
       const { diffRuns, renderRunDiff } = await import('#src/evalCompare.js');
       const diff = diffRuns(
-        suite([judged('a', 10), judged('b', 9), judged('c', 8), judged('d', 9)]),
-        suite([judged('a', 9), judged('b', 10), judged('c', 8), judged('d', 8)])
+        suite([judged('a', 10), judged('b', 9), judged('c', 8), judged('d', 9), judged('e', 8)]),
+        suite([judged('a', 9), judged('b', 10), judged('c', 8), judged('d', 8), judged('e', 7)])
       );
       expect(diff.judgeDrift).toEqual([]);
       const rendered = renderRunDiff(diff).join('\n');
       expect(rendered).not.toMatch(/JUDGE DRIFT/);
       expect(rendered).toMatch(/no change\./);
+    });
+
+    it('threshold-ward:1 DOES report the wobble the default ignores', async () => {
+      // The shoulder is a knob, not a removed feature. A corpus with a steadier judge than the one
+      // measured here can widen it and get the run-before-the-run warning back; this pins that the
+      // default is a chosen value rather than the only behaviour the code has.
+      const { diffRuns } = await import('#src/evalCompare.js');
+      const diff = diffRuns(suite([judged('a', 8)]), suite([judged('a', 7)]), {
+        mode: 'threshold-ward',
+        tolerance: 1,
+      });
+      expect(diff.judgeDrift).toEqual([
+        { id: 'a', before: 8, after: 7, delta: -1, passThreshold: 6, reason: 'near-threshold' },
+      ]);
     });
 
     it('reports a CROSSING of the gate in either direction', async () => {
@@ -318,9 +337,9 @@ describe('evalCompare', () => {
           judge: { attempted: true, ok: true, verdict: { rate, reason: 'because' } },
         })),
       });
-      const diff = diffRuns(suite([multi([10, 8])]), suite([multi([10, 7])]));
+      const diff = diffRuns(suite([multi([10, 8])]), suite([multi([10, 6])]));
       expect(diff.judgeDrift).toEqual([
-        { id: 'm', before: 8, after: 7, delta: -1, passThreshold: 6, reason: 'near-threshold' },
+        { id: 'm', before: 8, after: 6, delta: -2, passThreshold: 6, reason: 'near-threshold' },
       ]);
     });
 
@@ -353,7 +372,7 @@ describe('evalCompare', () => {
       const { diffRuns, DEFAULT_JUDGE_DRIFT_FILTER } = await import('#src/evalCompare.js');
       const diff = diffRuns(suite([judged('a', 10)]), suite([judged('a', 8)]));
       expect(diff.judgeDriftFilter).toEqual(DEFAULT_JUDGE_DRIFT_FILTER);
-      expect(diff.judgeDriftFilter).toEqual({ mode: 'threshold-ward', tolerance: 1 });
+      expect(diff.judgeDriftFilter).toEqual({ mode: 'threshold-ward', tolerance: 0 });
       expect(diff.judgeDrift).toEqual([]);
     });
 
@@ -392,7 +411,7 @@ describe('evalCompare', () => {
       const rendered = renderRunDiff(
         diffRuns(suite([judged('a', 8)]), suite([judged('a', 6)]))
       ).join('\n');
-      expect(rendered).toMatch(/JUDGE DRIFT — toward the pass threshold \(tolerance 1\) \(1\):/);
+      expect(rendered).toMatch(/JUDGE DRIFT — toward the pass threshold \(tolerance 0\) \(1\):/);
       expect(rendered).toMatch(/a: 8 → 6 \(-2\) — now AT the pass threshold 6/);
       expect(rendered).not.toMatch(/no change\./);
     });
@@ -402,7 +421,7 @@ describe('evalCompare', () => {
         const { parseJudgeDriftFilter } = await import('#src/evalCompare.js');
         expect(parseJudgeDriftFilter('threshold-ward')).toEqual({
           mode: 'threshold-ward',
-          tolerance: 1,
+          tolerance: 0,
         });
         expect(parseJudgeDriftFilter('threshold-ward:2')).toEqual({
           mode: 'threshold-ward',

@@ -560,10 +560,11 @@ export function evalCommand(
     .option(
       '--drift <filter>',
       'How --compare-to filters JUDGE-SCORE movement. "threshold-ward" (default) reports only a ' +
-        'score that crossed the pass threshold or slid to within 1 point of it — the rest is ' +
-        'judge wobble, and printing it trains you to skip the section. ' +
-        '"threshold-ward:<0-3>" widens that shoulder; "min:<1-10>" reports any movement of N+ ' +
-        'points either way; "mean" reports only the suite-level mean; "off" reports none.'
+        'score that crossed the pass threshold or slid down to it — a move that stays above the ' +
+        'gate is judge wobble, and printing it trains you to skip the section. ' +
+        '"threshold-ward:<0-3>" widens that shoulder to report a slide to N points above the ' +
+        'gate too; "min:<1-10>" reports any movement of N+ points either way; "mean" reports ' +
+        'only the suite-level mean; "off" reports none.'
     )
     .addHelpText(
       'after',

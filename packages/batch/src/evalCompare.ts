@@ -246,8 +246,9 @@ export interface RunDiffEntry {
  *   threshold, or moved DOWN to within `tolerance` points of it. Distance to the gate is the thing
  *   worth alerting on: a 10 → 8 that stays clear of a gate at 6 is a different event from a 7 → 6
  *   sitting on it, and only the second is about to cost a verdict. It is the default because it is
- *   the one filter whose false-positive rate on a stable suite is near zero — a corpus whose cells
- *   sit well above their gate can wobble freely and print nothing.
+ *   the one filter whose false-positive rate on a stable suite is near zero: at the default
+ *   tolerance a score must land at or below its own gate to report, so a corpus grading anywhere
+ *   above its gate wobbles freely and prints nothing.
  * - `min-points` — report any movement of at least N points, either direction. The blunt
  *   instrument: it sees large swings wherever they land, and pays for that by firing on a wobbly
  *   judge no matter how much headroom the case had.
@@ -261,10 +262,22 @@ export type JudgeDriftFilter =
   | { mode: 'mean' }
   | { mode: 'off' };
 
-/** How many points above the gate still counts as sitting ON it, when the caller names no
- * tolerance. One point: a stable corpus grades well clear of its gate, so this stays quiet through
- * ordinary wobble while still catching the run before a slide breaks the verdict. */
-export const DEFAULT_JUDGE_DRIFT_TOLERANCE = 1;
+/**
+ * How many points above the gate still counts as sitting ON it, when the caller names no tolerance.
+ *
+ * Zero, and the reason is a measurement rather than a preference. A local judge asked to re-rate one
+ * fixed answer against one fixed rubric twelve times returned rates spanning a full point (7 and 8,
+ * on the same input every time). So one point of movement carries no information: it is the width of
+ * the noise. A shoulder of 1 would report every cell that wobbled from 8 to 7 against the default
+ * gate of 6 — an ordinary judged suite grades right there, so the section would fire on a stable
+ * re-run, which is the one failure this node exists to avoid.
+ *
+ * At zero the rule still reports both movements the node names: a 7 → 6 lands ON the gate and
+ * reports, a 10 → 8 stays clear and does not. The shoulder was buying nothing those two clauses did
+ * not already cover, and was costing exactly the measured noise band. Widen it deliberately with
+ * `--drift threshold-ward:<n>` on a corpus whose judge is steadier than this.
+ */
+export const DEFAULT_JUDGE_DRIFT_TOLERANCE = 0;
 
 /**
  * The widest tolerance a caller may ask for. The judge scale is 0-10 and a typical gate is 6, so a
@@ -651,7 +664,9 @@ export function renderRunDiff(diff: RunDiff): string[] {
           : entry.reason === 'near-threshold'
             ? margin === 0
               ? `now AT the pass threshold ${entry.passThreshold}`
-              : `now ${margin} above the pass threshold ${entry.passThreshold}`
+              : margin < 0
+                ? `now ${-margin} BELOW the pass threshold ${entry.passThreshold}`
+                : `now ${margin} above the pass threshold ${entry.passThreshold}`
             : `pass threshold ${entry.passThreshold}`;
       lines.push(
         `    ${entry.id}: ${entry.before} → ${entry.after} (${sign}${entry.delta}) — ${where}`
