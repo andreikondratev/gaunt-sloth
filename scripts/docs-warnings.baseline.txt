@@ -51,6 +51,8 @@ Code block with language yaml will not be highlighted in comment for docs/guides
 Code block with language yaml will not be highlighted in comment for docs/guides/evals as it was not included in the highlightLanguages option
 Code block with language yaml will not be highlighted in comment for docs/guides/evals as it was not included in the highlightLanguages option
 Code block with language yaml will not be highlighted in comment for docs/guides/evals-for-mcp-servers as it was not included in the highlightLanguages option
+Code block with language yaml will not be highlighted in comment for docs/guides/evals-for-mcp-servers as it was not included in the highlightLanguages option
+Code block with language yaml will not be highlighted in comment for docs/guides/evals-for-mcp-servers as it was not included in the highlightLanguages option
 ConvertMessageOptions, defined in @gaunt-sloth/agent/src/modules/apiAgUiModule.ts, is referenced by modules/apiAgUiModule.js.convertMessage.options but not included in the documentation
 ExecCommandOptions, defined in gaunt-sloth/src/commands/execCommand.ts, is referenced by commands/execCommand.buildExecConfig.options but not included in the documentation
 Failed to resolve link to "#cleanup" in comment for @gaunt-sloth/core.core/GthAgentRunner.GthAgentRunner.init
@@ -253,7 +255,6 @@ Failed to resolve link to "import('./rater.js').preflightFloorFinding" in commen
 Failed to resolve link to "import('@gaunt-sloth/core/core/GthLangChainAgent.js').GthLangChainAgent" in comment for @gaunt-sloth/agent.core/debugCapture.js
 Failed to resolve link to "import('@gaunt-sloth/core/core/shell/negotiation.js') ShellNegotiationState" in comment for @gaunt-sloth/batch.raterTarget.js
 Failed to resolve link to "import('@gaunt-sloth/core/core/shell/negotiation.js').ShellNegotiationState" in comment for @gaunt-sloth/batch.evalTypes.js.EvalTurn.justification
-Failed to resolve link to "import('@gaunt-sloth/core/core/types.js').AgentStreamEvent" in comment for gaunt-sloth.tui/tuiSessionModule.createTuiSession
 Failed to resolve link to "interpreterRunsStdin" in comment for @gaunt-sloth/core.core/shell/openWorld.ComposedFlow
 Failed to resolve link to "isAdditiveArrayField" in comment for @gaunt-sloth/review.index.resolveConfigExtends
 Failed to resolve link to "loadGlobalRawConfigUnvalidated" in comment for @gaunt-sloth/core.config/loader.validateConfig

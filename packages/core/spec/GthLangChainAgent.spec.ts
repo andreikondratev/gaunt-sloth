@@ -11,6 +11,11 @@ import {
   type GthCommand,
   type StatusUpdateCallback,
 } from '#src/core/types.js';
+import {
+  accumulateMessage,
+  createRunStatsAccumulator,
+  finalizeRunStats,
+} from '#src/core/runStats.js';
 
 const systemUtilsMock = {
   getCurrentWorkDir: vi.fn(),
@@ -869,12 +874,17 @@ describe('GthLangChainAgent', () => {
           })
         );
 
-        const result = await softening!.wrapToolCall!({ toolCall: { id: 'tc-shell' } }, handler);
+        const result = await softening!.wrapToolCall!(
+          { toolCall: { id: 'tc-shell', name: 'run_tests', args: {} } },
+          handler
+        );
         // Full stdout/stderr body preserved verbatim — the model's observation is unchanged...
         expect(String(result.content)).toBe(body);
         expect(result.tool_call_id).toBe('tc-shell');
         // ...except the status flips to 'error' (→ isError → ✗ glyph).
         expect(result.status).toBe('error');
+        // BATCH-23 — and it is NAMED, which is what puts it in the run's tool trace at all.
+        expect(result.name).toBe('run_tests');
       });
 
       it('recognises a structurally-shaped ShellCommandFailedError (dual-package fallback)', async () => {
@@ -897,9 +907,13 @@ describe('GthLangChainAgent', () => {
         });
         const handler = vi.fn().mockRejectedValue(err);
 
-        const result = await softening!.wrapToolCall!({ toolCall: { id: 'tc-struct' } }, handler);
+        const result = await softening!.wrapToolCall!(
+          { toolCall: { id: 'tc-struct', name: 'run_shell_command', args: {} } },
+          handler
+        );
         expect(String(result.content)).toBe(body);
         expect(result.status).toBe('error');
+        expect(result.name).toBe('run_shell_command');
       });
 
       it('rethrows a non-shell error untouched', async () => {
@@ -914,7 +928,10 @@ describe('GthLangChainAgent', () => {
         const handler = vi.fn().mockRejectedValue(err);
 
         await expect(
-          softening!.wrapToolCall!({ toolCall: { id: 'tc-other' } }, handler)
+          softening!.wrapToolCall!(
+            { toolCall: { id: 'tc-other', name: 'run_shell_command', args: {} } },
+            handler
+          )
         ).rejects.toBe(err);
       });
 
@@ -929,7 +946,10 @@ describe('GthLangChainAgent', () => {
         const ok = new ToolMessage({ content: 'done', tool_call_id: 'tc-ok', status: 'success' });
         const handler = vi.fn().mockResolvedValue(ok);
 
-        const result = await softening!.wrapToolCall!({ toolCall: { id: 'tc-ok' } }, handler);
+        const result = await softening!.wrapToolCall!(
+          { toolCall: { id: 'tc-ok', name: 'run_lint', args: {} } },
+          handler
+        );
         expect(result).toBe(ok);
       });
     });
@@ -1406,7 +1426,10 @@ describe('GthLangChainAgent', () => {
         const handler = vi.fn().mockRejectedValue(toolException(message));
 
         const result = await softening!.wrapToolCall!(
-          { toolCall: { id: 'tc-mcp' }, runtime: { signal: undefined } },
+          {
+            toolCall: { id: 'tc-mcp', name: 'mcp__unimarket__contract_search', args: {} },
+            runtime: { signal: undefined },
+          },
           handler
         );
         // The adapter's message (which carries the server's error body) reaches the model verbatim...
@@ -1414,6 +1437,8 @@ describe('GthLangChainAgent', () => {
         expect(result.tool_call_id).toBe('tc-mcp');
         // ...as a status:'error' observation (→ isError → ✗), NOT a turn-aborting throw.
         expect(result.status).toBe('error');
+        // BATCH-23 — named, so `gth eval`'s must_error can see the denial at all.
+        expect(result.name).toBe('mcp__unimarket__contract_search');
       });
 
       it('rethrows a ToolException when the run was aborted (user cancellation is never swallowed)', async () => {
@@ -1431,7 +1456,10 @@ describe('GthLangChainAgent', () => {
 
         await expect(
           softening!.wrapToolCall!(
-            { toolCall: { id: 'tc-abort' }, runtime: { signal: { aborted: true } } },
+            {
+              toolCall: { id: 'tc-abort', name: 'mcp__unimarket__contract_search', args: {} },
+              runtime: { signal: { aborted: true } },
+            },
             handler
           )
         ).rejects.toBe(err);
@@ -1449,7 +1477,13 @@ describe('GthLangChainAgent', () => {
         const handler = vi.fn().mockRejectedValue(err);
 
         await expect(
-          softening!.wrapToolCall!({ toolCall: { id: 'tc-other' }, runtime: {} }, handler)
+          softening!.wrapToolCall!(
+            {
+              toolCall: { id: 'tc-other', name: 'mcp__unimarket__contract_search', args: {} },
+              runtime: {},
+            },
+            handler
+          )
         ).rejects.toBe(err);
       });
 
@@ -1465,10 +1499,106 @@ describe('GthLangChainAgent', () => {
         const handler = vi.fn().mockResolvedValue(ok);
 
         const result = await softening!.wrapToolCall!(
-          { toolCall: { id: 'tc-ok' }, runtime: {} },
+          { toolCall: { id: 'tc-ok', name: 'mcp__unimarket__ping', args: {} }, runtime: {} },
           handler
         );
         expect(result).toBe(ok);
+      });
+    });
+
+    // BATCH-23 (#425) — the ACCEPTANCE bar: a softened error result must arrive in the run's tool
+    // trace, which is what `gth eval`'s must_error / tool_result_json_path grade. The two halves
+    // are separately tested above and in runStats.spec.ts; joined here because the defect lived in
+    // the SEAM between them — a ToolMessage with no name is dropped whole by the harvester, so an
+    // authorization suite saw an empty trace for exactly the denial it was written to assert.
+    // Both middlewares are driven as the agent installed them (no local re-creation), and the
+    // trace is harvested with the production accumulator the agent feeds during a run.
+    describe('softened error results reach the run tool trace (BATCH-23)', () => {
+      const getSoftening = (name: string) => {
+        const middleware = createAgentMock.mock.calls.at(-1)?.[0].middleware as {
+          name: string;
+          wrapToolCall?: (
+            _request: unknown,
+            _handler: (_r: unknown) => Promise<unknown>
+          ) => Promise<ToolMessage>;
+        }[];
+        return middleware.find((m) => m.name === name);
+      };
+
+      const initAgent = async () => {
+        const agent = new GthLangChainAgent(statusUpdateCallback, {
+          resolveTools: vi.fn().mockResolvedValue([]),
+          resolveMiddleware: async (m) => m ?? [],
+        });
+        await agent.init('exec', mockConfig);
+        return agent;
+      };
+
+      /** Harvest a run's stats from the messages a turn produced, exactly as the agent does. */
+      const traceOf = (...messages: unknown[]) => {
+        const acc = createRunStatsAccumulator();
+        for (const message of messages) accumulateMessage(acc, message);
+        return finalizeRunStats(acc);
+      };
+
+      it('captures a denied MCP call with its name and isError (the #425 case)', async () => {
+        await initAgent();
+        const softening = getSoftening('GthMcpToolErrorSoftening');
+        expect(softening).toBeDefined();
+
+        const message =
+          "MCP tool 'contract_search' on server 'unimarket' returned an error: " +
+          '{"code":"MODULE_NOT_ENABLED"}';
+        const call = new AIMessage({
+          content: '',
+          tool_calls: [
+            { id: 'tc-mcp', name: 'mcp__unimarket__contract_search', args: { q: 'contracts' } },
+          ],
+        });
+        const softened = await softening!.wrapToolCall!(
+          {
+            toolCall: { id: 'tc-mcp', name: 'mcp__unimarket__contract_search', args: {} },
+            runtime: { signal: undefined },
+          },
+          vi.fn().mockRejectedValue(Object.assign(new Error(message), { name: 'ToolException' }))
+        );
+
+        const stats = traceOf(call, softened);
+        expect(stats.toolResults).toEqual([
+          { name: 'mcp__unimarket__contract_search', isError: true, content: message },
+        ]);
+        // The name set is unchanged by this (it already saw the REQUESTED call) — the record is
+        // what was missing, so assert the trace gained one without disturbing the other half.
+        expect(stats.tools).toEqual(['mcp__unimarket__contract_search']);
+      });
+
+      it('captures a failed shell/dev command with its name and isError', async () => {
+        const { ShellCommandFailedError } =
+          await import('#src/core/shell/ShellCommandFailedError.js');
+        await initAgent();
+        const softening = getSoftening('GthLeanShellExitSoftening');
+        expect(softening).toBeDefined();
+
+        const body = "Executing 'npm test'...\n\nCommand 'npm test' exited with code 1";
+        const call = new AIMessage({
+          content: '',
+          tool_calls: [{ id: 'tc-shell', name: 'run_tests', args: { command: 'npm test' } }],
+        });
+        const softened = await softening!.wrapToolCall!(
+          { toolCall: { id: 'tc-shell', name: 'run_tests', args: {} } },
+          vi.fn().mockRejectedValue(
+            new ShellCommandFailedError({
+              output: body,
+              exitCode: 1,
+              command: 'npm test',
+              toolName: 'run_tests',
+            })
+          )
+        );
+
+        const stats = traceOf(call, softened);
+        expect(stats.toolResults).toEqual([{ name: 'run_tests', isError: true, content: body }]);
+        expect(stats.tools).toEqual(['run_tests']);
       });
     });
 

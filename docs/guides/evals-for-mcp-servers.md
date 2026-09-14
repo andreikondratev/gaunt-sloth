@@ -84,22 +84,41 @@ The matrix is self-contained: every listed identity must resolve to a real profi
 before anything runs (an unresolved name aborts with exit `2`, never a silent fallback), and no
 base `-i` flag is needed on the CLI.
 
-### 4. Asserting the denial — the honest current pattern
+### 4. Asserting the denial structurally
 
-Two structural keys exist for "called **and** denied": `must_error` (a called tool matching the
-pattern returned an error result) and `tool_result_json_path` (a check over the result payload).
-For an MCP denial, do not rely on them yet: the #405 field run (alpha.24, live server) found that
-**errored MCP tool results are missing from the captured tool trace** — the authorized identity's
-successful result is captured, the restricted identity's `isError: true` result is not — so both
-keys come up empty on exactly the case they were built for. The gap is still open; it is tracked
-in [#405](https://github.com/pukeko-robotics/gaunt-sloth/issues/405). Until it closes:
+A server that refuses a call returns `isError: true`, and that result reaches the eval's tool trace
+under the tool's own name — so the denial is assertable with `must_error` instead of a rubric.
+Replace the `limited` block above with:
 
-- pin the call with `must_call` — deterministic, and it works today;
-- grade the denial itself with the `judge:` rubric, as in the suite above.
+```yaml
+      - identities: [limited]
+        must_call: ["mcp__unimarket__contract*"]    # it tried the tool…
+        must_error: ["mcp__unimarket__contract*"]   # …and the server refused it
+```
 
-One more capture wrinkle to know when you do assert on MCP results: a captured result is the raw
-MCP content block (`{"type":"text","text":"{...}"}`), so a `tool_result_json_path` can resolve
-`path: "text"` but cannot reach fields inside the inner JSON string.
+Both keys take the same glob patterns, so one pattern covers a growing tool family. Keep a judge
+when the *wording* of the refusal matters — that the agent reported the denial rather than
+inventing contract data — but the authorization fact itself is graded structurally, so a restricted
+identity that quietly got real data back fails the case without a model having to notice.
+
+`tool_result_json_path` is the other result-level key, and it grades a **successful** payload: a
+failed MCP call is captured as the adapter's error message (`MCP tool 'contract_search' on server
+'unimarket' returned an error:` followed by the server's text), and the check parses the whole
+payload as JSON, so on a denial it fails as non-JSON however the server formatted its error body.
+Assert a denial with `must_error`, and save `tool_result_json_path` for what the *allowed* identity
+got back:
+
+```yaml
+      - identities: [admin]
+        tool_result_json_path:
+          - { tool: "mcp__unimarket__contract*", path: "contracts[0].type", contains: "SUPPLY" }
+```
+
+The payload it reads is the tool result as the model saw it: the text verbatim when the tool
+returned text, otherwise the JSON of the content blocks. A single-text MCP result is therefore
+captured as its text, and a `path` addresses that JSON directly; a result the server sent as
+several blocks (or alongside structured content) is captured as the blocks, where the same text
+sits one hop further in, at `[0].text` or `text`.
 
 ### 5. A separate, stronger, non-MCP judge
 

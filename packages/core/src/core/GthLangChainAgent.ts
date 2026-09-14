@@ -937,6 +937,15 @@ export class GthLangChainAgent extends GthAbstractAgent {
               content: e.output,
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               tool_call_id: (request.toolCall as any)?.id ?? '',
+              // The NAME is not cosmetic: a ToolMessage that carries none is dropped whole from the
+              // run's tool trace (`runStats.accumulateMessage` records a result only for a named
+              // `ToolMessage`), so a softened failure would never reach `gth eval`'s `must_error` /
+              // `tool_result_json_path` — the assertions exist for exactly this case. langchain's
+              // ToolNode returns a middleware's ToolMessage unmodified and backfills nothing, so
+              // this is the only place the name can come from. `request.toolCall.name` is the name
+              // the model asked for and matches what the success path records (ToolNode names a
+              // wrapped result after the invoked tool).
+              name: request.toolCall.name,
               status: 'error',
             });
           }
@@ -980,6 +989,10 @@ export class GthLangChainAgent extends GthAbstractAgent {
               content: e.message,
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               tool_call_id: (request.toolCall as any)?.id ?? '',
+              // Carries the name for the same reason the shell softener above does: an unnamed
+              // ToolMessage never reaches the run's tool trace, which is what made a denied MCP
+              // call invisible to `must_error` while the allowed identity's result was captured.
+              name: request.toolCall.name,
               status: 'error',
             });
           }

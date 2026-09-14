@@ -45,6 +45,22 @@ export function createRunStatsAccumulator(): RunStatsAccumulator {
  * `tool_result` stream event uses in `GthAbstractAgent`); the result is capped at
  * {@link TOOL_RESULT_CONTENT_CAP}. Returns `undefined` (payload omitted) when nothing textual can
  * be derived — never throws.
+ *
+ * **A single content block is captured as the block, NOT unwrapped to its inner text — deliberately.**
+ * The alternative (unwrap a lone `{type:'text',text}` so an eval's `tool_result_json_path` reaches
+ * the inner JSON without a `text` hop) was considered and rejected:
+ *
+ * - **The capture must be what the MODEL observed.** That is the one property a tool-result trace
+ *   exists to preserve; an eval that grades a payload the model never saw grades a fiction.
+ * - **No shape is unreachable, so nothing is being worked around.** `resolveJsonPath` normalizes
+ *   `[0]` index syntax, so a block reachable at `text` in the object form is reachable at `[0].text`
+ *   in the array form; a bare-string payload parses directly.
+ * - **Unwrapping would silently break suites already written to the documented `text` hop**, and it
+ *   would make the capture depend on which MCP-adapter branch produced the content (a lone text
+ *   block arrives as a bare string, but as a block object once the server also returns
+ *   `structuredContent`/`_meta`) — swapping a stated contract for an inferred one.
+ * - It would not help the case this capture exists for anyway: a SOFTENED MCP error's payload is
+ *   the adapter's own error message (prose, then the server's text), so it is not JSON at any hop.
  */
 function toolResultContentText(content: unknown): string | undefined {
   try {

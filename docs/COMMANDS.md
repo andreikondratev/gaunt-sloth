@@ -497,9 +497,13 @@ A case may also carry `tags: [...]` (its family — the per-tag sub-score axis; 
     - identities: [limited]
       must_call: ["mcp__contracts__report"]        # it tried the tool…
       must_error: ["mcp__contracts__report"]       # …and the call came back as an error
-      tool_result_json_path:
-        - { tool: "mcp__contracts__report", path: "error.code", equals: "MODULE_DISABLED" }
+    - identities: [admin]
+      must_call: ["mcp__contracts__report"]
+      tool_result_json_path:                       # …while this one got the data itself
+        - { tool: "mcp__contracts__report", path: "contracts[0].type", equals: "SUPPLY" }
 ```
+
+The two result keys grade different things. `must_error` reads the result's error status, so it is what asserts a denial. `tool_result_json_path` parses the whole captured payload as JSON, which makes it a check on a result the tool returned **as data** — an MCP tool's failure is captured as the adapter's error message (prose, then the server's text), so it does not parse and cannot be graded this way.
 
 Tool-result assertions read the in-process tool trace, so they require `target.type: gth-agent`; a suite using them with an `ag-ui` or `adk-agent` target is rejected before anything runs (exit `2`). Result payloads are captured up to 8 KB — a longer payload is truncated and then fails `tool_result_json_path` as non-JSON.
 
