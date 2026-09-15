@@ -381,14 +381,25 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
   private outstandingWork: GthOutstandingWork | null = null;
 
   /**
-   * [[EXT-158]] — the last stalled state this agent ANNOUNCED, as its structural signature.
+   * [[EXT-158]] — the stall episode currently in progress: the structural signature of the
+   * checklist state, and how many times it has been announced.
    *
    * Session-lived rather than turn-lived, and that is the whole mechanism: a stuck model re-emits
    * an identical checklist turn after turn, and only a value that outlives the turn can tell that
    * apart from progress. Deliberately NOT cleared by {@link resetOutstandingWork}, which runs at
    * every turn boundary and would therefore make every repeat look new.
+   *
+   * **A COUNT rather than a seen-before flag, so the named budget means what it says.** A flag
+   * would make the constant a two-state switch — off at zero, on at anything else — and a reviewer
+   * raising it from one to two would get no change and no warning. Counting per episode is also
+   * [[EXT-36]]'s own definition of progress reused rather than reinvented: a different signature is
+   * progress and resets the count, and another identical `gth_checklist` call is not.
+   *
+   * ONE episode is kept rather than a map of every signature ever seen. A stall is consecutive by
+   * construction, and an unbounded map would grow for the whole life of a long session to answer a
+   * question only the current state can ask.
    */
-  private lastAnnouncedOutstandingSignature: string | null = null;
+  private outstandingEpisode: { signature: string; announced: number } | null = null;
 
   /**
    * EXT-58 — the names of the tools registered with the graph at the last {@link init}, recorded by
@@ -658,11 +669,17 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
       // The repeat decision is taken HERE, once, rather than at each of the six surfaces that may
       // render it — so they cannot come to disagree about what "again" means, and so a surface
       // that renders nothing still moves the session's idea of what has been said.
-      const repeat =
-        OUTSTANDING_WORK_NOTICE_MAX_PER_SIGNATURE < 1 ||
-        this.lastAnnouncedOutstandingSignature === work.signature;
+      //
+      // A changed signature starts a NEW episode at zero, which is what makes a checklist state
+      // change count as progress and another identical call not.
+      const episode =
+        this.outstandingEpisode?.signature === work.signature
+          ? this.outstandingEpisode
+          : { signature: work.signature, announced: 0 };
+      const repeat = episode.announced >= OUTSTANDING_WORK_NOTICE_MAX_PER_SIGNATURE;
+      if (!repeat) episode.announced += 1;
+      this.outstandingEpisode = episode;
       this.outstandingWork = { ...work, repeat };
-      if (!repeat) this.lastAnnouncedOutstandingSignature = work.signature;
       debugLog(outstandingWorkLogLine(this.outstandingWork));
     } catch {
       /* fail-soft: noticing an unfinished checklist must never be what ends a finished turn */

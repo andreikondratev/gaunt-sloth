@@ -67,11 +67,21 @@ function checklistCall(items: Array<[string, string]>, id = 'call-1') {
   };
 }
 
-/** The message pair a `gth_checklist` call actually produces: the call, then its observation. */
+/**
+ * The message pair a `gth_checklist` call actually produces: the call, then its observation.
+ *
+ * **Every fixture message carries an explicit `id`, and that is load-bearing rather than tidy.**
+ * The cells below put these through a real LangGraph state reducer, which dedupes by message id —
+ * and two messages built with no id are two messages whose id is `undefined`, so the second
+ * silently replaces the first and the history the detector reads is not the one the fixture
+ * describes. Measured: an id-less three-message node output reduced to two. Real messages always
+ * carry a provider id, so this makes the fixture more faithful as well as deterministic.
+ */
 function checklistExchange(items: Array<[string, string]>, id = 'call-1'): BaseMessage[] {
   return [
-    new AIMessage({ content: '', tool_calls: [checklistCall(items, id)] }),
+    new AIMessage({ id: `ai-${id}`, content: '', tool_calls: [checklistCall(items, id)] }),
     new ToolMessage({
+      id: `tool-${id}`,
       content: formatChecklist(items),
       tool_call_id: id,
       name: CHECKLIST_TOOL_NAME,
@@ -82,9 +92,9 @@ function checklistExchange(items: Array<[string, string]>, id = 'call-1'): BaseM
 /** A finished turn: a user message, a checklist exchange, and a closing answer with no calls. */
 function turnEndingWith(items: Array<[string, string]>, answer = 'Implementing that next.') {
   return [
-    new HumanMessage('do the thing'),
+    new HumanMessage({ id: 'human-1', content: 'do the thing' }),
     ...checklistExchange(items),
-    new AIMessage({ content: answer }),
+    new AIMessage({ id: 'ai-answer', content: answer }),
   ];
 }
 
@@ -365,6 +375,46 @@ describe('[[EXT-158]] the seam, driven through a real graph and a real agent', (
     });
   });
 
+  /**
+   * **The typed-event path records on ITSELF, and this is the cell that proves it.**
+   *
+   * Every cell around this one calls `noteOutstandingWork` directly, so every one of them would
+   * still pass with the call site inside `streamWithEvents` deleted — and deleting it would take
+   * the AG-UI server out of the feature entirely, since that surface drives this method with no
+   * runner to ask on its behalf. This cell drives the real `streamWithEvents` to exhaustion and
+   * asserts the fact was recorded without anyone asking for it.
+   */
+  it('records on its own at the end of a typed-event turn, with no runner involved', async () => {
+    // Shaped like a real turn: the human message arrives through `streamWithEvents`, and the graph
+    // node contributes the AGENT's half after it — so the checkpointed history ends on the model's
+    // closing answer, as a production turn does.
+    const answer = [
+      ...checklistExchange(PARTLY_DONE),
+      new AIMessage({ id: 'ai-answer', content: 'Implementing that next.' }),
+    ];
+    const graph = new StateGraph(MessagesAnnotation)
+      .addNode('reply', () => ({ messages: answer }))
+      .addEdge(START, 'reply')
+      .addEdge('reply', END)
+      .compile({ checkpointer: new MemorySaver() });
+    const runConfig: RunnableConfig = { configurable: { thread_id: 'ext-158-events' } };
+
+    class TestAgent extends GthAbstractAgent {
+      async init(): Promise<void> {
+        /* the graph is injected directly */
+      }
+    }
+    const agent = new TestAgent(() => {});
+    (agent as unknown as { agent: unknown }).agent = graph;
+    (agent as unknown as { config: unknown }).config = { writeBinaryOutputsToFile: false };
+
+    for await (const _ of agent.streamWithEvents([new HumanMessage('do the thing')], runConfig)) {
+      /* drain */
+    }
+
+    expect(agent.getOutstandingWork()).toMatchObject({ outstanding: 3, repeat: false });
+  });
+
   it('records nothing when the checkpointed conversation has no outstanding items', async () => {
     const { agent, runConfig } = await throughARealGraph(
       turnEndingWith([['Read the config', 'completed']])
@@ -503,5 +553,43 @@ describe('[[EXT-158]] the announce budget is a named constant whose value decide
     // The fact is still DETECTED — only the announcement is withheld, which is what a budget of
     // zero should mean and is a different thing from the detector going blind.
     expect(agent.getOutstandingWork()).toMatchObject({ outstanding: 3, repeat: true });
+  });
+
+  /**
+   * **The value above one has to mean something too.** This is what separates a real budget from a
+   * seen-before flag wearing a constant's name: with the budget at two, the SAME unchanged stalled
+   * state is announced twice and declined on the third turn. A flag-based implementation passes the
+   * zero cell above and fails this one.
+   */
+  it('permits exactly as many announcements as the budget names', async () => {
+    vi.doMock('#src/core/outstandingWork.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('#src/core/outstandingWork.js')>()),
+      OUTSTANDING_WORK_NOTICE_MAX_PER_SIGNATURE: 2,
+    }));
+    const { GthAbstractAgent } = await import('#src/core/GthAbstractAgent.js');
+
+    const graph = new StateGraph(MessagesAnnotation)
+      .addNode('emit', () => ({ messages: turnEndingWith(PARTLY_DONE) }))
+      .addEdge(START, 'emit')
+      .addEdge('emit', END)
+      .compile({ checkpointer: new MemorySaver() });
+    const runConfig: RunnableConfig = { configurable: { thread_id: 'ext-158-budget-2' } };
+    await graph.invoke({ messages: [] }, runConfig);
+
+    class TestAgent extends GthAbstractAgent {
+      async init(): Promise<void> {
+        /* the graph is injected directly */
+      }
+    }
+    const agent = new TestAgent(() => {});
+    (agent as unknown as { agent: unknown }).agent = graph;
+
+    const repeats: Array<boolean | undefined> = [];
+    for (let turn = 0; turn < 3; turn++) {
+      await agent.noteOutstandingWork(runConfig);
+      repeats.push(agent.getOutstandingWork()?.repeat);
+    }
+
+    expect(repeats).toEqual([false, false, true]);
   });
 });

@@ -112,12 +112,17 @@ export interface GthOutstandingWork {
 }
 
 /**
- * How many times one unchanged stalled state may be announced.
+ * How many times one stall episode may be announced — an episode being a run of turns whose
+ * checklist state does not change.
  *
  * A named constant because scope (3) asks for one and because the alternative — the number `1`
- * inlined in a comparison — is a threshold nobody can find. Raising it must move behaviour, and
- * `outstandingWork.spec.ts` asserts exactly that, so this cannot be quietly widened into the
- * repeating banner the node forbids.
+ * inlined in a comparison — is a threshold nobody can find.
+ *
+ * **It is compared against a COUNT, not against a flag, so every value means something.** Zero
+ * silences the notice while leaving the fact recorded; two genuinely permits two; and a checklist
+ * state change starts a fresh episode at zero either way. A seen-before boolean would have made
+ * this a two-state switch that ignored any value above one, which is the shape of named constant
+ * that reads as a knob and is not one. `outstandingWork.spec.ts` moves it and asserts the change.
  */
 export const OUTSTANDING_WORK_NOTICE_MAX_PER_SIGNATURE = 1;
 
