@@ -53,6 +53,11 @@ import type {
 import { peekProjectDir, setProjectDir } from '@gaunt-sloth/core/utils/systemUtils.js';
 import { TERMINATION_NOTICE_TITLE_PREFIX } from '@gaunt-sloth/core/core/terminationNotice.js';
 import {
+  OUTSTANDING_WORK_NOTICE_TITLE_PREFIX,
+  outstandingWorkNotice,
+  type GthOutstandingWork,
+} from '@gaunt-sloth/core/core/outstandingWork.js';
+import {
   terminationReason,
   type GthTerminationReason,
 } from '@gaunt-sloth/core/core/terminationReason.js';
@@ -210,6 +215,14 @@ interface AgentScript {
    * taxonomy and see what this dialect makes of it.
    */
   terminationReason?: GthTerminationReason;
+  /**
+   * [[EXT-158]] — what the turn left unfinished on its own checklist, as the agent reports it.
+   *
+   * Scripted rather than detected, because the detector is a core concern with its own cells and
+   * what this surface has to prove is only that the fact travels: the real runner forwards this to
+   * the real ACP app, which decides whether the client hears about it.
+   */
+  outstandingWork?: GthOutstandingWork;
 }
 
 class FixtureAgent implements GthAgentInterface {
@@ -267,6 +280,11 @@ class FixtureAgent implements GthAgentInterface {
   /** [[EXT-159]] — the optional getter the runner prefers over its own classification. */
   getTerminationReason(): GthTerminationReason | null {
     return this.script.terminationReason ?? null;
+  }
+
+  /** [[EXT-158]] — the optional getter the runner forwards to whichever surface is driving it. */
+  getOutstandingWork(): GthOutstandingWork | null {
+    return this.script.outstandingWork ?? null;
   }
 
   async cleanup(): Promise<void> {}
@@ -782,6 +800,69 @@ describe('the ACP v2 agent — session lifecycle', () => {
     // Stated as its own claim: a constant would satisfy any one of the three lines above read
     // charitably, and satisfies none of them together.
     expect(new Set([truncated, rateLimited, finished]).size).toBe(3);
+  });
+
+  /**
+   * [[EXT-158]] — **the ending ACP cannot express at all.**
+   *
+   * `end_turn` is what an editor is told both when the agent finished and when it stopped halfway
+   * through its own checklist, and no member of the stop-reason union distinguishes them — which is
+   * why this fact travels in the conversation instead. The core cells prove the detector and the
+   * gate; only this one proves that an ACP client actually hears it, driving the real runner and
+   * the real agent app end to end.
+   */
+  describe('[[EXT-158]] the turn says when it left its own checklist unfinished', () => {
+    const stall = (over: Partial<GthOutstandingWork> = {}): GthOutstandingWork => ({
+      outstanding: 2,
+      completed: 3,
+      total: 5,
+      inProgress: 1,
+      signature: 'sig-a',
+      repeat: false,
+      ...over,
+    });
+
+    /** Run one clean turn with the scripted facts and return everything the agent said. */
+    const saidFor = async (script: Partial<AgentScript>): Promise<string> =>
+      withClient({ script: { events: textEvents('an answer'), ...script } }, async (ctx, h) => {
+        const sessionId = await newSession(ctx);
+        await ctx.request(acp.AGENT_METHODS.session_prompt, {
+          sessionId,
+          prompt: [{ type: 'text', text: 'go' }],
+        });
+        await waitForStop(h.view);
+        return h.view.textOf(h.view.agentMessages);
+      });
+
+    it('tells the client, in the conversation, when a clean stop left work outstanding', async () => {
+      const work = stall();
+      const said = await saidFor({ outstandingWork: work });
+      // The model's own answer is untouched — this is an addition, never a replacement.
+      expect(said).toContain('an answer');
+      // Derived from the work value, so DIFFERENT counts sent by the surface fail here.
+      expect(said).toContain(outstandingWorkNotice(work).title);
+    });
+
+    /**
+     * The gate's reason for being. A suspended run is parked on a tool-approval interrupt with its
+     * checklist outstanding *by construction*, so a gate written as the complement of
+     * `shouldAnnounceTermination` — which also declines `suspended` — would have sent this to the
+     * editor on every gated tool call in the session.
+     */
+    it('says nothing when the turn is merely suspended, however much is outstanding', async () => {
+      const said = await saidFor({
+        outstandingWork: stall(),
+        terminationReason: terminationReason('agent.events-ended', 'control', 'suspended'),
+      });
+      expect(said).toContain('an answer');
+      expect(said).not.toContain(OUTSTANDING_WORK_NOTICE_TITLE_PREFIX);
+    });
+
+    it('says nothing on an ordinary finish with nothing outstanding', async () => {
+      const said = await saidFor({});
+      expect(said).toContain('an answer');
+      expect(said).not.toContain(OUTSTANDING_WORK_NOTICE_TITLE_PREFIX);
+    });
   });
 
   it('lists, resumes with a replay, and closes sessions', async () => {
