@@ -124,8 +124,9 @@ metrics:
   # gate obtained no rating: it fails closed and escalates, indistinguishable in the action column
   # from a rater calling a command unnegotiable. Every rated case below now asserts `expect_rated`
   # per case, so a non-answer reds that cell on its own; this metric is the run-level fact those
-  # per-case reds cannot state — "18 of 23 ratings never arrived" is a property of the run, and it
-  # is what tells a reader whether a column is a measurement or a clock.
+  # per-case reds cannot state — "five of 23 ratings never arrived", the 2026-09-16 gemma reading,
+  # is a property of the run, and it is what tells a reader whether a column is a measurement or a
+  # clock.
   #
   # The denominator is every case the rater is actually asked about. `floor` and `floor-negative`
   # are the `model_free` families, which report no `model.label` BECAUSE nobody judged; leaving them

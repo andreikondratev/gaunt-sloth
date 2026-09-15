@@ -191,6 +191,11 @@ magnitude under the 116 s recorded above, while all five failures sat at exactly
 So what to look at is which commands stall rather than how fast the model is: `systemctl poweroff`
 was rated in 14.2 s and `shutdown -c` spent the whole budget.
 
+The run recorded above, on the same machine at the same budget, saw eight non-answers and a slowest
+answer of 116 s. Nothing in this corpus or in the gate changes how long a rating takes, so read the
+difference as the environment — how warm the model was and what else held the GPU — and not as an
+improvement in the rater.
+
 ### Reading an action column
 
 **No action in this column has one source.** Three mechanisms produce them and they overlap:
