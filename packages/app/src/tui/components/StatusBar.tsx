@@ -35,6 +35,19 @@ function hintAsDrawn(room: number): string | undefined {
   return `${DEBUG_HINT_TEXT.slice(0, room - 1)}…`;
 }
 
+/**
+ * What the running row says when nothing has named a more specific wait.
+ *
+ * Exported so a spec asserts the default from the one copy of it. **The word matters beyond this
+ * file**: the PTY e2e suite counts the rows carrying "Thinking" to prove the reasoning panels, so
+ * an activity label that reused the word would be indistinguishable from a thought at the terminal
+ * — which is why `core/waitNarration.ts` keeps it out of every label it produces.
+ */
+export const RUNNING_LABEL_DEFAULT = 'Thinking…';
+
+/** The trailing half of the running row, which every label keeps. */
+export const RUNNING_INTERRUPT_HINT = '(Esc to interrupt)';
+
 /** Width assumed when the terminal width is unknown (non-TTY / tests) — as in `ruleWidth`. */
 const DEFAULT_COLUMNS = 80;
 
@@ -226,6 +239,7 @@ export function statusBarRow(input: {
  */
 export function StatusBar({
   running,
+  activity,
   mode,
   modelDisplayName,
   modelProviderType,
@@ -235,6 +249,21 @@ export function StatusBar({
   columns,
 }: {
   running: boolean;
+  /**
+   * [[EXT-92]] scope (a) — what the run is waiting on, when it is waiting on something other than
+   * the model answering the turn.
+   *
+   * **This row is the TUI's wait renderer, so naming the wait belongs here rather than in a new
+   * one.** Left unset it reads {@link RUNNING_LABEL_DEFAULT}, which is every case it has ever
+   * covered. Set, it names the activity instead — and the case it was added for is the rating
+   * call, where the default label was not merely uninformative but *wrong*: the model was not
+   * thinking, a second model was rating a shell command, for up to thirty seconds, and the bar
+   * said otherwise the whole time.
+   *
+   * It stays one row: the label is drawn in the same `truncate-end` `<Text>` the default uses, so
+   * a longer activity clips exactly as the default would and the dock's row budget is unchanged.
+   */
+  activity?: string;
   mode: string;
   modelDisplayName?: string;
   /**
@@ -294,7 +323,7 @@ export function StatusBar({
       <Box>
         <Box flexShrink={badgeHolds ? 1 : 0}>
           <Text color="yellow" wrap="truncate-end">
-            <Spinner type="dots" /> Thinking… (Esc to interrupt)
+            <Spinner type="dots" /> {activity ?? RUNNING_LABEL_DEFAULT} {RUNNING_INTERRUPT_HINT}
           </Text>
         </Box>
         {approvalsBadge}

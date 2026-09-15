@@ -31,8 +31,10 @@ import { peekProjectDir, setProjectDir } from '#src/utils/systemUtils.js';
 import type {
   AgentStreamEvent,
   PendingToolInterrupt,
+  StatusUpdateCallback,
   ToolApprovalDecision,
 } from '#src/core/types.js';
+import { StatusLevel } from '#src/core/types.js';
 
 // CFG-26 rater — scripted per test so the rater layer is observable without an LLM call.
 const rateShellCommandMock = vi.fn();
@@ -180,9 +182,15 @@ describe('EXT-52: lean-backend run_shell_command approval gate (real createAgent
    */
   const makeRunner = async (
     commands: string[],
-    configExtra: Partial<GthConfig> = {}
+    configExtra: Partial<GthConfig> = {},
+    /**
+     * [[EXT-92]] — the surface's status callback, when a cell needs to read what the runner told
+     * it. This is the channel the plain, readline and single-shot surfaces all pass
+     * `defaultStatusCallback` on, so asserting here is asserting on a non-TUI surface's input.
+     */
+    statusUpdate: StatusUpdateCallback = vi.fn()
   ): Promise<InstanceType<typeof GthAgentRunner>> => {
-    const runner = new GthAgentRunner(vi.fn(), {
+    const runner = new GthAgentRunner(statusUpdate, {
       resolveTools: vi.fn().mockResolvedValue([makeShellTool()]),
       resolveMiddleware: async (m: unknown[] | undefined) => m ?? [],
     });
@@ -359,6 +367,84 @@ describe('EXT-52: lean-backend run_shell_command approval gate (real createAgent
     expect(rateShellCommandMock).toHaveBeenCalledTimes(1);
     expect(human).toHaveBeenCalledTimes(1);
     expect(executed).toEqual([]);
+  });
+
+  /**
+   * [[EXT-92]] scope (a) — **the wait the node was filed about, narrated on a non-TUI surface.**
+   *
+   * The whole stack is real: the real runner, the real approval graph, the real `narrateWait`.
+   * Only the rating's *answer* is scripted, and it is scripted as a promise this test holds open —
+   * so the signal cannot be a race. The rating physically cannot resolve before the narration is
+   * observed, which makes the `waitFor` a wait for the threshold rather than a sampling of two
+   * timers; and the control cell below runs the same path with a rating that answers at once.
+   *
+   * Asserting on `statusUpdate` is asserting on the plain surfaces' own input: readline,
+   * single-shot and `conversation` all construct the runner with `defaultStatusCallback` here, and
+   * `StatusLevel.INFO` is `displayInfo` there. The TUI is covered by
+   * `packages/app/spec/tui/waitNarrationLiveSession.spec.tsx`, on the surface it renders to.
+   */
+  it('rater: a wait past the threshold narrates itself ONCE, naming the rating and its budget', async () => {
+    const verdict = { outcome: 'safe', reason: 'manual' };
+    mapVerdictToActionMock.mockReturnValue({ action: 'approve', verdict });
+    let releaseRating!: (v: unknown) => void;
+    rateShellCommandMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseRating = resolve;
+        })
+    );
+    const status = vi.fn();
+    const runner = await makeRunner(
+      ['ls -la'],
+      { approvals: 'assisted' } as Partial<GthConfig>,
+      status
+    );
+    runner.setToolApprovalCallback(vi.fn());
+
+    const turn = runTurn(runner, 'list');
+    await vi.waitFor(
+      () =>
+        expect(status).toHaveBeenCalledWith(
+          StatusLevel.INFO,
+          'Still working: rating this command (up to 30s)'
+        ),
+      { timeout: 10_000, interval: 25 }
+    );
+    releaseRating(verdict);
+    await turn;
+
+    // Exactly one, for the whole rating — and still one after the turn has finished, which is the
+    // claim the node's acceptance actually makes.
+    const narrations = status.mock.calls.filter(([, message]) =>
+      String(message).startsWith('Still working: ')
+    );
+    expect(narrations).toHaveLength(1);
+    expect(executed).toEqual(['ls -la']);
+  });
+
+  /**
+   * [[EXT-92]] scope (a), the control. Same path, same assertions available — a rating that answers
+   * at once must produce NO narration, or the signal is a per-call banner rather than evidence
+   * that something is taking time.
+   */
+  it('rater: a rating that answers immediately narrates nothing at all', async () => {
+    const verdict = { outcome: 'safe', reason: 'manual' };
+    rateShellCommandMock.mockResolvedValue(verdict);
+    mapVerdictToActionMock.mockReturnValue({ action: 'approve', verdict });
+    const status = vi.fn();
+    const runner = await makeRunner(
+      ['ls -la'],
+      { approvals: 'assisted' } as Partial<GthConfig>,
+      status
+    );
+    runner.setToolApprovalCallback(vi.fn());
+
+    await runTurn(runner, 'list');
+
+    expect(
+      status.mock.calls.filter(([, message]) => String(message).startsWith('Still working: '))
+    ).toEqual([]);
+    expect(executed).toEqual(['ls -la']);
   });
 
   it('rater: a SAFE verdict approves with NO human prompt (and the rater is consulted with the command)', async () => {

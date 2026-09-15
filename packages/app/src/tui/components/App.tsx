@@ -31,6 +31,8 @@ import { buildRejectionMessage } from '@gaunt-sloth/core/core/shell/rejection.js
 import { ApprovalStopError } from '@gaunt-sloth/core/core/shell/approvalStop.js';
 import { shouldAnnounceTermination } from '@gaunt-sloth/core/core/terminationNotice.js';
 import { runEndReport } from '@gaunt-sloth/core/core/runRecap.js';
+import { providerErrorNotice } from '@gaunt-sloth/core/core/providerErrorNotice.js';
+import { readWaitNarration } from '@gaunt-sloth/core/core/waitNarration.js';
 import {
   attackBannerCopy,
   grantsRunAnyway,
@@ -202,6 +204,15 @@ export function App(props: TuiAppProps): React.ReactElement {
   const [transcript, setTranscript] = useState<TranscriptItem[]>(seeded);
   const [live, setLive] = useState<TurnViewModel | null>(null);
   const [running, setRunning] = useState(false);
+  /**
+   * [[EXT-92]] scope (a) — what the run is waiting on, when that is not the model answering.
+   *
+   * Held as the whole rendered sentence rather than an activity code, because the words are
+   * `core/waitNarration.ts`'s to choose: it is the module that reaches every surface, and a second
+   * spelling of the same wait on this one is the drift the exported prefix exists to prevent. The
+   * status bar renders it in place of its own default label, so this costs no row.
+   */
+  const [waitActivity, setWaitActivity] = useState<string | undefined>(undefined);
   const [turnCount, setTurnCount] = useState(props.resumed?.turns.length ?? 0);
   // Subagent tree, folded from `task` tool calls on the live event stream. No backend dispatches
   // subagents in this release, so nothing fills it today; kept for GS2-25's lean primitive.
@@ -295,6 +306,14 @@ export function App(props: TuiAppProps): React.ReactElement {
   // GS2-20 — starts past the seeded items so a later push never reuses a seeded key.
   const idRef = useRef(seeded.length);
   const runningRef = useRef(false);
+  /**
+   * [[EXT-92]] scope (e) — whether the turn now ending was ended by a throw.
+   *
+   * A ref rather than state because the only reader is the `finally` of the same async function
+   * the catch runs in: a `setState` would not be visible there, and the fact has to be true at the
+   * instant the turn is committed, not on the next render.
+   */
+  const turnErroredRef = useRef(false);
   /**
    * GS2-23 — whether a `/compact` is awaiting its summary. Read where `runningRef` is read at
    * submit, so a plain message cannot start a turn on a thread that is about to be rewritten, and
@@ -516,11 +535,21 @@ export function App(props: TuiAppProps): React.ReactElement {
       abortRef.current = ac;
       runningRef.current = true;
       setRunning(true);
+      // [[EXT-92]] — both per-turn facts start clean. `turnErroredRef` (scope e) is set by the
+      // catch and read by the `finally`; `waitActivity` (scope a) is a label the status bar may
+      // still be holding from the previous turn's last wait.
+      turnErroredRef.current = false;
+      setWaitActivity(undefined);
       setLiveTurn(initialTurnViewModel());
       // Fresh args-buffer map per turn so partial `task` JSON from a prior turn never bleeds in.
       subagentBuffersRef.current = new Map();
       try {
         for await (const event of agent.runTurn(userInput, ac.signal)) {
+          // [[EXT-92]] scope (a) — an event arriving IS the wait ending. Clearing here rather than
+          // waiting for a paired "done" narration is what keeps the core signal one-way and the
+          // plain surface to exactly one line per wait: there is no end message to emit, so there
+          // is none to print. The status bar falls back to its own default label.
+          setWaitActivity(undefined);
           // [[TUI-C99]] — folded from the REF, not from a local: an approval answered mid-turn
           // writes the outcome onto its tool call from a keystroke, and a local carried across the
           // loop would overwrite it on the very next event the resumed run produces.
@@ -538,15 +567,41 @@ export function App(props: TuiAppProps): React.ReactElement {
         if (err instanceof ApprovalStopError) {
           push({ kind: 'stop', parts: err.parts });
         } else {
+          // [[EXT-92]] scope (b) — a provider error is rendered as prose here, and the raw payload
+          // rides along in a field this item's renderer never prints.
+          //
+          // The whole defect was on this line. `err.message` for an OpenRouter refusal is
+          // `Provider returned error | metadata: {…}` — upstream flattens its own structured
+          // metadata into the message — so the user read a JSON blob while the provider's own
+          // sentence, its remedy hint, and the fact that it was a SHARED pool rather than their
+          // quota all sat unread inside it. Nothing had been lost: the same fields are still
+          // objects on `err`, which is why this needed a renderer rather than a parser.
+          // `providerErrorNotice` returns null for the ordinary runtime errors it has nothing to
+          // add to, and those keep exactly the rendering they had.
+          const notice = providerErrorNotice(err);
           push({
             kind: 'system',
             level: 'error',
-            text: err instanceof Error ? err.message : String(err),
+            text: notice?.text ?? (err instanceof Error ? err.message : String(err)),
+            ...(notice ? { raw: notice.raw } : {}),
           });
         }
+        // [[EXT-92]] scope (e) — remember that this turn was ended by the failure above, so the
+        // `finally` can commit it as a turn that STOPPED rather than one that finished. An
+        // approvals stop is deliberately excluded: it already commits its own `stop` item saying
+        // so in full, and marking the turn as well would state the same ending twice.
+        if (!(err instanceof ApprovalStopError)) turnErroredRef.current = true;
       } finally {
+        // [[EXT-92]] scope (a) — the turn is over, so nothing is being waited on. In the `finally`
+        // because the endings that most need it are the ones that reach neither the loop's normal
+        // exit nor the catch: a turn cancelled mid-rating would otherwise leave the bar naming a
+        // wait that no longer exists.
+        setWaitActivity(undefined);
         const vm = liveVmRef.current ?? initialTurnViewModel();
-        push({ kind: 'assistant', turn: vm });
+        push({
+          kind: 'assistant',
+          turn: turnErroredRef.current ? { ...vm, endedInError: true } : vm,
+        });
         // [[EXT-159]] — and, immediately under the answer, why the turn ended when that is not
         // simply "the model finished".
         //
@@ -1803,6 +1858,17 @@ export function App(props: TuiAppProps): React.ReactElement {
   useEffect(() => {
     if (!props.subscribeStatus) return;
     return props.subscribeStatus((level, message) => {
+      // [[EXT-92]] scope (a) — a wait narration is INFO, and INFO is exactly what this handler
+      // drops, so it is picked out BEFORE the filter and routed to the status bar instead of the
+      // transcript. That is the right destination on both counts: it is a transient fact about the
+      // present moment, which the transcript is the wrong shape for, and the bar is already the
+      // TUI's wait renderer. Recognised by the prefix `core/waitNarration.ts` exports for this,
+      // rather than by a copy of the wording here.
+      const narration = readWaitNarration(message);
+      if (narration !== null) {
+        setWaitActivity(narration);
+        return;
+      }
       if (level === 'INFO' || level === 'DEBUG') return;
       if (message.trim()) push({ kind: 'system', level, text: message });
     });
@@ -2028,6 +2094,7 @@ export function App(props: TuiAppProps): React.ReactElement {
             <McpFailureBar failures={props.mcpFailures} />
             <StatusBar
               running={running}
+              activity={waitActivity}
               mode={mode}
               modelDisplayName={modelDisplayName}
               // CFG-38 — the provider beside the model, and the live width it has to fit in: the

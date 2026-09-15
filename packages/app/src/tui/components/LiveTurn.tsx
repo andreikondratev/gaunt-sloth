@@ -14,7 +14,11 @@ import type {
   ToolCallViewModel,
   ChecklistItemViewModel,
 } from '#src/tui/viewModel.js';
-import { approvalOutcomeLine, displaySegments } from '#src/tui/viewModel.js';
+import {
+  approvalOutcomeLine,
+  displaySegments,
+  TURN_ENDED_IN_ERROR_MARK,
+} from '#src/tui/viewModel.js';
 import { renderMarkdown } from '#src/tui/markdown.js';
 import { BlankRow } from '#src/tui/components/BlankRow.js';
 import { ApprovalRequestPanel } from '#src/tui/components/ApprovalRequestPanel.js';
@@ -431,6 +435,15 @@ export function LiveTurn({
           </React.Fragment>
         );
       })}
+      {/* [[EXT-92]] scope (e) — the turn says, on itself, that it stopped rather than finished.
+          Last and inside the turn's own box, which is the whole point: the error line and the
+          termination notice sit OUTSIDE this block (the viewport draws committed items in order,
+          so the error lands above the turn and the notice below it), and neither of them is
+          attached to the work they interrupted. Drawn with no leading blank row so it reads as the
+          foot of the turn rather than as a further block of it, and `wrap` is left alone so a
+          narrow terminal reflows it like any other sentence. Never set on a live turn — see
+          `TurnViewModel#endedInError`. */}
+      {turn.endedInError ? <Text color="yellow">{TURN_ENDED_IN_ERROR_MARK}</Text> : null}
     </Box>
   );
 }

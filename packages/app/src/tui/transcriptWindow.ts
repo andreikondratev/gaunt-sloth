@@ -39,6 +39,7 @@ import { renderMarkdown } from '#src/tui/markdown.js';
 import {
   approvalOutcomeLine,
   displaySegments,
+  TURN_ENDED_IN_ERROR_MARK,
   type ToolCallViewModel,
   type TurnViewModel,
 } from '#src/tui/viewModel.js';
@@ -184,6 +185,11 @@ function turnRows(turn: TurnViewModel, toolsExpanded: boolean, columns: number):
     }
     rows += toolCallRows(segment.tool, toolsExpanded, columns);
   }
+  // [[EXT-92]] scope (e) — the ended-in-error line `LiveTurn` draws at the foot of the turn,
+  // counted from the SAME constant it paints, and with no blank row because it is drawn without
+  // one. A turn that stopped with nothing to say is otherwise a zero-row item that now paints one,
+  // which is exactly the direction this estimator must not be wrong in.
+  if (turn.endedInError) rows += siblingRows(TURN_ENDED_IN_ERROR_MARK, columns);
   return rows;
 }
 

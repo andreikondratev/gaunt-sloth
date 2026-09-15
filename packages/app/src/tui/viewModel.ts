@@ -233,12 +233,47 @@ export interface TurnViewModel {
   segments: TurnSegment[];
   /** True between `reasoning_start` and `reasoning_end`. */
   isReasoning: boolean;
+  /**
+   * [[EXT-92]] scope (e) — **set when this turn ended because the run threw, not because the model
+   * finished.**
+   *
+   * The measured defect: in the reporter's dump the turn that a shared-pool 429 killed carries 42
+   * completed tool calls, 3543 characters of reasoning and `text: ""` — no final message at all —
+   * and the user's very next words are *"what happend?"*. The error was on screen, as a free-
+   * floating `system` line **above** the turn, with no relationship to it; the turn itself was
+   * committed looking exactly like one that simply had nothing to say. A reader cannot tell those
+   * apart, and this field is what makes them different objects rather than two identical ones.
+   *
+   * **Why a field on the turn and not a segment.** A segment would place the mark at a point *in*
+   * the turn, and there is no such point: the turn did not reach one, it stopped. A segment would
+   * also have to be produced by `foldEvents`, which never sees the failure — errors are thrown, not
+   * streamed, so there is no event to fold — and adding a kind it cannot produce would put a case
+   * in five renderers that only one writer can ever reach. The fact belongs to the turn as a whole,
+   * it has exactly one writer (the catch that ends the run), and this is the shape that says so.
+   *
+   * Set only at commit time, so a live turn never carries it; `foldEvents` neither reads nor writes
+   * it.
+   */
+  endedInError?: boolean;
 }
 
 export const initialTurnViewModel = (): TurnViewModel => ({
   segments: [],
   isReasoning: false,
 });
+
+/**
+ * [[EXT-92]] scope (e) — the line drawn on a turn whose run ended in an error.
+ *
+ * One exported string because two things draw from it: the renderer paints it and the row
+ * estimator counts it, and an estimator with its own copy of the wording is how the two come
+ * apart. It says **incomplete** rather than naming the condition: the condition is already stated,
+ * accurately and in the provider's own words, by the error item and the termination notice that
+ * bracket this turn. What only the turn can say is that the work above it stopped early — which is
+ * the question the reporter asked and nothing on screen answered.
+ */
+export const TURN_ENDED_IN_ERROR_MARK =
+  '⚠ This turn ended in an error — the work above it is incomplete.';
 
 /** Every tool call the turn made, in first-seen order — derived, never stored. */
 export function turnToolCalls(turn: TurnViewModel): ToolCallViewModel[] {

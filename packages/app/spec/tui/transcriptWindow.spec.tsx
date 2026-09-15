@@ -199,6 +199,22 @@ const CASES: Array<{ name: string; item: TranscriptItem }> = [
     name: 'assistant (plain text)',
     item: { kind: 'assistant', id: 11, turn: turn({ text: 'done' }) },
   },
+  // [[EXT-92]] scope (e) — a turn the run ended in an error draws one more line than its segments
+  // account for, and the mark is long enough to wrap at the narrow widths this corpus is swept at.
+  {
+    name: 'assistant (ended in error, with text)',
+    item: {
+      kind: 'assistant',
+      id: 111,
+      turn: { ...turn({ text: 'half the job' }), endedInError: true },
+    },
+  },
+  // The reporter's own signature, and the case the estimator is most easily wrong about: a turn
+  // with NOTHING in it used to be zero rows, and now paints one.
+  {
+    name: 'assistant (ended in error, nothing to say)',
+    item: { kind: 'assistant', id: 112, turn: { ...turn(), endedInError: true } },
+  },
   {
     name: 'assistant (markdown: heading, list, fence)',
     item: {

@@ -586,6 +586,40 @@ into the transcript is redundant noise (DL-2 progressive disclosure, DL-10 budge
 because those are signal, not chatter (DL-1 no important action is silent). Plain (non-TUI) CLI keeps all levels via
 `defaultStatusCallback`, which does its own level filtering; the suppression is TUI-only.
 
+**The one `INFO` line that is not chatter is a wait narration, and it goes to the status bar rather
+than the transcript (DL-1, DL-6).** A wait that lasts past `WAIT_NARRATION_THRESHOLD_MS` and is not
+the model answering the turn — today, the rater holding a gated command for up to its whole budget —
+emits one line through the same `statusUpdate` channel, opening with the
+`WAIT_NARRATION_PREFIX` that `core/waitNarration.ts` exports for exactly this routing. `App.tsx`
+picks it out **before** the `INFO` filter and sets the status bar's label; the plain surfaces print
+it once via `displayInfo`. Two rules keep it from becoming the banner DL-10 guards against: it is
+emitted only *after* a real wait crosses the threshold, and exactly once per wait, never repeated.
+A narration is a fact about the present moment, so it is never committed to the transcript — and
+never given a config rung, because unlike the end-of-run recap it spends nothing.
+
+## A run that ended in an error (DL-1, DL-4 transparency)
+
+- **A provider error is rendered as prose, and the serialized payload never reaches the user's
+  line.** Several provider clients flatten their own structured metadata into `error.message` while
+  keeping it as an object on the error — so the line a user reads can be a sentence followed by a
+  JSON blob that contains, unread, the provider's own explanation and its own suggested remedy.
+  `core/providerErrorNotice.ts` reads those fields and writes them out: the provider's sentence, its
+  remedy, then who reported it and under what code. Everything the provider wrote is untrusted text
+  and is capped and defanged like any other.
+- **Moving the payload out of the line is the point; deleting it is not.** The rendered prose goes
+  in the transcript item's `text`, the original message in its `raw`, which no renderer prints and
+  `/debug-dump` carries — so the archive still answers the question the screen no longer has to.
+- **An error this renderer has nothing to add to keeps exactly the line it had.** The notice builder
+  returns nothing for an ordinary runtime failure, so a change about one payload shape cannot re-word
+  every error in the product.
+- **A turn that an error ended says so, on the turn (DL-1).** The error line is committed above the
+  turn and the termination notice below it, and neither is attached to the work they interrupted — so
+  a turn killed mid-job is otherwise drawn exactly like one that finished with nothing to say, which
+  is precisely the ambiguity that gets read as "it just stopped". `LiveTurn` paints
+  `TURN_ENDED_IN_ERROR_MARK` at the foot of the turn when `endedInError` is set, and
+  `transcriptWindow` counts the same constant. An approvals stop is excluded: it already commits its
+  own block saying so in full.
+
 ## Markdown (DL-7 legibility & graceful degradation)
 
 - **Stream plain, render on commit.** While a turn is streaming, render assistant text as **plain
@@ -647,7 +681,12 @@ because those are signal, not chatter (DL-1 no important action is silent). Plai
 - **Single-line, stable status bar** (`tui/components/StatusBar.tsx`). One dim line carrying
   session context — **mode · model (provider) · turn counter · ready** — when idle; a spinner +
   `Thinking… (Esc to interrupt)` while a turn runs. Keep it to one line and free of streaming
-  progress (that belongs to the live turn) so it never flickers. It names the approvals mode in its
+  progress (that belongs to the live turn) so it never flickers. **The running label names a
+  different wait when there is one (DL-1, DL-4):** the `activity` prop replaces `Thinking…` while
+  something other than the model holds the turn, so a rated command is not reported as the model
+  thinking for the length of the rater's budget. The label is drawn in the same `truncate-end`
+  `<Text>`, so the row budget is unchanged whatever it says, and it must not contain the word
+  `Thinking` — the PTY suite counts rows carrying that word to prove the reasoning panels. It names the approvals mode in its
   display spelling, and at `bypass` additionally carries the yellow **`⚡ Bypass`** badge in both
   states (see `/approvals`). **One line is enforced, not assumed (DL-7):** the dock's row budget in
   `App.tsx` counts the bar as one row, so every `<Text>` on it truncates with `…` rather than

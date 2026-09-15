@@ -235,7 +235,12 @@ export type TranscriptItem =
   // — no tool calls, no reasoning, no view model — and pretending otherwise would give
   // `/reasoning` and the tool panels turns they cannot open.
   | { kind: 'restored'; id: number; prompt: string; response: string }
-  | { kind: 'system'; id: number; level: string; text: string }
+  // `raw` is [[EXT-92]] scope (b): the error's ORIGINAL text, kept beside the prose the surface
+  // actually prints. The rule the node sets is that the serialized payload leaves the user's line
+  // and stays reachable in `/debug-dump` — and the archive captures these items themselves, so a
+  // field the renderer never reads is exactly what satisfies both halves at once. Absent on every
+  // other `system` item, where `text` already is the original.
+  | { kind: 'system'; id: number; level: string; text: string; raw?: string }
   // A structured command-feedback notice (TUI-C14), rendered via <CommandNotice>: a coloured
   // title that states WHAT happened plus body lines explaining HOW it affects the user.
   | { kind: 'notice'; id: number; title: string; lines: string[]; tone: CommandNoticeTone }

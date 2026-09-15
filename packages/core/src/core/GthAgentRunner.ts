@@ -77,6 +77,7 @@ import {
   type GthFinishReasonObservation,
 } from '#src/core/terminationReason.js';
 import { terminationLogLine } from '#src/core/terminationNotice.js';
+import { narrateWait } from '#src/core/waitNarration.js';
 import type { GthOutstandingWork } from '#src/core/outstandingWork.js';
 import {
   requestRunRecap,
@@ -2787,28 +2788,44 @@ export class GthAgentRunner {
     record: ApprovalDecisionCapture
   ): Promise<ShellSafetyVerdict> {
     const approvals = this.sessionApprovals;
-    const verdict = await rateShellCommand(command, this.config as GthConfig, {
-      home: env?.HOME,
-      negotiable: opts.negotiable,
-      carved: opts.carved,
-      // [[TUI-C27]] — the sink fires BEFORE the model is invoked, with the prompt that is about to
-      // be sent, so the record carries what the rater was SHOWN rather than a later re-render of
-      // it. Assigning it here (rather than pushing a finished record afterwards) is what makes a
-      // hung, timed-out or halting call still leave the question behind.
-      onCapture: (capture) => {
-        record.rating = capture;
-      },
-      raterProfile: approvals.rater,
-      // The profile's model when one is configured; undefined lets rateShellCommand use the
-      // session model. `init` throws rather than leaving this undefined for a NAMED profile, so
-      // a configured profile can never silently degrade to the session model here.
-      model: this.raterModel,
-      // EXT-66 — the user-owned budget for ONE rating call, `undefined` when unset so
-      // rateShellCommand applies RATER_DEFAULT_TIMEOUT_MS. 30s is a hosted-model number and a
-      // local rater is knowably slower; without this a local `auto` session drifts toward
-      // escalating everything, which is the failure the rung exists to prevent.
-      timeoutMs: approvals.raterTimeoutMs,
-    });
+    // [[EXT-92]] scope (a) — **the wait this node was filed about.** Until now this await emitted
+    // nothing at all while it ran: on the plain surfaces the session simply stopped for up to the
+    // rater's whole budget, and on the TUI the status bar went on saying `Thinking…`, which
+    // reported the wrong activity rather than none. Both are the reporter's "freezes a few commands
+    // later". `narrateWait` says what is happening once, and only if the wait actually lasts —
+    // see `core/waitNarration.ts` for why the threshold is where it is and why this is a label on
+    // an existing renderer rather than a new one. The budget is passed so the line can say how long
+    // the wait is bounded at, which is the half that tells a user whether to wait or to kill it.
+    const verdict = await narrateWait(
+      'rating',
+      (level, message) => this.statusUpdate(level, message),
+      () =>
+        rateShellCommand(command, this.config as GthConfig, {
+          home: env?.HOME,
+          negotiable: opts.negotiable,
+          carved: opts.carved,
+          // [[TUI-C27]] — the sink fires BEFORE the model is invoked, with the prompt that is about
+          // to be sent, so the record carries what the rater was SHOWN rather than a later
+          // re-render of it. Assigning it here (rather than pushing a finished record afterwards)
+          // is what makes a hung, timed-out or halting call still leave the question behind.
+          onCapture: (capture) => {
+            record.rating = capture;
+          },
+          raterProfile: approvals.rater,
+          // The profile's model when one is configured; undefined lets rateShellCommand use the
+          // session model. `init` throws rather than leaving this undefined for a NAMED profile, so
+          // a configured profile can never silently degrade to the session model here.
+          model: this.raterModel,
+          // EXT-66 — the user-owned budget for ONE rating call, `undefined` when unset so
+          // rateShellCommand applies RATER_DEFAULT_TIMEOUT_MS. 30s is a hosted-model number and a
+          // local rater is knowably slower; without this a local `auto` session drifts toward
+          // escalating everything, which is the failure the rung exists to prevent.
+          timeoutMs: approvals.raterTimeoutMs,
+        }),
+      // The same fallback `rateShellCommand` applies internally, resolved here so the narration
+      // states the budget the call will actually be held to rather than a nominal one.
+      { budgetMs: approvals.raterTimeoutMs ?? RATER_DEFAULT_TIMEOUT_MS }
+    );
     // EXT-66 — a timeout is the gate giving up, not a judgement, and the two were previously
     // indistinguishable in the action column. Say it once per occurrence: the only symptom
     // otherwise is the gate becoming mysteriously more talkative, which reads as the rater
