@@ -86,4 +86,37 @@ describe('GTH_MAX_RETRIES', () => {
     // the coincidence is intentional rather than accidental.
     expect(GTH_MAX_RETRIES).toBe(6);
   });
+
+  /**
+   * END TO END: our factory → the real SDK class → its `AsyncCaller` → the attempts it makes.
+   *
+   * ## Why this test exists, and what is uncovered without it
+   *
+   * The tests above build an `AsyncCaller` by hand, and the per-provider breadth test
+   * (`retryPolicyProviders.spec.ts`) asserts against MOCKED model constructors that build no caller
+   * at all. So every one of them passes whether or not the number a factory sets actually reaches a
+   * retry loop — the link in the middle is substituted away in both directions. That link is the
+   * entire claim: the retry-policy docblock states nine providers are ENFORCED, meaning the count
+   * bounds their real retries, and nothing else here would notice if a constructor silently dropped
+   * the parameter.
+   *
+   * So this file mocks NOTHING. It builds a real `ChatOpenAI` through the real openai factory and
+   * counts the attempts its own caller makes. A dummy key is fine because the failure is injected
+   * before any request is issued — nothing here touches the network.
+   */
+  it('gives a provider built by our own factory the stated count, and it governs the attempts', async () => {
+    const { processJsonConfig } = await import('#src/providers/openai.js');
+
+    const model = await processJsonConfig({
+      type: 'openai',
+      apiKey: 'sk-test-not-a-real-key',
+      model: 'gpt-4o',
+    } as never);
+
+    const caller = (model as unknown as { caller: AsyncCaller }).caller;
+
+    // Literals, as everywhere in this file: both fail if GTH_MAX_RETRIES moves.
+    expect(caller.maxRetries).toBe(6);
+    expect(await countAttempts(caller)).toBe(7);
+  });
 });
