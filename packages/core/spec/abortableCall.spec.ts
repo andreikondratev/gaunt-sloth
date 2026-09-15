@@ -159,6 +159,40 @@ describe('[[EXT-179]] abortableCall — the shared race/abort mechanism', () => 
     }
   });
 
+  /**
+   * The multi-turn edge the alignment checker can actually reach: its budget keeps running during
+   * the tool calls BETWEEN turns, which are not raced, so the next turn can start on a deadline
+   * that has already expired.
+   *
+   * Both halves matter. Returning the sentinel is what keeps that case on the `timeout` cause
+   * rather than the `threw` one — without the short-circuit, `Promise.race`'s array-order
+   * subscription lets an immediately-rejecting client (which is what a client honouring the signal
+   * does) reject the race instead. And not calling `start` at all is what spares the provider a
+   * request that was doomed before it was sent.
+   */
+  it('short-circuits without calling the provider when the budget has already expired', async () => {
+    const deadline = startCallDeadline(20);
+    try {
+      const first = await raceCallDeadline(deadline, () => new Promise<never>(() => {}));
+      expect(first).toBe(CALL_TIMED_OUT);
+
+      const start = vi.fn((signal: AbortSignal) => {
+        // What a client that honours an already-aborted signal does.
+        signal.throwIfAborted();
+        return Promise.resolve('unreachable');
+      });
+      const second = await raceCallDeadline(deadline, start);
+
+      expect(second).toBe(CALL_TIMED_OUT);
+      expect(
+        start,
+        'a doomed provider request was issued on an expired budget'
+      ).not.toHaveBeenCalled();
+    } finally {
+      deadline.dispose();
+    }
+  });
+
   it("propagates the call's own rejection, so a provider error still reaches the caller", async () => {
     await expect(
       withCallDeadline(10_000, () => Promise.reject(new Error('provider said no')))

@@ -131,6 +131,23 @@ export async function raceCallDeadline<T>(
   deadline: CallDeadline,
   start: (signal: AbortSignal) => Promise<T>
 ): Promise<T | typeof CALL_TIMED_OUT> {
+  // **An expired budget short-circuits, and `start` is never called.**
+  //
+  // The three single-shot callers cannot reach this, but the alignment checker can: its budget runs
+  // across the whole multi-turn check, and the tool calls it makes BETWEEN turns are not raced, so
+  // the budget can expire while one of them is running. The loop then comes back around and races
+  // against a deadline that has already fired.
+  //
+  // Without this guard that case is decided by `Promise.race`'s array-order subscription. If the
+  // client rejects immediately on an already-aborted signal — which is exactly what a client that
+  // honours the signal does — the call's reaction is enqueued before the expired deadline's, and
+  // the race REJECTS with `AbortError` instead of returning {@link CALL_TIMED_OUT}. The checker
+  // would then fail closed on its `threw` cause rather than its `timeout` cause: still fail-closed
+  // and still escalating, so not a gate regression, but the wrong reason shown to the user and a
+  // provider-and-timing-dependent one. Returning the sentinel here makes it deterministic, and
+  // spares the provider a request that was doomed before it was sent.
+  if (deadline.signal.aborted) return CALL_TIMED_OUT;
+
   const call = start(deadline.signal);
   // **The `Promise.race` below is also what keeps the abort from becoming an unhandled rejection**,
   // and that is worth stating because the obvious defensive line here is redundant. The losing
