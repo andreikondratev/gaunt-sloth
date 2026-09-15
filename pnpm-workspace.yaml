@@ -4,6 +4,13 @@ packages:
   # Not part of the root `build` script nor `pnpm run it`; run on demand via evals/mcp-authz/run.sh.
   - 'evals/mcp-authz'
 
+# Dependency overrides live HERE and nowhere else. pnpm reads this block (and `pnpm.overrides`
+# inside package.json); it does NOT read a top-level `overrides` key, which is npm's syntax.
+# Nothing warns about one — the install exits 0 and the lockfile simply never mentions it, so a
+# pin written there looks applied while holding nothing down. Prove an override took by reading
+# it back out of pnpm-lock.yaml's own `overrides:` section, never from a green install.
+# packages/core/spec/pnpmOverridesGate.spec.ts fails if a manifest grows a key pnpm will ignore.
+
 # Force a single copy of @langchain/core across the workspace. A workspace
 # package can resolve a provider (e.g. @langchain/xai) via its optional
 # peerDependency at a patch built against an older core than the app's direct
@@ -25,6 +32,17 @@ overrides:
   # chalk 4.1.2 copies the jest packages under it still use. chalk 4 is consumed as CommonJS and
   # chalk 6 is ESM-only, so a blanket override is a hard break rather than an upgrade.
   'ink>chalk': ^6.0.0
+
+  # OPS-120 — there is deliberately NO `minimatch` override, and minimatch 9.0.9 in the tree is
+  # expected rather than a gap. The tree holds 10.2.6 for eslint, typescript-eslint and typedoc,
+  # and 9.0.9 for glob 10.5.0 under @microsoft/tui-test — the PTY harness that gates
+  # `pnpm run it-tui`. The ReDoS advisories against minimatch are fixed on every major line,
+  # 9.x included, from 9.0.7; 9.0.9 is above that floor and no advisory matches it. So a blanket
+  # `minimatch: ^10` would buy no security and would force glob off its own declared `^9.0.4`
+  # onto a major it does not support — the same argument the scoped `ink>chalk` entry above
+  # makes about this same harness. A scoped exemption is not available either: pnpm's selector
+  # grammar splits at the FIRST `>` into exactly parent and child, so a three-segment path like
+  # `@microsoft/tui-test>glob>minimatch` does not parse.
 
 # Dependencies with install/build scripts pnpm is allowed to run (the pnpm
 # equivalent of npm's allow-scripts approval). These are transitive dev/test
