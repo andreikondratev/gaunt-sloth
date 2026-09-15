@@ -105,8 +105,10 @@ export interface McpToolErrorPayloadInput {
  * - the remainder is longer than `maxLength`.
  *
  * That last one is a deliberate choice rather than a fallout. The observed payload is capped at
- * capture so a giant result cannot bloat run stats, and the same bound has to apply here or the
- * cap is trivially escaped. But a JSON document cut off at the bound does not parse, so recording
+ * capture so a giant result cannot bloat run stats, and the same per-field bound has to apply here
+ * or the cap is trivially escaped. It bounds each field, not the record: a result that carries both
+ * fields can hold two capped strings, which is the price of keeping the observed payload intact
+ * beside a gradable one. But a JSON document cut off at the bound does not parse, so recording
  * a truncated one would spend the bytes, break the present-implies-parseable contract, and leave
  * the check failing anyway — while looking, to whoever reads the record, as though the recovery
  * had worked. Dropping it says the true thing instead.
