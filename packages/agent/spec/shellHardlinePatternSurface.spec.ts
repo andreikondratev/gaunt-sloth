@@ -396,11 +396,21 @@ describe('the §8 hardline pattern surface is frozen (EXT-112)', () => {
    * on the other side of the file, by the value cell above.)
    */
   it('parses hardline.ts itself and not some other file the relative URL reaches', () => {
-    // The anchor is the DECLARATION of a binding this spec also imports, which discriminates in
-    // both directions a weaker one would not: a rename breaks the import rather than quietly
-    // loosening this cell, and the `export const` form is absent from the spec's own text, so the
-    // check still fails if the relative URL ever resolves to this file instead.
+    // The anchor is the DECLARATION of a binding this spec also imports, so a rename breaks the
+    // import rather than quietly loosening this cell.
     expect(HARDLINE_SOURCE).toContain('export const HARDLINE_PATTERN_SURFACE');
+
+    // **The line above cannot tell you WHICH file was read, and must not be left to imply it.**
+    // Its needle is a string literal sitting in this very file, so if the relative URL ever
+    // resolved here instead of to `hardline.ts`, the source would contain the needle — as part of
+    // the assertion — and the cell would pass while reading the wrong file. That is true of any
+    // anchor spelled out verbatim here, which is the whole difficulty: the discriminator has to be
+    // something the module CANNOT contain rather than something it does.
+    //
+    // `vitest` is that: the spec imports it and the production module has no test imports at all.
+    // Measured at this commit — 0 occurrences in `hardline.ts`, 3 in this file — so this is the
+    // assertion that actually fails when the wrong file is read.
+    expect(HARDLINE_SOURCE).not.toContain('vitest');
   });
 
   it('matches the declared surface — every pattern string, verbatim', () => {
