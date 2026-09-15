@@ -174,6 +174,10 @@ describe('OPS-98 the release notes helper is wired into the release job', () => 
       'maintenance/RELEASE-HOWTO.md',
       'release-notes/RELEASE-NOTES-HOWTO.md',
       'scripts/release-notes-for.mjs',
+      // The second helper's docblock describes the same ruling, so it is a sixth place the
+      // generated-PR-list fallback could be promised back into existence. The list is hardcoded
+      // rather than a glob, so a new file has to be added here by hand or it is simply not swept.
+      'scripts/release-notes-preflight.mjs',
       '.github/workflows/release.yml',
     ];
 
@@ -271,6 +275,13 @@ describe('OPS-123 the release notes preflight is wired into validate-inputs', ()
       blockLine('persist-credentials: false').test(step),
       'nothing in this job pushes, so the checkout leaves no token on the runner.'
     ).toBe(true);
+    expect(
+      blockLine('ref: main').test(step),
+      "the release job pins `ref: main` and ships main's version whatever ref the dispatch was " +
+        'launched from. A preflight on any other ref reports on a version that is not being ' +
+        'released — and the dangerous direction is silent: a branch carrying a notes file for its ' +
+        'own version makes this step confirm while the release goes out blank.'
+    ).toBe(true);
   });
 
   it('cannot fail the release: the preflight step is continue-on-error', () => {
@@ -303,5 +314,12 @@ describe('OPS-123 the release notes preflight is wired into validate-inputs', ()
     const step = stepText(releaseJob(), 'Read CURRENT version to ship (and derive its dist-tag)');
     expect(step, 'the release job no longer reads the version in a step by that name').not.toBe('');
     expect(step).toContain('packages/core/package.json');
+    // The other half of the same invariant: same FILE (above) and same REF. If the release job
+    // ever stopped pinning main, the preflight's own `ref: main` would become the wrong one.
+    expect(
+      blockLine('ref: main').test(releaseJob()),
+      'the release job no longer pins `ref: main`, so the preflight and the release may now read ' +
+        'different refs — the preflight would report on a version that is not the one shipping.'
+    ).toBe(true);
   });
 });

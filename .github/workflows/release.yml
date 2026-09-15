@@ -131,6 +131,12 @@ jobs:
         continue-on-error: true
         uses: actions/checkout@v6
         with:
+          # `ref: main` for the same reason the release job pins it: that job ships main's version
+          # whatever ref the dispatch was launched from. Without this, a dispatch from a branch
+          # would preflight THAT branch's version and release-notes/ while main is what ships — and
+          # the dangerous direction is silent, because a branch carrying a notes file for its own
+          # version makes this step confirm while the release goes out blank.
+          ref: main
           persist-credentials: false
       - name: Warn if this release would ship a blank GitHub Release body
         continue-on-error: true
