@@ -323,6 +323,22 @@ export function App(props: TuiAppProps): React.ReactElement {
    */
   const conversationIdRef = useRef<number | undefined>(props.conversationId);
   const turnCountRef = useRef(props.resumed?.turns.length ?? 0);
+  /**
+   * [[EXT-178]] — which conversation the outstanding recap request still belongs to.
+   *
+   * The recap is a model call launched detached at the end of a turn, so up to
+   * `RUN_RECAP_TIMEOUT_MS` can pass between asking and answering, and the session does not stand
+   * still for it: `/clear` empties the transcript the recap is describing, and a new turn can
+   * start and finish inside the window. Appending then puts a summary of a wiped conversation onto
+   * a blank screen, or files the previous turn's recap under this one.
+   *
+   * So the request carries the epoch it was made in and drops itself if the epoch has moved. It is
+   * bumped by exactly the three events that make a pending recap wrong: a new turn starting,
+   * `/clear`, and this component unmounting. It is deliberately NOT `turnCountRef`, which counts
+   * turns for the status bar, is incremented after the recap is launched, and is reset to 0 by
+   * `/clear` — a counter that goes backwards cannot be compared for staleness.
+   */
+  const recapEpochRef = useRef(0);
   // Per-turn args buffers for the subagent fold (mirrors foldSubagentTree's internal map).
   const subagentBuffersRef = useRef<Map<string, string>>(new Map());
   const debugFocusedRef = useRef(false);
@@ -489,6 +505,8 @@ export function App(props: TuiAppProps): React.ReactElement {
       // A new exchange supersedes the post-/clear banner; drop it so it doesn't sit above
       // the fresh conversation.
       setClearedBanner(false);
+      // [[EXT-178]] — and it supersedes the previous turn's recap, which may still be in flight.
+      recapEpochRef.current += 1;
       push({ kind: 'user', text: userInput });
       // [[TUI-C69]] §5.4 — a new user turn is a person being reached, which ENDS any negotiation
       // still standing (the runner clears its own transcript on the same event). Rounds from the
@@ -567,9 +585,13 @@ export function App(props: TuiAppProps): React.ReactElement {
           // the default `off` rung nothing is contacted and the notice lands as it always did.
           const work = agent.getOutstandingWork?.() ?? null;
           const ending = reason;
+          // Detached means the session can move on underneath it, so the request carries the epoch
+          // it was made in and says nothing if `recapEpochRef` has moved on — see that ref.
+          const epoch = recapEpochRef.current;
           void (async () => {
             try {
               const recap = (await agent.requestRunRecap?.(ending)) ?? null;
+              if (recapEpochRef.current !== epoch) return;
               const report = runEndReport(recap, work, ending);
               if (report.kind !== 'silent') {
                 push({
@@ -1274,6 +1296,9 @@ export function App(props: TuiAppProps): React.ReactElement {
           // reset it too — a cleared session starts back at "turns: 0".
           turnCountRef.current = 0;
           setTurnCount(0);
+          // [[EXT-178]] — a recap still in flight describes the conversation just wiped, so drop
+          // it rather than append a summary of nothing onto a cleared screen.
+          recapEpochRef.current += 1;
         }
         if (result.toggleTools) {
           // Flip the fold mode and commit the notice via the shared helper (single-sourced with
@@ -1758,6 +1783,16 @@ export function App(props: TuiAppProps): React.ReactElement {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // [[EXT-178]] — the third thing that invalidates a recap still in flight: this component going
+  // away. A quit unmounts while a provider may still be holding the request open, and the reply
+  // would then land on a session the user has left.
+  useEffect(
+    () => () => {
+      recapEpochRef.current += 1;
+    },
+    []
+  );
 
   // Route agent status updates (warnings/errors) into the transcript instead of stdout,
   // which would otherwise corrupt Ink's frame. INFO/DEBUG system lines are suppressed in the

@@ -56,6 +56,19 @@ function stall(overrides: Partial<GthOutstandingWork> = {}): GthOutstandingWork 
   };
 }
 
+/**
+ * Let a resolved-but-dropped recap have every chance to draw before a cell asserts it did not.
+ *
+ * Needed only by the `/clear` cell, which has nothing positive to wait for: the whole claim is that
+ * a frame never arrives, and `vi.waitFor` can only wait for one that does. Twenty macrotask turns is
+ * far more than the push → `setState` → Ink render chain needs, and the mutation battery is what
+ * says so — remove the invalidation and this cell reds, which a wait that was merely too short
+ * could not do.
+ */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 function recapValue(overrides: Partial<GthRunRecap> = {}): GthRunRecap {
   return {
     goal: 'Thread the recap rung through the config',
@@ -201,6 +214,95 @@ describe('[[EXT-178]] SURFACE — the Ink TUI draws the end-of-run recap', () =>
     await vi.waitFor(() => {
       expect(frames.join('\n')).toContain('fine');
     });
+
+    unmount();
+  });
+
+  /**
+   * **A recap is a model call, so the session does not stand still while it is out.** `/clear`
+   * empties the transcript the pending recap is a summary OF, and appending it afterwards puts a
+   * paragraph about a wiped conversation onto a blank screen — the one place the recap could say
+   * something about work the user is no longer looking at.
+   *
+   * The deferred promise is the whole point of the cell: it holds the window open so the clear
+   * lands strictly inside it, which is a race the other cells cannot reach because they resolve
+   * immediately.
+   */
+  it('drops a recap still in flight when /clear wipes the conversation it describes', async () => {
+    let release: (value: GthRunRecap | null) => void = () => {};
+    const pending = new Promise<GthRunRecap | null>((resolve) => {
+      release = resolve;
+    });
+    const cleared = recapValue({ goal: 'GOAL FROM THE CLEARED CONVERSATION' });
+    const agent = agentReporting(
+      [{ type: 'text', delta: 'done' }],
+      () => finished,
+      () => null,
+      () => pending
+    );
+    const { stdin, frames, lastFrame, unmount } = render(
+      <App {...baseProps} agent={agent} initialMessage="go" />
+    );
+
+    // The turn is over and the recap is out, but unanswered.
+    await vi.waitFor(() => expect(lastFrame()).toContain('turns: 1'));
+
+    stdin.write('/clear');
+    await vi.waitFor(() => expect(lastFrame()).toContain('/clear'));
+    stdin.write('\r');
+    await vi.waitFor(() => expect(lastFrame()).toContain('turns: 0'));
+
+    // The clear is the ONLY thing that has happened since — deliberately no second turn, since a
+    // new turn invalidates a pending recap by itself and would carry this cell without `/clear`
+    // ever being the reason it passed.
+    release(cleared);
+    await settle();
+
+    expect(frames.join('\n')).not.toContain('GOAL FROM THE CLEARED CONVERSATION');
+    expect(frames.join('\n')).not.toContain(RUN_RECAP_TITLE_PREFIX);
+
+    unmount();
+  });
+
+  /**
+   * The other half of the same window: the user does not clear, they simply ask something else.
+   * A recap filed after the next turn has started reads as a summary of THAT turn, which is a
+   * quieter version of the same wrong claim.
+   */
+  it('drops a recap still in flight when the next turn has already begun', async () => {
+    let release: (value: GthRunRecap | null) => void = () => {};
+    const pending = new Promise<GthRunRecap | null>((resolve) => {
+      release = resolve;
+    });
+    const stale = recapValue({ goal: 'GOAL FROM THE SUPERSEDED TURN' });
+    const current = recapValue({ goal: 'GOAL FROM THE CURRENT TURN' });
+    let asked = 0;
+    const agent = agentReporting(
+      [{ type: 'text', delta: 'first' }],
+      () => finished,
+      () => null,
+      () => {
+        asked += 1;
+        // Chained, as in the cell above: the superseded answer is delivered strictly before the
+        // current one, so waiting for the current one is proof the stale one has had its chance.
+        return asked === 1 ? pending : pending.then(() => current);
+      }
+    );
+    const { stdin, frames, lastFrame, unmount } = render(
+      <App {...baseProps} agent={agent} initialMessage="go" />
+    );
+
+    await vi.waitFor(() => expect(lastFrame()).toContain('turns: 1'));
+
+    stdin.write('again');
+    await vi.waitFor(() => expect(lastFrame()).toContain('again'));
+    stdin.write('\r');
+    await vi.waitFor(() => expect(lastFrame()).toContain('turns: 2'));
+
+    release(stale);
+    await vi.waitFor(() => expect(frames.join('\n')).toContain('GOAL FROM THE CURRENT TURN'));
+
+    expect(frames.join('\n')).not.toContain('GOAL FROM THE SUPERSEDED TURN');
 
     unmount();
   });
