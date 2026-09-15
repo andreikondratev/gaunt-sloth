@@ -260,6 +260,17 @@ it: a body built from merged pull requests describes whatever happened to open o
 land by local merge and usually open none — so it reads as an account of the release while
 describing something else. Blank says nothing; that list says something untrue.
 
+**You find that out before it ships, not after.** The `validate-inputs` job runs
+`scripts/release-notes-preflight.mjs` at the start of every release run, before anything is tagged,
+built or published. With no notes file for the version on `main` it raises a warning annotation
+naming the exact path it looked for, and writes the same to the job summary; with one, it confirms
+which file will be used. The annotation stays on the run page, so it is still there at the deploy
+approval. **It cannot fail the run** — the step is `continue-on-error`, the script exits 0 on every
+path including its own crash paths, and no `id:` on the step lets anything depend on its outcome.
+Blocking a release on a missing prose file would let a documentation omission stop a shipping fix,
+which is worse than a blank body. Cancel and write the notes, or dispatch again knowing the body
+will be blank.
+
 If you ever need to create one by hand:
 
 (if you have multiple accounts in gh, you may need to do `gh auth switch`)

@@ -6,8 +6,13 @@ underscore** + `.md`. So `1.1.0` is `v1_1_0.md` and the prerelease `2.0.0-beta.3
 
 **The release pipeline reads the file for the version being shipped.** Its `#` heading becomes the
 GitHub Release title and the rest becomes the Release body. A version with no file here gets a
-Release with a blank body — nothing is synthesised to fill it, and no error says the notes were
-missed. So the notes are written before a release is dispatched.
+Release with a blank body — nothing is synthesised to fill it. So the notes are written before a
+release is dispatched.
+
+**The pipeline says so before it publishes.** `validate-inputs`, the release run's first job, runs
+`scripts/release-notes-preflight.mjs` and raises a warning annotation naming the exact file it
+looked for. It warns and never blocks: a missing prose file must not stop a shipping fix, so the
+dispatcher decides whether to cancel and write the notes or let the blank body stand.
 
 ## Conventions
 

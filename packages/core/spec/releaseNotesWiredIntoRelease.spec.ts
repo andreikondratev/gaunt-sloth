@@ -199,3 +199,109 @@ describe('OPS-98 the release notes helper is wired into the release job', () => 
     expect(step).not.toContain('release:publish');
   });
 });
+
+/**
+ * OPS-123 — the pre-dispatch warning stays wired into the job that runs FIRST.
+ *
+ * OPS-99 made a missing notes file ship a blank Release body rather than a synthesised list of
+ * merged pull requests, which was right, and left the silence: both arms of the step above succeed
+ * identically, so a release dispatched without notes is indistinguishable from one dispatched with
+ * them. Three of the last four betas shipped empty before anyone noticed. `validate-inputs` runs
+ * before anything is tagged, built or published, and its annotation persists on the run page
+ * through to the `environment: release` approval button.
+ *
+ * WHAT THIS DOES NOT ASSERT, on purpose: the warning's text. A test that greps this workflow for
+ * the warning string passes whenever the string is present in the YAML, whatever the job would
+ * actually do — an assertion that cannot fail, and it would be added to close exactly that kind of
+ * gap. Whether the warning fires is proven by running the script, in
+ * releaseNotesPreflight.spec.ts. What can only be asserted here is that the job calls it at all,
+ * and that calling it cannot fail a release.
+ */
+describe('OPS-123 the release notes preflight is wired into validate-inputs', () => {
+  const VALIDATE_JOB = 'validate-inputs';
+  const PREFLIGHT_COMMAND = 'node scripts/release-notes-preflight.mjs';
+  const PREFLIGHT_STEP = 'Warn if this release would ship a blank GitHub Release body';
+  const CHECKOUT_STEP = 'Check out the repo for the release notes preflight';
+  const PREFLIGHT_SCRIPT = new URL('../../../scripts/release-notes-preflight.mjs', import.meta.url);
+
+  function validateJob(): string {
+    return jobText(readFileSync(RELEASE_WORKFLOW, 'utf8'), VALIDATE_JOB);
+  }
+
+  it('slices only validate-inputs, not the jobs after it', () => {
+    // Control for jobText, the twin of the stepText control above. `lint-and-unit` follows
+    // immediately and every later job checks out; if this slice ever ran long, the checkout
+    // assertion below would be satisfied by somebody else's checkout.
+    const job = validateJob();
+    expect(job).toContain('Validate bump / preid / explicit_version');
+    expect(job).not.toContain('uses: ./.github/workflows/unit-tests.yml');
+  });
+
+  it('has the preflight script', () => {
+    expect(existsSync(PREFLIGHT_SCRIPT), 'scripts/release-notes-preflight.mjs is missing').toBe(
+      true
+    );
+  });
+
+  it('runs the preflight as a step of the first job', () => {
+    expect(
+      runStep(PREFLIGHT_COMMAND).test(validateJob()),
+      `the "${VALIDATE_JOB}" job in .github/workflows/release.yml must run "${PREFLIGHT_COMMAND}" ` +
+        '— without it a dispatch that will ship a blank Release body says so nowhere, which is ' +
+        'the whole of OPS-123. A script nothing invokes leaves every test green.'
+    ).toBe(true);
+  });
+
+  it('checks out the repo so the preflight can see release-notes/', () => {
+    const step = stepText(validateJob(), CHECKOUT_STEP);
+    // Control: an empty slice would satisfy the assertions below for the wrong reason.
+    expect(step, `the "${CHECKOUT_STEP}" step is missing`).not.toBe('');
+    expect(
+      blockLine('uses: actions/checkout@').test(step),
+      `the "${VALIDATE_JOB}" job had no checkout before this check existed. Without one the ` +
+        'script is not on disk, the step fails, `continue-on-error` swallows it and the dispatch ' +
+        'is silent again — the failure this check exists to remove, restored invisibly.'
+    ).toBe(true);
+    expect(
+      blockLine('continue-on-error: true').test(step),
+      'this checkout exists only to serve an advisory annotation, so its own failure must not be ' +
+        'able to stop a release either.'
+    ).toBe(true);
+    expect(
+      blockLine('persist-credentials: false').test(step),
+      'nothing in this job pushes, so the checkout leaves no token on the runner.'
+    ).toBe(true);
+  });
+
+  it('cannot fail the release: the preflight step is continue-on-error', () => {
+    const step = stepText(validateJob(), PREFLIGHT_STEP);
+    // Control: an empty slice would satisfy a `toContain` for the wrong reason.
+    expect(step, `the "${PREFLIGHT_STEP}" step is missing`).toContain(PREFLIGHT_COMMAND);
+    expect(
+      blockLine('continue-on-error: true').test(step),
+      'blocking a release on a missing prose file would let a documentation omission stop a ' +
+        'shipping fix, which is worse than a blank body. The script exits 0 on every path; this ' +
+        'is the second belt, and it is the one that survives the script being replaced.'
+    ).toBe(true);
+  });
+
+  it('cannot fail the release: nothing can depend on the preflight step', () => {
+    const step = stepText(validateJob(), PREFLIGHT_STEP);
+    expect(step, `the "${PREFLIGHT_STEP}" step is missing`).toContain(PREFLIGHT_COMMAND);
+    expect(
+      /^[ \t]*id:/m.test(step),
+      'the preflight step carries no `id:` deliberately: with one, a later `if:`, `needs:` or ' +
+        'output expression could grow a dependency on its outcome and quietly turn an advisory ' +
+        'into a gate on a missing prose file.'
+    ).toBe(false);
+  });
+
+  it('preflights the same version the release job ships', () => {
+    // The dispatch inputs describe the POST-bump, so the shipping version is read from the repo —
+    // and both readers must name the same file or the check is preflighting something else. The
+    // script's half of this is asserted in releaseNotesPreflight.spec.ts.
+    const step = stepText(releaseJob(), 'Read CURRENT version to ship (and derive its dist-tag)');
+    expect(step, 'the release job no longer reads the version in a step by that name').not.toBe('');
+    expect(step).toContain('packages/core/package.json');
+  });
+});

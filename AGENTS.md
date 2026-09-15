@@ -311,8 +311,12 @@ When creating release notes for a new version:
 **The release pipeline reads this file.** `scripts/release-notes-for.mjs` resolves it from the
 version being shipped: the `#` heading becomes the GitHub Release title and the rest becomes its
 body. A file named anything else is simply not found, and the Release ships with a **blank body** —
-nothing is synthesised to fill it, and no error anywhere says the notes were missed. Write the notes
-before dispatching a release.
+nothing is synthesised to fill it. Write the notes before dispatching a release.
+
+A dispatch that would ship blank says so before it publishes: `validate-inputs`, the release run's
+first job, runs `scripts/release-notes-preflight.mjs`, which warns and names the exact file it
+looked for. It never fails the run — a missing prose file must not stop a shipping fix — so the
+warning is information the dispatcher acts on, not a gate.
 
 ### Structure
 

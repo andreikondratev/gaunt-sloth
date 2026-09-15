@@ -160,6 +160,7 @@ export default defineConfig({
           /[\\/]scripts[\\/]dist-tag\.mjs(\?|$)/,
           /[\\/]scripts[\\/]eval-gate\.mjs(\?|$)/,
           /[\\/]scripts[\\/]release-notes-for\.mjs(\?|$)/,
+          /[\\/]scripts[\\/]release-notes-preflight\.mjs(\?|$)/,
           /[\\/]scripts[\\/]post-publish-smoke\.mjs(\?|$)/,
         ],
       },

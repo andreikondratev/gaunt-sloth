@@ -98,6 +98,43 @@ jobs:
               ;;
           esac
           echo "Dispatch inputs OK (bump=$BUMP preid=$PREID explicit_version='$EXPLICIT_VERSION')"
+      # ----- OPS-123: warn when this dispatch would ship a blank GitHub Release body -----
+      # OPS-99 ruled that a version with no notes file ships a BLANK body rather than a synthesised
+      # list of merged pull requests, and that ruling stands. What it left is the silence: both arms
+      # of "Create GitHub Release" succeed identically, so a release dispatched without notes looks
+      # exactly like one dispatched with them. Three of the last four betas shipped empty.
+      #
+      # WHY THIS JOB. It runs before anything is tagged, published or even built, so the dispatcher
+      # learns at minute zero rather than after the fact — and the annotation and job summary persist
+      # on the run page, so the same warning is still in front of the approver at the `environment:
+      # release` approval button forty minutes later. One emission, both audiences.
+      #
+      # WHY NOT `lint-and-unit`, the obvious alternative: it is a `uses:` call to the reusable
+      # unit-tests.yml, so steps cannot be added to it at all — and unit-tests.yml also runs on every
+      # push to `main`, so the warning would fire on ordinary commits that are not releasing
+      # anything, which is how a warning stops being read. Not the `release` job either: its steps
+      # run only AFTER the deploy approval, so a warning there arrives past the last human decision
+      # point it could inform.
+      #
+      # This job had no checkout until now; the script needs one to see release-notes/ and
+      # packages/core/package.json. `permissions: contents: read` above is already exactly what
+      # checkout requires, so nothing is escalated, and no pnpm install or setup-node is added — the
+      # script is node: builtins only, and a fail-fast gate should carry as few moving parts as
+      # possible.
+      #
+      # BOTH STEPS ARE `continue-on-error`, and the step has no `id:`. Blocking a release on a
+      # missing prose file would let a documentation omission stop a shipping fix, which is worse
+      # than a blank body; without an `id:` nothing can grow an `if:`/`needs:`/output dependency on
+      # it and quietly turn the advisory into a gate. The script never exits non-zero either — see
+      # its docblock for how that is kept from degrading into silence.
+      - name: Check out the repo for the release notes preflight
+        continue-on-error: true
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Warn if this release would ship a blank GitHub Release body
+        continue-on-error: true
+        run: node scripts/release-notes-preflight.mjs
 
   lint-and-unit:
     name: Lint and unit tests (all platforms)
