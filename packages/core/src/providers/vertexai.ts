@@ -18,6 +18,7 @@ import { writeConfigFileWithMessages } from '#src/utils/fileUtils.js';
 import { buildInitConfigContent, getCuratedFallbackModel } from '#src/providers/modelDiscovery.js';
 import { applyGeminiToolSchemaSanitizer } from '#src/providers/geminiSchemaSanitizer.js';
 import { applyGeminiThoughtSummaries } from '#src/providers/geminiThinking.js';
+import { GTH_MAX_RETRIES } from '#src/core/retryPolicy.js';
 import {
   NATIVE_CLIENT_REASON,
   warnUnusedConfiguration,
@@ -65,6 +66,8 @@ export async function processJsonConfig(
     // A key the user actually WROTE still wins, and must: an `apiKey` on the `llm` block is how
     // Vertex express mode is requested on purpose. Only the ambient environment is demoted.
     apiKey: llmConfig.apiKey || '',
+    // A default, never an override: a user's own value wins. See GTH_MAX_RETRIES.
+    maxRetries: llmConfig.maxRetries ?? GTH_MAX_RETRIES,
   };
   delete configFields.type;
   delete configFields.apiKeyEnvironmentVariable;

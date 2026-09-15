@@ -7,6 +7,7 @@ import type {
 import type { ChatOllamaInput } from '@langchain/ollama';
 
 import { DEFAULT_OLLAMA_NUM_CTX } from '#src/core/contextWindow.js';
+import { GTH_MAX_RETRIES } from '#src/core/retryPolicy.js';
 import { writeConfigFileWithMessages } from '#src/utils/fileUtils.js';
 import { buildInitConfigContent, getCuratedFallbackModel } from '#src/providers/modelDiscovery.js';
 import {
@@ -66,6 +67,23 @@ export async function processJsonConfig(
     // `OLLAMA_HOST` env, else the local default. Config is the more specific/intentional signal.
     baseUrl: llmConfig.baseUrl ?? resolveBaseUrl(),
     numCtx: llmConfig.numCtx ?? DEFAULT_OLLAMA_NUM_CTX,
+    // ACCEPTED BUT INERT, and that distinction is the point of this comment — a reader who sees the
+    // parameter set here would otherwise reasonably assume Ollama calls are bounded by it.
+    //
+    // `ChatOllama` is an ordinary chat model, so it takes `maxRetries` and builds the `AsyncCaller`
+    // that would enforce it. It then never uses that caller: every chat path — the non-streaming
+    // generate, the streaming chunks, and the stream-events method — calls the Ollama client
+    // directly. So nothing retries here, at any count, for any error class.
+    //
+    // It is passed anyway rather than omitted, for two reasons. The value is then uniform and
+    // visible across every provider we build, which is what makes a single stated number checkable
+    // instead of a claim; and if upstream routes these calls through the caller, this provider
+    // starts obeying the ruling with no change here. Omitting it would buy nothing and would leave
+    // a silent exception in the one place the number is supposed to be stated.
+    //
+    // Being local and unauthenticated, Ollama is also the provider where an absent retry matters
+    // least: the shared-pool rate limiting the count exists to ride out does not apply to it.
+    maxRetries: llmConfig.maxRetries ?? GTH_MAX_RETRIES,
   };
   // `ChatOllama` is a native client, so NOTHING in a `configuration` block reaches it — say so
   // before dropping it, rather than letting a stale config behave differently than it reads.

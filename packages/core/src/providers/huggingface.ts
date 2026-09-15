@@ -9,6 +9,7 @@ import { ChatOpenAIFields } from '@langchain/openai';
 
 import { writeConfigFileWithMessages } from '#src/utils/fileUtils.js';
 import { buildInitConfigContent, getCuratedFallbackModel } from '#src/providers/modelDiscovery.js';
+import { GTH_MAX_RETRIES } from '#src/core/retryPolicy.js';
 
 /**
  * Hugging Face Inference Providers — OpenAI-compatible router.
@@ -52,6 +53,8 @@ export async function processJsonConfig(
       baseURL: 'https://router.huggingface.co/v1',
       ...(llmConfig.configuration || {}),
     },
+    // A default, never an override: a user's own value wins. See GTH_MAX_RETRIES.
+    maxRetries: llmConfig.maxRetries ?? GTH_MAX_RETRIES,
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   delete (configFields as any).type;

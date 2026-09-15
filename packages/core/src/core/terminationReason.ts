@@ -234,6 +234,44 @@ export interface GthTerminationPosture {
  * One place decides what a category means for retrying, so the three consumers this taxonomy exists
  * for — a retry posture, a "never retry a 400, a 429 is a different case" ruling, a nudge-or-back-off
  * decision — read the same answer instead of each deriving its own.
+ *
+ * ## THIS TABLE IS ADVISORY. `GTH_MAX_RETRIES` IS THE ENFORCEMENT.
+ *
+ * Read that before using a row to predict what the runtime will do. The table's job is to let this
+ * project *explain* a termination — it is what turns a category into a user-facing sentence such as
+ * "Sending the same request again may work", and what a remedy-aware caller consults before
+ * deciding whether a changed request is worth sending. It is not consulted by anything that
+ * actually re-sends a request.
+ *
+ * The retry loop lives upstream, in `@langchain/core`'s `AsyncCaller`, which decides retryability
+ * from the error it caught — a response status, a rate-limit classification, a transport match —
+ * with no knowledge of this taxonomy. What this project owns there is the ceiling: one stated count
+ * (`core/retryPolicy.ts`), passed to every model we construct.
+ *
+ * ### Why it is left advisory rather than made to drive the retry
+ *
+ * Driving the decision from this table would mean owning the retry loop: intercepting each failure
+ * before upstream's handler, mapping it to a category, and re-implementing backoff, `retry-after`
+ * honouring and concurrency. That is a large replacement of working upstream machinery, and the
+ * argument for it is weak, because **the two classifications already agree**. Measured against the
+ * installed `AsyncCaller`: the statuses it refuses to retry are the `invalid_request` / `auth_failed`
+ * rows; it splits a 429 into quota-exhausted (stop) and wait/capacity (retry after a delay), which
+ * is the `rate_limited` row's back-off; and everything else, transport and provider faults included,
+ * falls through to be retried — the `network_error`, `provider_error` and `timeout` rows.
+ *
+ * So one layer describes the posture and another enforces a count, and they do not contradict each
+ * other. The honest move is to say which is which here, rather than to leave a reader inferring that
+ * editing a row changes what gets re-sent. **Editing a row changes what the user is TOLD, not what
+ * the runtime DOES.** A change to what it does is a change to the count, or an upstream change.
+ *
+ * ### The two places they do not agree, both upstream and both narrowing
+ *
+ * `ECONNABORTED` is rethrown by upstream's failed-attempt handler rather than retried, so a
+ * connection aborted mid-request contradicts the `network_error` row; and transport is recognised by
+ * matching the error message against a fixed list of literals, so a wording change upstream would
+ * silently reclassify it. Both are recorded in full on `GTH_MAX_RETRIES`. Neither is reachable from
+ * this file — they are named here only so a reader comparing the row to observed behaviour finds the
+ * explanation instead of assuming the row is wrong.
  */
 const POSTURE: Readonly<Record<GthTerminationCategory, GthTerminationPosture>> = {
   // Nothing went wrong; there is nothing to retry.

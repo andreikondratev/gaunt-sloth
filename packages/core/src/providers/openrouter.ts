@@ -14,6 +14,7 @@ import {
   warnUnappliedConfigurationPath,
   warnUnusedConfiguration,
 } from '#src/providers/configurationPassthrough.js';
+import { GTH_MAX_RETRIES } from '#src/core/retryPolicy.js';
 
 /**
  * The OpenRouter attribution headers, and the native `ChatOpenRouter` field each one is set from.
@@ -47,9 +48,20 @@ const CONSUMED_CONFIGURATION_PATHS = [
  * there is no client to give them to. `configuration.baseURL` still works (mapped to the native
  * `baseURL`), and the two attribution headers are still honoured as a fallback for
  * `siteUrl`/`siteName`. What has no injection point at all is transport: `fetch`, `fetchOptions`,
- * `timeout`, `maxRetries`, `defaultQuery`, `dangerouslyAllowBrowser`, and any other
- * `defaultHeaders` entry. That is an upstream surface gap, not something this module can restore —
- * per-provider transport would need a `fetch` option added to `@langchain/openrouter`.
+ * `timeout`, `defaultQuery`, `dangerouslyAllowBrowser`, and any other `defaultHeaders` entry. That
+ * is an upstream surface gap, not something this module can restore — per-provider transport would
+ * need a `fetch` option added to `@langchain/openrouter`.
+ *
+ * `maxRetries` is NOT in that list: it is an ordinary chat-model parameter rather than a transport
+ * option, so it is settable here, and this factory sets it from GTH_MAX_RETRIES. It bounds the
+ * retries on the two request paths that go through the model's `AsyncCaller` — the non-streaming
+ * generate and the streaming-chunks path.
+ *
+ * A third path does not, and the asymmetry is upstream's: `ChatOpenRouter`'s stream-EVENTS method
+ * issues its request outside the caller, so nothing retries on it for any error class. It is closed
+ * to us today — reaching it needs a LangGraph stream-event handler that this project never
+ * registers, since that handler only exists on the v3 stream protocol and nothing here asks for v3.
+ * If that changes, the fix belongs upstream rather than here.
  *
  * The replacement is PROCESS-WIDE rather than per-provider, and it is verified working: run node
  * with `--use-env-proxy` (or set `NODE_USE_ENV_PROXY=1`) together with `HTTP_PROXY`/`HTTPS_PROXY`,
@@ -161,6 +173,8 @@ export async function processJsonConfig(
     siteUrl: resolvedSiteUrl,
     siteName: resolvedSiteName,
     ...baseURLOverride,
+    // A default, never an override: a user's own value wins. See GTH_MAX_RETRIES.
+    maxRetries: llmConfig.maxRetries ?? GTH_MAX_RETRIES,
   });
 }
 
