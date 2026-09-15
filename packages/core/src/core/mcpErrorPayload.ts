@@ -1,6 +1,4 @@
 /**
- * @module core/mcpErrorPayload
- *
  * BATCH-43 — recover the **server's own error body** from the prose-wrapped message
  * `@langchain/mcp-adapters` throws for an MCP tool result carrying `isError: true`, so
  * `gth eval`'s `tool_result_json_path` can grade *what a denial said* and not merely that one
@@ -60,6 +58,8 @@
  * this change should have to defend. The registered tool name and the content are identical at
  * both sites, so the derivation is the same computation either way; done here it needs no new
  * field on a message and reuses the middleware → `accumulateMessage` hop BATCH-23 already proved.
+ *
+ * @module
  */
 import {
   approvalSubjectForToolName,

@@ -1,6 +1,4 @@
 /**
- * @module core/approvals/toolAnnotationSources
- *
  * EXT-70 §4.7 — **where a declared annotation actually comes from**: our own authored hint sets for
  * our own tools, and a server's `tools/list` declaration for an MCP tool. The trust that is then
  * applied to them lives in `core/approvals/annotations.ts` and only there; this module supplies the
@@ -24,6 +22,8 @@
  * the fixed dev-command tools, A2A agent tools and user-authored custom tools all reach arbitrary
  * code or the network, and writing rows that restate the default would add entries no behaviour
  * could distinguish from their absence.
+ *
+ * @module
  */
 import { TOOL_ANNOTATION_HINTS } from '#src/config/shell-policy.js';
 import type { DeclaredToolAnnotations } from '#src/core/approvals/annotations.js';

@@ -1,5 +1,4 @@
 /**
- * @module displayWidth
  * The one place this repo answers "how many terminal COLUMNS does this string occupy, and where
  * may I cut it". Everything that fits text to a terminal — the launch banner's field budgets, the
  * tool-display caps — measures and slices through here.
@@ -79,6 +78,8 @@
  * The cost is under-fill: on a terminal that does render Ambiguous narrow, such a row can stop short
  * of its budget. Under-fill is cosmetic; overrun is not. True Wide characters (CJK ideographs,
  * emoji, fullwidth forms) measure 2 under both, so the common CJK case is unaffected either way.
+ *
+ * @module
  */
 import stringWidth from 'string-width';
 

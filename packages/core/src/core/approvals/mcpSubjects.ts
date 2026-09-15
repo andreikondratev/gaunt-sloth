@@ -1,6 +1,4 @@
 /**
- * @module core/approvals/mcpSubjects
- *
  * EXT-70 (spec §4.7.5) — **which approval subject a registered tool name presents**.
  *
  * The distinction this module exists to make is the one §4.7.1 rests on: a `tool` subject's
@@ -23,6 +21,8 @@
  * both do — the call resolves to {@link UNRESOLVED_MCP_SERVER}, which is still an `mcpTool`
  * subject. Failing closed to "an MCP tool under a server we cannot name" is the only safe answer;
  * falling back to `kind: 'tool'` would hand an unidentifiable tool the trusted provenance.
+ *
+ * @module
  */
 import { MCP_TOOL_NAME_PREFIX } from '#src/constants.js';
 import type { McpToolApprovalSubject, ToolApprovalSubject } from '#src/core/approvals/matcher.js';

@@ -1,6 +1,4 @@
 /**
- * @module utils/untrustedText
- *
  * **The structural delimiters gsloth wraps untrusted text in, and the one function that neutralizes
  * a forged one.**
  *
@@ -20,6 +18,8 @@
  *
  * **Defang BEFORE wrapping, always.** That ordering is the whole mechanism; wrapping first and
  * sanitizing after would sanitize a string that already contains the real delimiters.
+ *
+ * @module
  */
 
 /** The MCP discovery-instructions fence (EXT-32), emitted by `utils/systemPromptNotes.ts`. */

@@ -1,6 +1,4 @@
 /**
- * @module core/approvals/grants
- *
  * EXT-71 (spec §3, §3.1, §6) — **what the escalation menu remembers**, in the one entry grammar.
  *
  * A grant is an {@link ApprovalEntry} plus the metadata §3 requires a list to be able to show:
@@ -77,8 +75,8 @@
  * rewrites the WHOLE file from what is held in memory, which after a failed load is nothing — so one
  * saved answer would replace twenty saved ones with itself, turning a trailing comma into permanent
  * loss. Reading fails soft; writing over what the reader could not parse is the one recovery that
- * cannot be undone, so {@link PersistedApprovalGrants.tryPersist} refuses it and says so
- * ({@link refusedWriteNotice}). The answer still holds for this session — the runner keeps its own
+ * cannot be undone, so `PersistedApprovalGrants.tryPersist` refuses it and says so
+ * (`refusedWriteNotice`). The answer still holds for this session — the runner keeps its own
  * in-memory copy — it is simply not written down.
  *
  * ## What this store CLAIMS is what the file holds
@@ -88,7 +86,7 @@
  * returns whether the grant reached disk and takes back one that did not;
  * {@link PersistedApprovalGrants.remove} returns whether the deletion reached disk. A write that
  * merely FAILED — an unwritable checkout, a directory that is gone — is reported
- * ({@link failedWriteNotice}) rather than swallowed, because the caller above stamps an answer
+ * (`failedWriteNotice`) rather than swallowed, because the caller above stamps an answer
  * `always` or `session` from these returns and a surface renders them as *saved to this project*.
  *
  * The one imprecision is deliberate and is in the safe direction: `inSync` is store-level, so after
@@ -99,9 +97,11 @@
  *
  * [[EXT-151]] — this is a file people hand-edit, and a whole-file rewrite from a store that models
  * two keys would delete everything else in it. Top-level keys this version does not use are carried
- * across the read and written back ({@link preservedKeys}), so a rewrite touches `version` and
+ * across the read and written back (`preservedKeys`), so a rewrite touches `version` and
  * `grants` and nothing else. Deleting the parts of a user's file we do not recognise is the worst
  * of the available answers; reporting the deletion is only the second worst.
+ *
+ * @module
  */
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { approvalEntrySchema, renderApprovalEntryObject } from '#src/config/schema.js';
@@ -749,7 +749,7 @@ function refusedWriteNotice(
 }
 
 /**
- * Why {@link PersistedApprovalGrants.tryPersist} is writing, which is the whole of what the user
+ * Why `PersistedApprovalGrants.tryPersist` is writing, which is the whole of what the user
  * needs to be told when it cannot. The three have different consequences and one wording could not
  * be true of all of them: an unsaved answer is absent next session, an unsaved lift is *present*
  * next session, and an unperformed migration changes nothing at all.
@@ -759,7 +759,7 @@ type WritePurpose = 'save' | 'lift' | 'migrate';
 /**
  * [[EXT-149]] — **the file could be read, and could not be written.**
  *
- * The sibling of {@link refusedWriteNotice} and a different case from it. There the file holds
+ * The sibling of `refusedWriteNotice` and a different case from it. There the file holds
  * somebody else's content and the store declines to touch it; here the store was entitled to write
  * and the write threw — an unwritable checkout, a settings directory that has since gone, a full
  * disk. Nothing was lost either way, which is why both can be worded this flatly.
@@ -1314,7 +1314,7 @@ export class PersistedApprovalGrants {
    *
    * **Never throws is not never says.** [[EXT-149]] — a swallowed throw left the surfaces that had
    * already promised the user something as the last word on a file that never changed, so a failed
-   * write is reported ({@link failedWriteNotice}) in the words of whichever {@link WritePurpose}
+   * write is reported (`failedWriteNotice`) in the words of whichever {@link WritePurpose}
    * asked for it.
    *
    * ## [[EXT-144]] — it refuses to write over a file it could not read

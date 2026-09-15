@@ -1,6 +1,4 @@
 /**
- * @module judge
- *
  * BATCH-2 — LLM-as-judge grading for `gth eval`. Adapts the *mechanism* of EXT-10's shell-safety
  * judge (`packages/core/src/core/shell/judge.ts`): `model.withStructuredOutput(zodSchema)` for a
  * single non-agentic structured call, raced against a timeout. The failure policy differs on
@@ -18,6 +16,8 @@
  * `judgeShellCommand`'s own default. A separate `--judge <profile>` model is BATCH-2's own
  * "Not in scope" list (identity-matrix/pluggable-target work); grading with the SUT's own model
  * config is a known, real simplification for this first slice.
+ *
+ * @module
  */
 
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';

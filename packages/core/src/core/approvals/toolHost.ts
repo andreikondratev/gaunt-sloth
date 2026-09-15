@@ -1,6 +1,4 @@
 /**
- * @module core/approvals/toolHost
- *
  * EXT-70 (spec §4.7.4) — **the host a tool call reaches**, read off the call's own arguments.
  *
  * §4.7.4's bound on a sticky tool grant needs one thing the tool name does not carry: *which
@@ -35,6 +33,8 @@
  *
  * A value this module fails to recognize as a host costs a re-prompt or a broader grant than the
  * call deserved, never a narrower one that silently fails to match.
+ *
+ * @module
  */
 
 /**

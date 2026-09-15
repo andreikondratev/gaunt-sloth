@@ -1,10 +1,8 @@
 /**
- * @module runtime/askStructured
- *
  * A reusable, non-agentic "ask the LLM and get a schema-validated object back" primitive — the
  * structured-output half the (later) `gth workflow` host calls. Deliberately mirrors the
- * *mechanism* of the structured-evaluation calls ({@link judgeEvalCase} — the EVAL GRADER in
- * `@gaunt-sloth/batch`'s `judge.ts` — and its in-core sibling {@link rateShellCommand}, the
+ * *mechanism* of the structured-evaluation calls ({@link @gaunt-sloth/batch!"judge.js".judgeEvalCase | judgeEvalCase} — the EVAL GRADER in
+ * `@gaunt-sloth/batch`'s `judge.ts` — and its in-core sibling {@link @gaunt-sloth/core!core/shell/rater.rateShellCommand | rateShellCommand}, the
  * approvals AI rater in `core/shell/rater.ts`):
  * `model.withStructuredOutput(schema)` for a single structured call, `.invoke([SystemMessage,
  * HumanMessage])` raced against a wall-clock budget, a defensive `safeParse` re-validation, and —
@@ -21,6 +19,8 @@
  * prompt), and it reads the model from `config.llm` (like `runSingleShot`/`rateShellCommand`),
  * so the workflow host can hand it the resolved {@link GthConfig} directly. `judgeEvalCase` could
  * later be refactored to delegate to this primitive — out of scope here.
+ *
+ * @module
  */
 
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';

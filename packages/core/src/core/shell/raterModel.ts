@@ -1,6 +1,4 @@
 /**
- * @module core/shell/raterModel
- *
  * CFG-26 — resolve the model a gate model runs on when a config key names an identity profile.
  * Without this the profile is validated and then IGNORED: the config parses, `gth config validate`
  * passes, CFG-24's first-run dialog promises a stronger model can be set as the rater later — and
@@ -16,9 +14,11 @@
  * EVERY safe command `danger`. Pointing the rater at a competent model is the difference between
  * `auto` being useful and being `ask` with a bill attached — so the knob has to actually work.
  *
- * Kept in its own module (rather than inline in {@link GthAgentRunner}) for two reasons: the
+ * Kept in its own module (rather than inline in {@link @gaunt-sloth/core!core/GthAgentRunner.GthAgentRunner | GthAgentRunner}) for two reasons: the
  * runner's specs can mock THIS seam instead of the whole `#src/config.js` barrel, and the
  * global-state discipline below lives in exactly one place.
+ *
+ * @module
  */
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 

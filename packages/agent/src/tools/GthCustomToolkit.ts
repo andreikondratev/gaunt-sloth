@@ -1,7 +1,8 @@
 /**
- * @module GthCustomToolkit
  * Toolkit for user-defined custom shell commands.
  * Provides secure execution of shell commands with parameter validation.
+ *
+ * @module
  */
 import { BaseToolkit, StructuredToolInterface, tool } from '@langchain/core/tools';
 import type { ToolRunnableConfig } from '@langchain/core/tools';

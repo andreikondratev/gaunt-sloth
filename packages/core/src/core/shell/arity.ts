@@ -1,6 +1,4 @@
 /**
- * @module core/shell/arity
- *
  * EXT-9 Tier-2 ergonomics: classify a shell command into a stable, human-readable
  * **prefix** (binary + N meaningful subcommands) so an approval the human grants once
  * (`git checkout main`) can be remembered as a pattern (`git checkout *`) and matched
@@ -22,8 +20,10 @@
  * EXT-55: "newlines" in that list was aspirational until this node. `normalizeCommand` folded
  * a line break to a SPACE, so the check below never saw one and `ls -la\nrm -rf /` classified
  * as the single command `ls`. The separator set now lives in ONE place
- * ({@link import('./normalize.js').COMMAND_SEPARATOR_CLASS}) and a line break survives
+ * ({@link @gaunt-sloth/core!core/shell/normalize.COMMAND_SEPARATOR_CLASS | COMMAND_SEPARATOR_CLASS}) and a line break survives
  * normalization, so a multi-line command is categorically ambiguous — exactly like `;`.
+ *
+ * @module
  */
 
 import { COMMAND_SEPARATOR_RE, LINE_BREAK_RE } from '#src/core/shell/normalize.js';

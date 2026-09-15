@@ -1,6 +1,4 @@
 /**
- * @module core/approvals/annotations
- *
  * EXT-70 (spec §4.7, §4.7.1, §4.7.5) — **the one derivation of a tool call's effective annotation
  * set**, and the only place trust is applied to an annotation. Everything downstream — the §4.7.2
  * table, `hint` entries (§3.1), exposure (§4.7.6), the snapshot a sticky grant records (§4.7.4) —
@@ -37,6 +35,8 @@
  * provenances resolve into the same four booleans through this one function, so a fully-trusted
  * server's declaration and a built-in's identical declaration produce identical effective sets, and
  * there is no path by which the external one could produce something the internal one could not.
+ *
+ * @module
  */
 import {
   type McpApprovalsConfig,

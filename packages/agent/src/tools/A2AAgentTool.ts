@@ -1,7 +1,8 @@
 /**
- * @module A2AAgentTool
  * LangChain tool for interacting with A2A protocol agents.
  * @experimental A2A support is experimental and may change.
+ *
+ * @module
  */
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';

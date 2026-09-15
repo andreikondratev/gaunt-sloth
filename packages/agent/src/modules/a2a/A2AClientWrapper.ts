@@ -1,7 +1,8 @@
 /**
- * @module A2AClientWrapper
  * Wrapper for A2A (Agent-to-Agent) protocol client.
  * @experimental A2A support is experimental and may change.
+ *
+ * @module
  */
 import {
   ClientFactory,

@@ -1,5 +1,4 @@
 /**
- * @module reviewHeading
  * REL-12 — the line every `gth review` / `gth pr` run opens with, so a reader of the output knows
  * whose review it is and what produced it.
  *
@@ -32,6 +31,8 @@
  * site in `reviewModule.ts`, not here — this module builds the line and does not decide whether it
  * is shown), because a caller piping a review into their own template needs a byte-clean stream.
  * That rung is opt-in precisely so the reasoning above survives for everyone who does not set it.
+ *
+ * @module
  */
 import { modelProviderLabel } from '@gaunt-sloth/core/core/modelLabel.js';
 import { runHeaderLine } from '@gaunt-sloth/core/core/runHeader.js';

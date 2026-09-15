@@ -1,5 +1,4 @@
 /**
- * @module exitOutputChannel
  * TUI-C56 — the queue for output that must OUTLIVE the session's own screen.
  *
  * TUI-C48 put the whole interactive session in the terminal's alternate screen. Ink treats
@@ -29,6 +28,8 @@
  * array entry and prints nothing, which is what keeps the producers surface-agnostic: `/debug-dump`
  * is one command with one behaviour, and the two surfaces differ only in whether the re-print is
  * needed at all.
+ *
+ * @module
  */
 
 /**

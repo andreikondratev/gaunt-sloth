@@ -23,6 +23,12 @@
  * - rule 8's whole-tree sweep finds no same-page `href="#…"` pointing at no heading. TypeDoc says
  *   nothing about those either. The sweep is ported unchanged from the one DOC-STYLE tells authors
  *   to run: the gate and the documented self-check must not be able to disagree;
+ * It **refuses to run at all** against a `dist/` older than its `src/`, before rendering anything.
+ * TypeDoc resolves every cross-package import through the importee's built declaration files, so a
+ * stale tree renders the previous build's docblocks for those pages and reports FEWER warnings — a
+ * green gate over comments the render never saw. CI already builds first; this is the guard for the
+ * gate run by hand.
+ *
  * - **this run wrote the pages those last two checks read.** A timestamp taken before the render is
  *   compared with the newest mtime under `out`: a check that reads the output tree cannot tell this
  *   run's pages from the previous run's, so a render that put its output somewhere else leaves both
@@ -280,8 +286,65 @@ function markdownCopiedAsMedia(outDir) {
     .map(relativeToRepo);
 }
 
+/**
+ * Packages whose `src/` has been written more recently than their `dist/`.
+ *
+ * TypeDoc resolves every cross-package import through the importee's built `dist/*.d.ts`, so on a
+ * stale tree the render reports on the PREVIOUS build's docblocks for exactly those pages — review's
+ * re-exports of core, and every module agent and batch render from their declaration files. Measured:
+ * the same tree rendered 179 warnings before a build and 183 after.
+ *
+ * **It fails in the reassuring direction**, which is why this refuses rather than warns: the stale
+ * run reports fewer warnings, the baseline comparison passes, and the gate reads green over comments
+ * the render never saw. The same shape as a docs check run against a previous render's output tree,
+ * which the freshness assertion further down already refuses.
+ *
+ * CI is not affected — its docs step follows a build-then-test — so this is the guard for a human or
+ * an agent running `pnpm run docs:check` on its own. Ties pass: a fresh checkout writes `src` and
+ * `dist` at whatever the build left, and only a src write STRICTLY newer than every dist write is
+ * evidence that something changed after the build.
+ */
+function packagesNeedingABuild() {
+  const packagesDir = join(repoRoot, 'packages');
+  const stale = [];
+  for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const src = join(packagesDir, entry.name, 'src');
+    const dist = join(packagesDir, entry.name, 'dist');
+    if (!existsSync(src)) continue;
+    if (!existsSync(dist)) {
+      stale.push(`packages/${entry.name} has no dist/ — it has never been built`);
+      continue;
+    }
+    const newestSrc = newestWriteUnder(src);
+    const newestDist = newestWriteUnder(dist);
+    if (newestSrc > newestDist) {
+      const age = Math.round((newestSrc - newestDist) / 1000);
+      stale.push(`packages/${entry.name} — src/ written ${age}s after the newest file in dist/`);
+    }
+  }
+  return stale;
+}
+
 const config = JSON.parse(readFileSync(join(repoRoot, 'typedoc.json'), 'utf8'));
 const outDir = outputDirectory(config);
+
+const needsABuild = packagesNeedingABuild();
+if (needsABuild.length > 0) {
+  console.error(
+    'Docs render check refused: the build is older than the sources it renders from.\n'
+  );
+  for (const line of needsABuild) console.error(`      ${line}`);
+  console.error(
+    "\nTypeDoc reads each package's built dist/*.d.ts for every cross-package comment,"
+  );
+  console.error(
+    'so this run would report on the previous build and pass about pages it never saw.'
+  );
+  console.error('\n      pnpm run build\n');
+  console.error('then run this again.');
+  process.exit(1);
+}
 // Taken before the render so the freshness check below has something a stale tree cannot satisfy.
 const renderStartedAt = Date.now();
 const { status, output } = render();

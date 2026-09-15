@@ -1,6 +1,4 @@
 /**
- * @module core/approvals/promptHeader
- *
  * [[TUI-C67]] — **the one sentence the terminal approval surfaces open with**, branched on the
  * {@link ApprovalSubject} kind the decision itself already ran on. Its callers are the readline
  * session and the Ink TUI. The ACP server asks a human too but renders this sentence nowhere — it
@@ -28,7 +26,7 @@
  * `core/approvals/mcpSubjects.ts` derives from the registered tool name against the user's own
  * `mcpServers` keys. Re-deriving the kind here from the tool name would be a **second** classifier,
  * free to disagree with the one that actually gated the call — so the subject travels on the
- * {@link import('#src/core/types.js').PendingToolInterrupt} and this module only reads it.
+ * {@link @gaunt-sloth/core!core/types.PendingToolInterrupt | PendingToolInterrupt} and this module only reads it.
  *
  * ## The `tool` arm is generic on purpose
  *
@@ -37,6 +35,8 @@
  * Deriving the better sentence (*"change files"*) from the annotations the gate already read is
  * [[TUI-C83]]'s node, and it drags a coverage guard and a two-registrar audit with it. Do not read
  * the vagueness here as an oversight and do not close it with a second annotation lookup.
+ *
+ * @module
  */
 import type { ApprovalSubject } from '#src/core/approvals/matcher.js';
 import { UNRESOLVED_MCP_SERVER } from '#src/core/approvals/mcpSubjects.js';

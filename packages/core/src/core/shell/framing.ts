@@ -1,6 +1,4 @@
 /**
- * @module core/shell/framing
- *
  * [[TUI-C26]] (spec §6) — **how untrusted text is made safe to LOOK AT on the approval dialog.**
  *
  * Two of the strings on that dialog are written by something other than the user: the command the
@@ -86,6 +84,8 @@
  * {@link frameWidthFor}, which never returns less than {@link MIN_FRAME_WIDTH}, so only the second
  * case is reachable in production — and it is announced on screen rather than left to lapse
  * silently: see {@link narrowTerminalNotice}.
+ *
+ * @module
  */
 import {
   displayWidth,

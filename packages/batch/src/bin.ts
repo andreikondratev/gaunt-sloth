@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 /**
- * @module bin
- *
  * BATCH-9 — the `gth-batch` executable. A minimal shebang wrapper around {@link runBatchCli}
  * (pipelineCli.ts) whose only job beyond delegating is to keep **stdout a clean machine channel**: the
  * batch runtime's human/status/streaming output all lands on `process.stdout` (via
@@ -9,6 +7,8 @@
  * for the duration of the run. The JSONL cell records are written straight to fd 1 inside
  * `runBatchCli` (`fs.writeSync`), bypassing this redirect — the same "protocol channel" discipline
  * `packages/app/cli.js` uses for the ACP stdio channel.
+ *
+ * @module
  */
 
 import { runBatchCli } from '#src/pipelineCli.js';

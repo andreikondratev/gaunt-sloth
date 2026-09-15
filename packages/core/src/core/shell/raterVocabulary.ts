@@ -1,11 +1,9 @@
 /**
- * @module core/shell/raterVocabulary
- *
  * **The approvals gate's closed vocabularies, and nothing else.** Three lists: the outcomes a rater
  * may return, the actions the gate may resolve to, and the deterministic preflights that can floor a
  * command. Each is the SINGLE place its members are written down.
  *
- * ## Why they live apart from {@link ./rater.js}, which owns their meaning
+ * ## Why they live apart from {@link @gaunt-sloth/core!core/shell/rater | ./rater.js}, which owns their meaning
  *
  * A vocabulary has two kinds of consumer. The gate itself needs the words *and* the machinery around
  * them. A **checker** — a schema, a report axis, a compile-time guard in another package — needs only
@@ -22,6 +20,8 @@
  * the checker keeps reporting success over a vocabulary it no longer covers. Derive from these
  * arrays — ideally as a total `Record` keyed on the type, so a new member is a compile error rather
  * than a silence.
+ *
+ * @module
  */
 
 /**

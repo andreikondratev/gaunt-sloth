@@ -1,7 +1,6 @@
 /**
- * @module agUiEvalRunner
  * BATCH-15 — the AG-UI target's production runner builders for `gth eval`. The eval runner
- * ({@link @gaunt-sloth/batch#runEvalSuite}) is target-agnostic: it consumes an injected
+ * ({@link @gaunt-sloth/batch!"evalRunner.js".runEvalSuite | runEvalSuite}) is target-agnostic: it consumes an injected
  * `RunCellFn` (single-shot) and `RunConversationFn` (multi-turn) and grades whatever
  * `answer` (and `tools`) they produce with the SAME assertion surface used for the `gth-agent`
  * target. This module builds those two functions for an EXTERNAL agent exposed over the AG-UI
@@ -27,6 +26,8 @@
  *   `answer`, `TOOL_CALL_START` names into `tools`, and treat `RUN_ERROR` (or a non-200, or a stream
  *   that ends without the terminal `RUN_FINISHED`) as a failed run — a gradeable `ok:false`, never
  *   an uncaught throw that aborts the whole suite.
+ *
+ * @module
  */
 import { randomUUID } from 'node:crypto';
 import { EventType } from '@ag-ui/core';

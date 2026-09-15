@@ -1,9 +1,7 @@
 /**
- * @module core/shell/raterHealth
- *
  * [[EXT-82]] — **a rater that answers nothing is indistinguishable from a very cautious one.**
  *
- * {@link import('./rater.js').failClosedVerdict} makes ONE failed rating explicable: the verdict
+ * {@link @gaunt-sloth/core!core/shell/rater.failClosedVerdict | failClosedVerdict} makes ONE failed rating explicable: the verdict
  * now carries the provider's own account of why the call never reached the model. That is enough to
  * understand an occurrence and not enough to understand a session. Pointed at a model whose
  * provider refuses the shape the rater must send, every call fails, every verdict is `destructive`,
@@ -30,9 +28,11 @@
  *
  * The signal is text a user pastes into an issue. It names the rater MODEL (an id and a provider
  * type, from `raterModelLabel` — never the instance, never a key) and the failure clause built by
- * {@link import('./rater.js').renderRaterCallFailure}, which is sanitised where it is constructed.
+ * {@link @gaunt-sloth/core!core/shell/rater.renderRaterCallFailure | renderRaterCallFailure}, which is sanitised where it is constructed.
  * It never names the rated command, and there is deliberately no parameter through which it could:
  * {@link RaterHealth.record} is not given one.
+ *
+ * @module
  */
 
 import type { FailClosedCause, RaterCallFailure } from '#src/core/shell/rater.js';

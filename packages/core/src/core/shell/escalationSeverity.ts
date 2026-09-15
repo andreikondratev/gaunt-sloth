@@ -1,6 +1,4 @@
 /**
- * @module core/shell/escalationSeverity
- *
  * [[TUI-C26]] (spec §6) — **how severe the escalation is, said in words.**
  *
  * Every escalation used to look identical: the same yellow line, the same
@@ -23,7 +21,7 @@
  * ## The map is total, and `attack` is in it
  *
  * A `Record<RaterOutcome, …>` rather than a lookup with a default: an outcome added to
- * {@link RATER_OUTCOMES} must be given words here, and cannot silently inherit another outcome's.
+ * {@link @gaunt-sloth/core!core/shell/raterVocabulary.RATER_OUTCOMES | RATER_OUTCOMES} must be given words here, and cannot silently inherit another outcome's.
  *
  * `attack` is present for that totality and **not because the approval prompt renders it**. An
  * `attack` verdict halts the run (`AttackHaltError`) on both rating paths, so it never reaches an
@@ -35,6 +33,8 @@
  * ranked against each other (they answer different questions — *can this be undone?* versus *is
  * something hostile acting here?*), so distinguishing them by loudness would assert an ordering the
  * rater's own schema refuses. They are distinguished where it matters, in what they say.
+ *
+ * @module
  */
 import type { RaterOutcome } from '#src/core/shell/rater.js';
 

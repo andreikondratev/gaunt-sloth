@@ -1,12 +1,11 @@
 /**
- * @module plainToolIndication
  * TUI-C30 — compact tool-call indication for the PLAIN surface (`--no-tui` readline sessions,
  * piped/single-shot `ask`/`exec`/`review`/`pr`). The Ink TUI renders tool calls from the typed
  * event stream; the plain surface streams strings, so until now a tool call only surfaced
  * through the tools' own transient notices (`📁 Reading file: …`, `🔧 Executing …` + raw child
  * output via the tool-output channel's default sink). This module watches the SAME LangGraph
  * message stream the string path already iterates and, when each `ToolMessage` lands, prints
- * one compact indication built from the shared {@link toolDisplay} registry:
+ * one compact indication built from the shared {@link @gaunt-sloth/core!core/toolDisplay | toolDisplay} registry:
  *
  *     ✓ 📁 read_file(path=README.md)
  *         # Readme            ← up to the canonical 10 preview lines, dim
@@ -28,6 +27,8 @@
  * output ALREADY streamed raw via the channel's default sink, so those render with
  * `liveOutputAlreadyShown` and show only the closing status line — never a repeat of output
  * the user just watched.
+ *
+ * @module
  */
 import { AIMessage, AIMessageChunk, ToolMessage } from '@langchain/core/messages';
 import type { BaseMessage } from '@langchain/core/messages';

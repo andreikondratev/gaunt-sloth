@@ -1,6 +1,4 @@
 /**
- * @module core/approvals/approvalRequest
- *
  * [[EXT-137]] — **the split between what an approval surface may FIX in place and what it must let
  * scroll.**
  *
@@ -77,6 +75,8 @@
  * **ACP is deliberately not a consumer.** It hands rendering to an editor client, which draws
  * structured fields in its own UI where terminal control codes are inert and a gutter would be
  * noise; `modules/acp/acpPermissions.ts` states what that surface does instead.
+ *
+ * @module
  */
 import type { DialogTone } from '#src/utils/consoleUtils.js';
 import type { PendingToolInterrupt } from '#src/core/types.js';

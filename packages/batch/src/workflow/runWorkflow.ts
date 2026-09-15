@@ -1,13 +1,11 @@
 /**
- * @module workflow/runWorkflow
- *
  * BATCH-3 — the `gth workflow` host. Runs a local JS orchestration script (`.mjs`/`.js`) that drives
  * one or more LLM calls through a small, generic {@link WorkflowContext}. This is the
  * script-orchestrated sibling of `gth batch` (matrix over a single prompt): a workflow is arbitrary
  * local code that decides *how* to fan calls out.
  *
  * The host provides two agent shapes, both reusing the proven production wiring:
- * - a **structured** call via {@link askStructured} (`@gaunt-sloth/core`) — a bare, non-agentic
+ * - a **structured** call via {@link @gaunt-sloth/core!runtime/askStructured.askStructured | askStructured} (`@gaunt-sloth/core`) — a bare, non-agentic
  *   `withStructuredOutput` model call that returns a schema-validated object;
  * - a **text** call that mirrors `buildProductionRunCell` (packages/app/src/commands/batchCommand.ts)
  *   exactly — its own `createResolvers()`, a lean agent factory, `runSingleShot`, and
@@ -18,6 +16,8 @@
  * a deliberate widening of the batch package (whose matrix runtime was kept LLM/runner-agnostic) to
  * host the workflow runtime the BATCH-3 brief scopes here; `batch → agent → core` stays a clean DAG
  * (agent does not depend on batch).
+ *
+ * @module
  */
 
 import * as z from 'zod';
@@ -34,7 +34,7 @@ import { DEFAULT_WORKFLOW_CONCURRENCY } from '#src/types.js';
 
 /** Options for a single {@link WorkflowContext.agent} call. */
 export interface WorkflowAgentOptions {
-  /** Zod schema → structured output (via {@link askStructured}). Omit for a plain-text agent run.
+  /** Zod schema → structured output (via {@link @gaunt-sloth/core!runtime/askStructured.askStructured | askStructured}). Omit for a plain-text agent run.
    * Build it with {@link WorkflowContext.z} so it is the exact zod instance the model introspects. */
   schema?: z.ZodType<unknown>;
   /** System-message text. Default `''`. */

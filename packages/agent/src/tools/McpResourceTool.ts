@@ -1,11 +1,10 @@
 /**
- * @module McpResourceTool
  * EXT-48 — synthesize agent-callable tools for a connected MCP server's RESOURCES.
  *
  * gth is otherwise a tools-only MCP client (it consumes a server's getTools() +
  * getInstructions()). This factory bridges the adapter's resource API to the agent by
  * synthesizing two LangChain tools per resources-capable server, mirroring
- * {@link ../tools/A2AAgentTool.ts} — each tool closes over the LIVE MultiServerMCPClient
+ * {@link @gaunt-sloth/agent!"tools/A2AAgentTool.js" | ../tools/A2AAgentTool.ts} — each tool closes over the LIVE MultiServerMCPClient
  * plus the server name and calls it in `func`:
  *
  *   - `mcp__<server>__list_resources` — no args; lists the server's concrete resources.
@@ -17,6 +16,8 @@
  * agent-backend edits).
  *
  * Concrete-URI list/read only: resource TEMPLATES (parameterized URIs) are deferred.
+ *
+ * @module
  */
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';

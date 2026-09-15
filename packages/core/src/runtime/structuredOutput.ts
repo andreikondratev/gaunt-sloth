@@ -1,9 +1,7 @@
 /**
- * @module runtime/structuredOutput
- *
  * EXT-88 — the **`withStructuredOutput` boundary**. Every `withStructuredOutput` call in this
  * project goes through {@link structuredOutputBoundary}: `rateShellCommand` (the approvals rater),
- * {@link askStructured} (arbitrary caller schemas, including `gth workflow` scripts) and
+ * {@link @gaunt-sloth/core!runtime/askStructured.askStructured | askStructured} (arbitrary caller schemas, including `gth workflow` scripts) and
  * `@gaunt-sloth/batch`'s eval judge. Review's rating step is deliberately not one of them — it
  * reaches its schema through a bound TOOL, which is a different path with different rules.
  *
@@ -73,6 +71,8 @@
  * An optional inside one of those constructs keeps today's behaviour — correct everywhere it is
  * correct today, and still rejected by OpenAI's strict rule, which is a visible error rather than a
  * silent one.
+ *
+ * @module
  */
 
 import * as z from 'zod';

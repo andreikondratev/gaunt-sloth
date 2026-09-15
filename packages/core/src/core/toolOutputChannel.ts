@@ -1,5 +1,4 @@
 /**
- * @module toolOutputChannel
  * TUI-C17 — the managed route for LIVE tool output (a custom/dev toolkit child process's
  * stdout/stderr chunks and its "🔧 Executing …" announcement).
  *
@@ -26,6 +25,8 @@
  * straggler queued in the unsubscribe microwindow (residual b) and cleans up on early-`return()`
  * (residual c); and {@link setToolOutputSuppressed} lets the mounted TUI suppress a
  * post-unsubscribe straggler between turns instead of leaking it to raw stdout (residual d).
+ *
+ * @module
  */
 import type { AgentStreamEvent } from '#src/core/types.js';
 import { displayError, displayInfo, displayWarning } from '#src/utils/consoleUtils.js';

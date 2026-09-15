@@ -1,12 +1,10 @@
 /**
- * @module core/shell/approvalStop
- *
  * CFG-27 — the two ways the approvals gate **ends a run** rather than answering a tool call.
  * Both are thrown from `GthAgentRunner.decideToolApproval`, both carry the command and the reason
  * a person needs to see, and both are re-thrown UNCHANGED by `processMessages` (which otherwise
  * wraps failures as `Agent processing failed: …`) so the explanation reaches the user intact.
  *
- * They are errors rather than {@link ../types.js ToolApprovalDecision}s on purpose. A decision is
+ * They are errors rather than {@link @gaunt-sloth/core!core/types.ToolApprovalDecision | ToolApprovalDecision}s on purpose. A decision is
  * something the model observes as a `ToolMessage` and can respond to; these two are precisely the
  * cases where the spec says the model gets no move at all:
  *
@@ -40,7 +38,7 @@
  *    Ink transcript, `--no-tui` stderr, a session log, the approvals archive (`record.error`), an
  *    eval turn record, AG-UI and a CI job's output, and only some of those are terminals. Doing it
  *    at each render site would mean every present and future consumer had to remember; doing it
- *    once here means none of them can forget. After it, `{@link message}` contains no control or
+ *    once here means none of them can forget. After it, `message` contains no control or
  *    format character at all: a carriage return is the five printable characters `\x0d`, and —
  *    because LF is a control character too — untrusted text cannot even open a new line, let alone
  *    reach column 0 on one.
@@ -62,7 +60,7 @@
  * **Adding a surface that catches a stop means adding it to that list.**
  *
  * **That list is over the ERROR, and the error is not the only way a stop reaches a screen.** Some
- * consumers take {@link message} and hand the *string* onward, at which point no `instanceof` can
+ * consumers take `message` and hand the *string* onward, at which point no `instanceof` can
  * find it again: `runConversation` records it as a turn's `error`, and `evalRunner` folds that into
  * an eval case's `reasons`, which `batch/reporters/textReporter.ts` prints — a terminal, reached
  * without any of its code ever seeing this class. That one frames the text itself. So the honest
@@ -87,6 +85,8 @@
  * A part is tagged with *who wrote it*, which is the only distinction any of this rests on: the
  * gate's own prose can be painted as it is because nothing can forge it, and everything else goes
  * through the shared renderer.
+ *
+ * @module
  */
 import type { ApprovalSubject } from '#src/core/approvals/matcher.js';
 import { UNRESOLVED_MCP_SERVER } from '#src/core/approvals/mcpSubjects.js';

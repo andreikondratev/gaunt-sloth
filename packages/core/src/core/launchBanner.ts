@@ -1,5 +1,4 @@
 /**
- * @module launchBanner
  * TUI-C33 — the welcoming ASCII-art launch banner shown at the top of an INTERACTIVE session
  * (`gth chat` / `gth code`): a sloth face on the left, the `GAUNT SLOTH` wordmark plus three live
  * fields (version, model/provider, working directory) on the right.
@@ -71,7 +70,7 @@
  * (`…/dev/takahe`), because the leaf directory is the informative end; the model keeps its head and
  * loses its tail.
  *
- * A VERSION that does not fit is dropped entirely instead ({@link fitOrDrop}) — never truncated.
+ * A VERSION that does not fit is dropped entirely instead (`fitOrDrop`) — never truncated.
  * A clipped version number is not merely less informative, it is MISLEADING: `v2.0…` reads as a
  * real, different version (2.0.1, say) rather than as a clipped `2.0.0-alpha.25`, and a wrong
  * version in a bug report costs more than an absent one. The model/provider line already sets that
@@ -79,6 +78,8 @@
  *
  * Below {@link MIN_BANNER_COLUMNS} the right column cannot fit at all, so the face prints alone
  * rather than wrapping the wordmark into rubble.
+ *
+ * @module
  */
 import { homedir } from 'node:os';
 import { ELLIPSIS, ELLIPSIS_WIDTH } from '#src/core/toolDisplay.js';

@@ -1,5 +1,4 @@
 /**
- * @module runHeader
  * GS2-95 — the ONE spelling of the run header, the single line every command opens with.
  *
  * Two unrelated writers render it: the agent's `compact` rung
@@ -18,6 +17,8 @@
  * does. That property belongs to the SINK, and one run has several at once (the TUI on screen, a
  * posted PR comment, a session log on disk), so no single flag can be right for all of them.
  * Formatting a header is not worth a per-sink capability, so there is no prefix anywhere.
+ *
+ * @module
  */
 
 /** The product name the header opens with — the part a reader is meant to recognise across runs. */

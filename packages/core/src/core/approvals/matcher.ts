@@ -1,6 +1,4 @@
 /**
- * @module core/approvals/matcher
- *
  * EXT-71 (spec §3.1, §3.2, §3.3) — **the one comparison engine** over {@link ApprovalEntry}, and
  * the three-list resolution built on top of it. Every approvals decision that is not the rung's own
  * default runs through {@link resolveApprovalRules}; there is no second matcher anywhere.
@@ -9,7 +7,7 @@
  *
  * `exact` / `glob` / `regexp` compare against the **normalized command** for a `shell` entry and
  * against the **tool name** for `tool` / `mcpTool`. The normalization is
- * {@link import('../shell/normalize.js').normalizeCommand} — the same one the command classifier and
+ * {@link @gaunt-sloth/core!core/shell/normalize.normalizeCommand | normalizeCommand} — the same one the command classifier and
  * the §8 floor already use, never a second one of this module's own, because a second normalization
  * is how a matcher and a floor come to disagree about what a command is.
  *
@@ -47,6 +45,8 @@
  * deny behaviour (`core/shell/denylist.ts`) — broader on a list whose breadth is fail-safe. Allow
  * comparisons, tool names, and **every `regexp` on every list** are compared as written: silently
  * adding an `i` flag to a pattern the user authored would make it mean something they did not write.
+ *
+ * @module
  */
 import {
   type ApprovalEntry,

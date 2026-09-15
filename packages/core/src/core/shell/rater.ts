@@ -1,6 +1,4 @@
 /**
- * @module core/shell/rater
- *
  * CFG-27 (CFG-26 rework) — the **auto-rater**: the LLM that rates a pending `run_shell_command`
  * before it executes, sitting *in front of* the human approval prompt (EXT-9). It is consulted at
  * exactly two of the five rungs — `assisted` and `auto` (see `APPROVAL_RUNGS`); `manual`,
@@ -21,7 +19,7 @@
  *    — the command is the ONLY thing admitted, at every rung and every round.** No justification, no
  *    transcript, no user messages, no tool output, no file contents, no fetched pages: this module
  *    rates a command, and the question of whether the user asked for it belongs to the alignment
- *    checker ({@link import('./alignment.js').runAlignmentCheck}), where it is assembled across
+ *    checker ({@link @gaunt-sloth/core!core/shell/alignment.runAlignmentCheck | runAlignmentCheck}), where it is assembled across
  *    message roles instead of stacked into this prompt.
  * 2. **Fail-closed on error.** If the LLM call throws, times out, or returns unparseable
  *    output, the verdict returned NEVER auto-approves — it is `destructive` with an honest
@@ -34,6 +32,8 @@
  *
  * Mirrors the QA-3 rating substrate (`packages/review/src/middleware/reviewRateMiddleware.ts`):
  * structured-output evaluation over `config.llm`, wrapped in try/catch.
+ *
+ * @module
  */
 
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';

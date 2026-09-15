@@ -1,6 +1,4 @@
 /**
- * @module core/shell/denylist
- *
  * **Command segmentation** — splitting a command into every command a shell would actually run.
  *
  * This is what lets a restrictive rule (`deny`, `escalate`) see inside a compound command. The
@@ -14,6 +12,8 @@
  *   direction that costs nothing. Without that, `git push --force; ls` would sail straight past a
  *   declared deny entry for `git push --force` — a prohibition any trailing `; ls` defeats is not a
  *   prohibition.
+ *
+ * @module
  */
 import { COMMAND_SEPARATOR_CLASS, normalizeCommand } from '#src/core/shell/normalize.js';
 

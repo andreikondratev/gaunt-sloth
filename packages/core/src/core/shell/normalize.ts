@@ -1,14 +1,14 @@
 /**
- * @module core/shell/normalize
- *
  * Command-string normalization shared by the shell hardening layer. The hardline
  * blocklist (`core/shell/hardline`) and the EXT-9 Tier-2
- * allow-list classifier ({@link ./arity.js}) both match against the *normalized* form so
+ * allow-list classifier ({@link @gaunt-sloth/core!core/shell/arity | ./arity.js}) both match against the *normalized* form so
  * trivial obfuscation (ANSI escapes, fullwidth glyphs, backslash splits, padded
  * whitespace) cannot smuggle a command past the guard. Canonical home is core so every
  * consumer — the allow-list, the hardline floor, the approvals gate — imports one implementation.
  *
  * Patterned after hermes-agent `tools/approval.py:_normalize_command_for_detection`.
+ *
+ * @module
  */
 
 // ANSI / ECMA-48 escape sequences. ESC = \x1b, BEL = \x07, ST = ESC \.

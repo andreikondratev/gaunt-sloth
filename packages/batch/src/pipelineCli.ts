@@ -1,6 +1,4 @@
 /**
- * @module pipelineCli
- *
  * BATCH-9 — the standalone `gth-batch` pipeline runner. A thin entry point that runs the BATCH-1
  * matrix runtime ({@link buildMatrix} + {@link runBatchMatrix}) directly from a shell pipeline,
  * without pulling in the whole `gaunt-sloth` app. It takes a prompt-executable script + `--over`
@@ -16,10 +14,12 @@
  * the pipeline shell already handles) and output is JSONL on stdout (not a directory of files).
  *
  * stdout discipline: the run itself is noisy (the runtime's `display()`/`ProgressIndicator`/token
- * streaming all target `process.stdout`). The bin entry ({@link file://./bin.ts}) redirects
+ * streaming all target `process.stdout`). The bin entry ({@link @gaunt-sloth/batch!"bin.js" | ./bin.ts}) redirects
  * `process.stdout.write` to stderr for the duration and this module writes the machine JSONL
  * straight to fd 1 (`fs.writeSync`), so stdout stays a clean data channel — the same "protocol
  * channel" discipline `packages/app/cli.js` uses for ACP.
+ *
+ * @module
  */
 
 import { writeSync } from 'node:fs';

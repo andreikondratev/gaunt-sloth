@@ -1,6 +1,4 @@
 /**
- * @module core/shell/abstention
- *
  * EXT-81 — **what the RATER is told about a command our parser could not resolve.**
  *
  * `classifyCommand` resolves a command's target, or returns `null` when it cannot. That `null` used
@@ -42,6 +40,8 @@
  * **Scope, deliberately narrow.** Flag what the parser saw and stop. Extracting spans, naming which
  * segment is unresolvable, and drawing on surrounding context all wait for real user trial — the
  * elaborate note is the one most likely to acquire connotation by accident.
+ *
+ * @module
  */
 import { classifyCommand } from '#src/core/shell/arity.js';
 import {

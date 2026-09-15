@@ -1,5 +1,4 @@
 /**
- * @module toolDisplay
  * TUI-C30 — the surface-agnostic tool-display registry: how a tool CALL is summarised
  * (`name(arg=val, …)`) and how its OUTPUT is previewed (up to {@link TOOL_OUTPUT_PREVIEW_LINES}
  * greyed lines, diff-coloured for `write_file`/`edit_file`), shared by BOTH render surfaces:
@@ -33,6 +32,8 @@
  *  - **`write_file`/`edit_file` render the change as a diff derived from the tool's ARGS**
  *    (added = `added` style/green, removed = `removed` style/red); monochrome keeps the `+`/`-`
  *    prefixes so the diff still reads without colour (DL-7 graceful degradation).
+ *
+ * @module
  */
 import { GH_READ_FILE_TOOL_NAME, getToolPreviewLines } from '#src/config/shell-policy.js';
 import type { GthConfig } from '#src/config/types.js';

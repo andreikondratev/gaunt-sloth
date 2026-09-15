@@ -1,6 +1,4 @@
 /**
- * @module core/shell/negotiation
- *
  * [[EXT-29]] (spec §5) — **the bounded, visible argument between the agent and the rater** that
  * `auto` conducts where `assisted` interrupts a person.
  *
@@ -11,7 +9,7 @@
  * than a loop: the transcript, and the two counters that end it at a person.
  *
  * **It decides nothing about safety.** Every round is a full, independent rating by
- * {@link import('./rater.js').mapVerdictToAction}; this only answers *"may another round be
+ * {@link @gaunt-sloth/core!core/shell/rater.mapVerdictToAction | mapVerdictToAction}; this only answers *"may another round be
  * served, or is it a human's turn?"*.
  *
  * ## The lifetimes, which are the whole design
@@ -29,6 +27,8 @@
  *   and the rejections counted against that bound are therefore the same set, always.
  * - **The reachability bound is monotonic and a reset does not refill it.** See
  *   {@link MAX_REJECTIONS_BEFORE_HUMAN}.
+ *
+ * @module
  */
 import type { AlignmentDecision, AlignmentRound } from '#src/core/shell/alignment.js';
 import { MIN_CONTENT_WIDTH, neutralizeToOneLine, wrapToWidth } from '#src/core/shell/framing.js';

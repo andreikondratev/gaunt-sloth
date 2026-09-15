@@ -1,6 +1,4 @@
 /**
- * @module core/shell/provenance
- *
  * [[EXT-106]] (spec §4.6) — **the user-provenance carve-out: where the human named the host
  * themselves, we WARN rather than ASK.**
  *
@@ -20,16 +18,16 @@
  * 2. **EVERY host must be user-named, never the first.** {@link findOpenWorldHostLiterals} returns
  *    all matches for exactly this reason, and {@link carvedOpenWorldHosts} requires all of them, so
  *    one host the user asked for cannot carry an unmentioned second one through with it.
- * 3. **Token EQUALITY, never substring.** See {@link userNamedTokens}.
+ * 3. **Token EQUALITY, never substring.** See `userNamedTokens`.
  * 4. **`auto` only** ({@link isUserProvenanceRung}), enforced HERE rather than at the call site, so
  *    a caller that forgets cannot widen the scope.
  * 5. **The literal must name a host in the RAW command too**, not only in the normalized form the
- *    match was found in — because the raw string is what runs. See {@link rawCommandHostLiterals}.
+ *    match was found in — because the raw string is what runs. See `rawCommandHostLiterals`.
  * 6. **Only a command whose human turn really is the user's own words has any provenance at all.**
  *    A `human` message the product SYNTHESISED from content it fetched — `review`/`pr`'s diff, the
  *    PR description `gth pr` interpolates into its discovery prompt — never enters the window this
  *    module reads. That rule lives where the window does
- *    ({@link import('./negotiation.js').ShellNegotiationState.admitUserProvenance}) and is keyed on
+ *    (`ShellNegotiationState.admitUserProvenance`) and is keyed on
  *    the CLI verb, never on anything inside a message: the bytes are attacker-controlled, so a
  *    marker in them can be forged by the text it is meant to classify.
  *
@@ -46,6 +44,8 @@
  * words, which is an exact match. What changes is *when the deterministic floor fires*, never *who
  * may judge a hostname*. Tier 2 — a paraphrase the model matches (*"clone the testing repo from our
  * org"*) — is deliberately out of scope and must not be added here.
+ *
+ * @module
  */
 import type { ApprovalRung } from '#src/config.js';
 import { isUserProvenanceRung } from '#src/config.js';

@@ -1,6 +1,4 @@
 /**
- * @module core/shell/hardline
- *
  * The shell floor — spec §8. Refused inside `executeCommand` BEFORE spawn, so a match fires
  * regardless of `approvals: "bypass"`, any allow-list entry, or the confirmation path. `bypass`
  * bypasses the *confirmation*; it does not bypass this.
@@ -83,7 +81,7 @@
  * **Mechanism.** Patterns match the NORMALIZED command (`@gaunt-sloth/core` `core/shell/normalize`)
  * so ANSI, fullwidth, backslash-split and whitespace-padded spellings cannot walk past them. The
  * normalized form PRESERVES line breaks — they are separators, not padding — and `CMD_POS`
- * and {@link TARGET_TOKEN_END} are both built from core's one shared `COMMAND_SEPARATOR_CLASS`, so
+ * and `TARGET_TOKEN_END` are both built from core's one shared `COMMAND_SEPARATOR_CLASS`, so
  * the two halves cannot come to disagree about what a separator is. Every destructive-verb pattern
  * is anchored at `CMD_POS`, so a verb in an ordinary argument is not a refusal.
  *
@@ -96,6 +94,8 @@
  *
  * The floor is deliberately INDEPENDENT of the allow-list classifier above it: it must block a
  * catastrophic command even if every layer above wrongly decided that command was safe.
+ *
+ * @module
  */
 import { COMMAND_SEPARATOR_CLASS, normalizeCommand } from '#src/core/shell/normalize.js';
 
@@ -304,7 +304,7 @@ const OUTSIDE_SINGLE_QUOTES = "^(?:[^']*'[^']*')*[^']*";
  * being fail-closed. Tolerating them in three target arms is local and bounded; folding them
  * globally is not.
  *
- * Each spelling still ends at {@link TARGET_TOKEN_END}, so a quote that merely *starts* the token
+ * Each spelling still ends at `TARGET_TOKEN_END`, so a quote that merely *starts* the token
  * does not make the whole token a target: `rm -rf /"var"/www` is not `rm -rf /`.
  */
 const quotedOrBare = (path: string): string => `(?:"${path}"|'${path}'|${path})${TARGET_TOKEN_END}`;
@@ -320,7 +320,7 @@ const quotedOrBare = (path: string): string => `(?:"${path}"|'${path}'|${path})$
  * -------------------------------------------------------------------------------------------- */
 
 /**
- * The root filesystem AS A TARGET: `/`, `/*`, or `//`. The {@link TARGET_TOKEN_END} tail is the
+ * The root filesystem AS A TARGET: `/`, `/*`, or `//`. The `TARGET_TOKEN_END` tail is the
  * whole point — without it, `/` matches the first character of every absolute path. Quoted
  * spellings via {@link quotedOrBare}.
  */
@@ -546,7 +546,7 @@ export const HARDLINE_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
  * kind the module header forbids without a pinned removal set. The win32 arm is purely additive.
  *
  * **WHICH SHELL THE REUSED HELPERS MODEL — read this before adding an arm.** `CMD_POS` and
- * {@link TARGET_TOKEN_END} model **bash**, and they are reused here on a stated claim rather than
+ * `TARGET_TOKEN_END` model **bash**, and they are reused here on a stated claim rather than
  * by assumption. What carries over is exact: the separators they recognise (`;`, `&`, `|`, a line
  * break) are also cmd.exe's and PowerShell's, and a token still ends at whitespace or end of input
  * in all three. What does NOT carry over is the escape character. A backtick is PowerShell's
@@ -607,7 +607,7 @@ const WIN_DRIVE_PREFIX = '(?:(?:\\\\\\?)?[a-z]:|%systemdrive%|\\$env:systemdrive
 const WIN_ROOT_TAIL = '(?:[\\\\/]?\\*|[\\\\/])?';
 
 /**
- * A Windows drive ROOT as a target. The {@link TARGET_TOKEN_END} tail that {@link quotedOrBare}
+ * A Windows drive ROOT as a target. The `TARGET_TOKEN_END` tail that {@link quotedOrBare}
  * appends is what does the work: without it `c:` matches the first two characters of every
  * absolute Windows path, and `rd /s /q c:\build` — ordinary work — would be refused unappealably.
  * With it, the token has to END at the drive, so `c:build` and `c:/users/me/app` are out of range
@@ -672,7 +672,7 @@ const GIT_BASH_DRIVE_TARGET = quotedOrBare(
  * loss is not survivable — `HKLM\SOFTWARE` unregisters every installed application and
  * `HKLM\SYSTEM` stops the machine booting.
  *
- * The {@link TARGET_TOKEN_END} tail is doing the same job it does for the filesystem targets, and
+ * The `TARGET_TOKEN_END` tail is doing the same job it does for the filesystem targets, and
  * here it is what separates the catastrophe from the everyday: after the backslash collapse
  * `HKLM\SOFTWARE\MyApp` is `hklmsoftwaremyapp`, so requiring the token to END at the hive is what
  * leaves an application deleting its OWN key alone. `HKCU` is deliberately absent — a user hive is

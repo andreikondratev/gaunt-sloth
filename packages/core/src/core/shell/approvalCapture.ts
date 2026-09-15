@@ -1,6 +1,4 @@
 /**
- * @module core/shell/approvalCapture
- *
  * [[TUI-C27]] — **what the approvals gate DID, recorded while it was doing it**, for the
  * `/debug-dump` archive.
  *
@@ -43,6 +41,8 @@
  * [[GS2-47]]/[[GS2-54]] pass as `transcript.json` and `model-messages.json`
  * (`renderStructured` → `redactText`, over the literal secret values `collectSecretValues`
  * harvested from env + config). Redacting twice, in two places, is how two policies come to exist.
+ *
+ * @module
  */
 import type { ApprovalRung } from '#src/config.js';
 import type { ToolApprovalScope } from '#src/core/types.js';

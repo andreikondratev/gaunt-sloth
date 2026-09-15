@@ -1,7 +1,6 @@
 /**
- * @module adkEvalRunner
  * BATCH-14 — the ADK (A2A) target's production runner builders for `gth eval`. The eval runner
- * ({@link @gaunt-sloth/batch#runEvalSuite}) is target-agnostic: it consumes an injected
+ * ({@link @gaunt-sloth/batch!"evalRunner.js".runEvalSuite | runEvalSuite}) is target-agnostic: it consumes an injected
  * `RunCellFn` (single-shot) and `RunConversationFn` (multi-turn) and grades whatever
  * `answer` they produce with the SAME assertion surface used for the `gth-agent` target. This module
  * builds those two functions for an EXTERNAL Google ADK agent, driving it over the A2A protocol via
@@ -17,6 +16,8 @@
  * never populate `tools`, and `must_call`/`must_not_call` are rejected at suite-parse time rather
  * than silently passed. A2A likewise carries no token accounting, so `tokensInput`/`tokensOutput`
  * are left unset (undefined), unlike the gth-agent path.
+ *
+ * @module
  */
 import type {
   AdkAgentTarget,

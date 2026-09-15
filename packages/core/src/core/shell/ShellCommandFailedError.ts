@@ -1,6 +1,4 @@
 /**
- * @module core/shell/ShellCommandFailedError
- *
  * The typed error a `run_*` shell/dev tool throws when a command did NOT exit cleanly
  * (non-zero exit code, or killed for exceeding the timeout). It carries the FULL model-facing
  * body so a softening middleware can hand the model the exact observation it saw before — the
@@ -12,6 +10,8 @@
  *
  * The throw site (`GthDevToolkit.executeCommand`) lives in the `agent` package and re-exports this
  * class, so its `throw new ShellCommandFailedError(...)` is one and the same type the agent catches.
+ *
+ * @module
  */
 
 /**

@@ -1,6 +1,4 @@
 /**
- * @module core/shell/rejection
- *
  * EXT-58 (spec §7) — **what the model is told when a gated tool call is refused.**
  *
  * A rejection returned to the model MUST name the moves available to it, not merely the refusal.
@@ -23,6 +21,8 @@
  * - It does not serve a command the gate's parser could not READ. There is no such refusal:
  *   [[EXT-81]] rates that command instead of refusing it, so every rejection this module renders is
  *   a JUDGED one and "call the same command with a justification" is always a move the model has.
+ *
+ * @module
  */
 import type { ShellSafetyVerdict } from '#src/core/shell/rater.js';
 

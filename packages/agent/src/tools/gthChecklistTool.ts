@@ -1,5 +1,4 @@
 /**
- * @module gthChecklistTool
  * The `gth_checklist` planning tool. Gives the model a durable, structured task list for
  * multi-step work so it can plan, track progress, and stay oriented across a long run.
  *
@@ -8,11 +7,13 @@
  * sync). State is a closure private to each `get()` result, i.e. one list per agent init / session,
  * so concurrent sessions (e.g. the AG-UI server) never share a checklist. The tool returns a
  * rendered markdown checklist as its observation; the TUI additionally folds it into a live
- * checkbox panel (see {@link file://../../../app/src/tui/viewModel.ts} `CHECKLIST_TOOL_NAME`).
+ * checkbox panel (see {@link gaunt-sloth!tui/viewModel | ../../../app/src/tui/viewModel.ts} `CHECKLIST_TOOL_NAME`).
  *
  * The name is deliberately NOT `write_todos` (nor `task`/`read_file`/`write_file`/`edit_file`/`ls`):
  * a graph builder registering built-ins of its own throws on a name collision, and every backend is
  * handed the same resolved toolset.
+ *
+ * @module
  */
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';

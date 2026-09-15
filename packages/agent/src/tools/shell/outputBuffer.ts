@@ -1,6 +1,4 @@
 /**
- * @module tools/shell/outputBuffer
- *
  * Bounded capture of a shell command's combined stdout/stderr for the value
  * returned to the model. A noisy build/test log can be megabytes; dumping it
  * verbatim into a ToolMessage blows the context window. This buffer keeps a
@@ -13,6 +11,8 @@
  *
  * Patterned after opencode `bash.ts` (per-stream cap + temp-file tail) and
  * openclaw `bash-tools.shared.ts` `truncateMiddle`.
+ *
+ * @module
  */
 import { writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

@@ -1,6 +1,4 @@
 /**
- * @module runtime/abortableCall
- *
  * [[EXT-179]] — race a model call against a wall-clock budget **and abort the call when the budget
  * wins**, instead of abandoning it.
  *
@@ -8,7 +6,7 @@
  *
  * Four sites independently grew the same shape — `structured.invoke(...)` (or `bound.invoke(...)`)
  * raced against a `setTimeout` that resolves a `TIMEOUT` sentinel, with `clearTimeout` in a
- * `finally`: {@link import('./askStructured.js').askStructured}, the approvals rater
+ * `finally`: {@link @gaunt-sloth/core!runtime/askStructured.askStructured | askStructured}, the approvals rater
  * (`core/shell/rater.ts`), the alignment checker (`core/shell/alignment.ts`) and the eval judge
  * (`@gaunt-sloth/batch`'s `judge.ts`). All four had the same defect, and **the duplication is what
  * hid it**: each copy looked complete on its own, and a fix to any one of them reached none of the
@@ -41,6 +39,8 @@
  *
  * That second bullet is the reason this doc names versions. A later bump can turn it from false to
  * true, and nothing in the unit suite can tell you it did.
+ *
+ * @module
  */
 
 /**

@@ -1,5 +1,4 @@
 /**
- * @module modelLabel
  * The ONE spelling of "which model served this run", on its own so every surface can reach it.
  *
  * It is a leaf with **no imports at all**, and that is the point: the agent emits the compact run
@@ -8,6 +7,8 @@
  * load. A second local `${model} (${provider})` would avoid the import and is exactly what must not
  * happen (DL-6): that is how one surface ends up saying `google-genai:gemini` where its neighbour
  * says `gemini (google-genai)`.
+ *
+ * @module
  */
 
 /**

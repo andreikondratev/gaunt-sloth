@@ -1,6 +1,4 @@
 /**
- * @module core/shell/alignment
- *
  * [[EXT-127]] — **the alignment check**: the second model call, reached only once the classifier
  * has declined, whose whole job is to decide whether the declined command is what the user actually
  * asked for.
@@ -8,7 +6,7 @@
  * ## Why there are two models
  *
  * One rater was doing two jobs, and the context the second needed corrupted the first. The
- * classifier ({@link import('./rater.js').rateShellCommand}) now rates the command and nothing else:
+ * classifier ({@link @gaunt-sloth/core!core/shell/rater.rateShellCommand | rateShellCommand}) now rates the command and nothing else:
  * no user messages, no negotiation history, no argument. This module owns the other question, and it
  * is a question about our own conversation — *did the user ask for this?* — never about the world,
  * never about a counterparty, and never about what the command will hit.
@@ -34,7 +32,7 @@
  *
  * **The `user` role is fed from the SETTLED PROVENANCE CHANNEL and never from the raw store.** See
  * {@link AlignmentContext.userMessages}: the runner reads
- * {@link import('./negotiation.js').ShellNegotiationState.retainedUserMessages}, which is empty
+ * `ShellNegotiationState.retainedUserMessages`, which is empty
  * until `admitUserProvenance` says otherwise, and never `noteUserMessages`' store (which also feeds
  * a different question with a different reader) or `humanMessageTexts` (the unfiltered upstream).
  * Without that this design's one structural claim about provenance would be the one place it is not
@@ -79,6 +77,8 @@
  * command do what it appears to do*. A `git commit` whose message contains backticks is perfectly
  * aligned with what the user asked and still executes substituted shell. An aligned command is not
  * thereby a safe one, and no amount of provenance closes that gap.
+ *
+ * @module
  */
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import {
@@ -238,7 +238,7 @@ export interface AlignmentContext {
    * **The user's own words — and they must come from the settled provenance channel.**
    *
    * The runner reads
-   * {@link import('./negotiation.js').ShellNegotiationState.retainedUserMessages}, the
+   * `ShellNegotiationState.retainedUserMessages`, the
    * command-keyed window that is EMPTY until `admitUserProvenance` has positively established that
    * this session's human turns are the user's own words. It is deliberately **not**
    * `noteUserMessages`' raw store — which also feeds a different question with a different reader —

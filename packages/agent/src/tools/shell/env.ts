@@ -1,6 +1,4 @@
 /**
- * @module tools/shell/env
- *
  * Credential scrubbing for the shell tool's child environment. By default a
  * spawned child inherits `process.env` verbatim, so an approved (or bypassed)
  * command can `echo $ANTHROPIC_API_KEY` and exfiltrate the operator's LLM/cloud
@@ -19,6 +17,8 @@
  *
  * Patterned after hermes-agent `_HERMES_PROVIDER_ENV_BLOCKLIST` (tools/environments/local.py)
  * — but narrower: we only own the provider/cloud-secret floor.
+ *
+ * @module
  */
 import { env as processEnv } from '@gaunt-sloth/core/utils/systemUtils.js';
 

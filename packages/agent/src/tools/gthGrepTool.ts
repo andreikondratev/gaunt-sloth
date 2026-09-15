@@ -1,5 +1,4 @@
 /**
- * @module gthGrepTool
  * The `gth_grep` content-search tool — a structured, permission-light regex search over file
  * CONTENTS. Complements `search_files` (which only matches file NAMES) and gives the lean agent a
  * grep primitive without falling back to the shell-approval-gated `run_shell_command`. Being a
@@ -8,14 +7,16 @@
  * Two execution paths, ONE output shape:
  *  - shell out to ripgrep (`rg`) when it is on PATH;
  *  - fall back to an in-process JS scanner when `rg` is absent (CI machines may not have ripgrep).
- * Both sandbox to the current work-dir boundary ({@link getCurrentWorkDir}), bound each matching
+ * Both sandbox to the current work-dir boundary ({@link @gaunt-sloth/core!utils/systemUtils.getCurrentWorkDir | getCurrentWorkDir}), bound each matching
  * line's preview, cap the total match count, and enforce the `.aiignore` privacy boundary on BOTH
- * engines ({@link makeAiignoreFilter}) — since the tool reads file contents through its own path, it
+ * engines (`makeAiignoreFilter`) — since the tool reads file contents through its own path, it
  * must honour `.aiignore` itself rather than rely on the filesystem toolkit.
  *
  * Named `gth_grep`, NOT `grep`: a graph builder registering a `grep` built-in of its own throws on
  * a name collision, because every backend is handed the same resolved toolset — the same reason
- * {@link file://./gthChecklistTool.ts} is not called `write_todos`.
+ * {@link @gaunt-sloth/agent!"tools/gthChecklistTool.js" | ./gthChecklistTool.ts} is not called `write_todos`.
+ *
+ * @module
  */
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';

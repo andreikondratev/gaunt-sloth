@@ -396,7 +396,11 @@ describe('the §8 hardline pattern surface is frozen (EXT-112)', () => {
    * on the other side of the file, by the value cell above.)
    */
   it('parses hardline.ts itself and not some other file the relative URL reaches', () => {
-    expect(HARDLINE_SOURCE).toContain('@module core/shell/hardline');
+    // The anchor is the DECLARATION of a binding this spec also imports, which discriminates in
+    // both directions a weaker one would not: a rename breaks the import rather than quietly
+    // loosening this cell, and the `export const` form is absent from the spec's own text, so the
+    // check still fails if the relative URL ever resolves to this file instead.
+    expect(HARDLINE_SOURCE).toContain('export const HARDLINE_PATTERN_SURFACE');
   });
 
   it('matches the declared surface — every pattern string, verbatim', () => {
