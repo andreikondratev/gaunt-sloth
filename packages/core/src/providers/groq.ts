@@ -5,6 +5,7 @@ import { ChatGroqInput } from '@langchain/groq';
 
 import { writeConfigFileWithMessages } from '#src/utils/fileUtils.js';
 import { buildInitConfigContent, getCuratedFallbackModel } from '#src/providers/modelDiscovery.js';
+import { GTH_MAX_RETRIES } from '#src/core/retryPolicy.js';
 import {
   NATIVE_CLIENT_REASON,
   warnUnusedConfiguration,
@@ -31,6 +32,8 @@ export async function processJsonConfig(llmConfig: ChatGroqInput): Promise<BaseC
     ...llmConfig,
     apiKey: groqApiKey,
     model: llmConfig.model || getCuratedFallbackModel('groq'),
+    // A default, never an override: a user's own value wins. See GTH_MAX_RETRIES.
+    maxRetries: llmConfig.maxRetries ?? GTH_MAX_RETRIES,
   });
 }
 

@@ -9,6 +9,7 @@ import type { ChatXAIInput } from '@langchain/xai';
 import { writeConfigFileWithMessages } from '#src/utils/fileUtils.js';
 import { buildInitConfigContent, getCuratedFallbackModel } from '#src/providers/modelDiscovery.js';
 import { warnUnusedConfiguration } from '#src/providers/configurationPassthrough.js';
+import { GTH_MAX_RETRIES } from '#src/core/retryPolicy.js';
 
 // Function to process JSON config and create XAI LLM instance
 export async function processJsonConfig(
@@ -42,6 +43,8 @@ export async function processJsonConfig(
     ...llmConfig,
     apiKey,
     model: llmConfig.model || getCuratedFallbackModel('xai'),
+    // A default, never an override: a user's own value wins. See GTH_MAX_RETRIES.
+    maxRetries: llmConfig.maxRetries ?? GTH_MAX_RETRIES,
   });
 }
 

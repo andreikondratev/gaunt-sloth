@@ -402,6 +402,24 @@ that answers with something unusable leaves the rater's own decision exactly as 
 command goes back to the agent, or comes to you, precisely as it would have if this check did not
 exist. It is not another thing that can start interrupting you when it breaks.
 
+### What a rated rung costs you in requests
+
+At `assisted` and `auto`, every gated command is rated, and a rating is its own call to a model. So
+a rated rung sends **one extra request per gated command** — on top of the turn that proposed it.
+
+That cost is in requests, not in tokens. The rating prompt is a fixed policy preamble plus the
+command string, and nothing else: no transcript, no file contents, no tool output. Beside an
+agentic turn carrying a six-figure-token prompt, the rater is a rounding error on your bill. What it
+roughly doubles is the **number of requests**, and a shared upstream pool refuses on request
+pressure rather than on tokens — so if you are going to notice this, you will notice it as a rate
+limit during a long run of shell work, not as a larger invoice.
+
+Two things bound it. The rated set is only the commands that are actually gated — entries in
+[`allow`](#the-extras-rater-allow-deny-escalate) never reach the rater, so the set shrinks as you
+trust more of what the agent runs. And by default the rating goes to the session model; pointing
+`approvals.rater` at a different profile moves that traffic off the model doing the work, which
+matters when the two share one quota.
+
 ### Give a local rater enough time
 
 One rating call gets **30 seconds** by default, and that is a hosted-model number. A local model is

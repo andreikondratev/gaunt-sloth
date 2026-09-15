@@ -6,6 +6,7 @@ import {
   warnUnusedConfiguration,
 } from '#src/providers/configurationPassthrough.js';
 import { env } from '#src/utils/systemUtils.js';
+import { GTH_MAX_RETRIES } from '#src/core/retryPolicy.js';
 import type { AnthropicInput } from '@langchain/anthropic';
 import type {
   BaseChatModel,
@@ -38,6 +39,8 @@ export async function processJsonConfig(
     ...llmConfig,
     apiKey: anthropicApiKey,
     model: llmConfig.model || getCuratedFallbackModel('anthropic'),
+    // A default, never an override: a user's own value wins. See GTH_MAX_RETRIES.
+    maxRetries: llmConfig.maxRetries ?? GTH_MAX_RETRIES,
   });
 }
 

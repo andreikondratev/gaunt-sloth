@@ -8,6 +8,7 @@ import { ChatDeepSeekInput } from '@langchain/deepseek';
 
 import { writeConfigFileWithMessages } from '#src/utils/fileUtils.js';
 import { buildInitConfigContent, getCuratedFallbackModel } from '#src/providers/modelDiscovery.js';
+import { GTH_MAX_RETRIES } from '#src/core/retryPolicy.js';
 
 // Function to process JSON config and create DeepSeek LLM instance
 export async function processJsonConfig(
@@ -20,6 +21,8 @@ export async function processJsonConfig(
     ...llmConfig,
     apiKey: deepseekApiKey,
     model: llmConfig.model || getCuratedFallbackModel('deepseek'),
+    // A default, never an override: a user's own value wins. See GTH_MAX_RETRIES.
+    maxRetries: llmConfig.maxRetries ?? GTH_MAX_RETRIES,
   });
 }
 

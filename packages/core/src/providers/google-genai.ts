@@ -7,6 +7,7 @@ import { writeConfigFileWithMessages } from '#src/utils/fileUtils.js';
 import { buildInitConfigContent, getCuratedFallbackModel } from '#src/providers/modelDiscovery.js';
 import { applyGeminiToolSchemaSanitizer } from '#src/providers/geminiSchemaSanitizer.js';
 import { applyGeminiThoughtSummaries } from '#src/providers/geminiThinking.js';
+import { GTH_MAX_RETRIES } from '#src/core/retryPolicy.js';
 import {
   NATIVE_CLIENT_REASON,
   warnUnusedConfiguration,
@@ -24,6 +25,8 @@ export async function processJsonConfig(
     apiKey: googleApiKey,
     model: llmConfig.model || getCuratedFallbackModel('google-genai'),
     platformType: 'gai' as const,
+    // A default, never an override: a user's own value wins. See GTH_MAX_RETRIES.
+    maxRetries: llmConfig.maxRetries ?? GTH_MAX_RETRIES,
   };
   delete configFields.type;
   delete configFields.apiKeyEnvironmentVariable;
