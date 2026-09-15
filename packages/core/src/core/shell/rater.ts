@@ -76,7 +76,7 @@ import { collectSecretValues, redactText } from '#src/utils/redactSecrets.js';
 import { env } from '#src/utils/systemUtils.js';
 
 /**
- * The gate's closed vocabularies are defined in {@link ./raterVocabulary.js} — a leaf module with no
+ * The gate's closed vocabularies are defined in {@link @gaunt-sloth/core!core/shell/raterVocabulary | raterVocabulary.js} — a leaf module with no
  * imports, so a checker can read the words without loading this file's model layer. They are
  * re-exported here, where their meaning lives, so a caller needs only one import either way.
  */
@@ -308,7 +308,7 @@ function providerMessageIsCarryable(
  * @param options `command` — the RAW command being rated, so both the spelling the caller passed
  *   and the normalized, home-folded spelling the prompt actually carried can be excluded; `home`
  *   for that folding; `secrets` from
- *   {@link import('#src/utils/redactSecrets.js').collectSecretValues}.
+ *   {@link @gaunt-sloth/core!utils/redactSecrets.collectSecretValues | collectSecretValues}.
  * @returns the failure, or `undefined` when the error carried neither a status nor any text — in
  *   which case the `threw` arm keeps its original wording rather than gaining an empty clause.
  */
@@ -647,7 +647,7 @@ export const RATER_DECEPTION_GUIDANCE_CARVED = [
  * whether the rejection is *addressed to the agent*: at `auto` it is, at `assisted` a `destructive`
  * outcome goes to the human instead, so *"MUST invite a response"* would be addressed to nobody.
  *
- * Turning it on therefore keys on {@link import('#src/config.js').isNegotiatingRung} and NOT on
+ * Turning it on therefore keys on {@link @gaunt-sloth/core!config/shell-policy.isNegotiatingRung | isNegotiatingRung} and NOT on
  * whether a negotiation block exists. The two are independent by construction: an empty transcript
  * produces a round-1 *context* that is still a round of a negotiation.
  *
@@ -699,7 +699,7 @@ export const RATER_NEGOTIABLE_REJECTION_GUIDANCE = [
  * transcript, no user messages, so there is nothing for a block about weighing them to govern. The
  * question those blocks existed to answer — *is this what the user asked for?* — is now the
  * alignment checker's, assembled across message roles rather than stacked into this one prompt
- * ({@link import('./alignment.js').buildAlignmentMessages}).
+ * ({@link @gaunt-sloth/core!core/shell/alignment.buildAlignmentMessages | buildAlignmentMessages}).
  *
  * `negotiable` appends {@link RATER_NEGOTIABLE_REJECTION_GUIDANCE} — §5.2's rules for wording a
  * rejection the *agent* will read — and it survives the split unchanged, because it is keyed on
@@ -712,9 +712,9 @@ export const RATER_NEGOTIABLE_REJECTION_GUIDANCE = [
  * floor from, the assertion is backwards. See {@link RATER_DECEPTION_GUIDANCE_CARVED}.
  *
  * @param options `negotiable` — whether a rejection will be handed back to the agent (§5.2), i.e.
- *   the rung negotiates ({@link import('#src/config.js').isNegotiatingRung}).
+ *   the rung negotiates ({@link @gaunt-sloth/core!config/shell-policy.isNegotiatingRung | isNegotiatingRung}).
  *   `carved` — [[EXT-106]] §4.6, whether the user-provenance carve-out lifted the open-world floor
- *   on this command ({@link import('./provenance.js').isOpenWorldCarved}). A plain boolean here
+ *   on this command ({@link @gaunt-sloth/core!core/shell/provenance.isOpenWorldCarved | isOpenWorldCarved}). A plain boolean here
  *   rather than the provenance itself, because this is a prompt and not a decision: the floor is
  *   decided by {@link mapVerdictToAction} from the raw command and the user's own words, and nothing
  *   a caller passes here can move it. A wrong `true` asks the rater for MORE severity, which is the
@@ -871,7 +871,7 @@ export interface RaterNegotiationRound {
  * exist, and never more however many are handed over.
  *
  * [[EXT-127]] — **the classifier no longer receives any**, and this constant now bounds the
- * alignment checker's `user` role ({@link import('./alignment.js').renderAlignmentUserMessages}).
+ * alignment checker's `user` role ({@link @gaunt-sloth/core!core/shell/alignment.renderAlignmentUserMessages | renderAlignmentUserMessages}).
  * It stays here, beside the truncator and the fencing helpers it travels with, because the bound and
  * the treatment are one rule about untrusted text and splitting them across modules is how the two
  * would come to disagree.
@@ -1007,7 +1007,7 @@ function escapeForRegExp(value: string): string {
  * A fenced block is only a boundary if the fenced text cannot write the boundary itself. Untrusted
  * content containing its own closing tag ends the fence early and everything after it reads as our
  * own prose — and inside `<negotiation_so_far>` that is not merely confusing but *persuasive*: the
- * block quotes the rater's own previous positions back to it, and {@link RATER_NEGOTIATION_GUIDANCE}
+ * block quotes the rater's own previous positions back to it, and `RATER_NEGOTIATION_GUIDANCE`
  * tells it to reason from those positions. A forged prior `safe` therefore argues for approval in
  * the rater's own voice.
  *
@@ -1020,11 +1020,11 @@ function escapeForRegExp(value: string): string {
  * of spellings the attacker gets to choose from. Four kinds of slack are closed: case, the
  * whitespace an XML parser would ignore (`</ justification >`), the compatibility glyphs NFKC folds
  * (a fullwidth solidus is a solidus to a reader), and any invisible spliced into the tag
- * ({@link INVISIBLE_FORMAT_CHARS}).
+ * (`INVISIBLE_FORMAT_CHARS`).
  *
  * **That is four kinds of slack, not all of them**, and the difference is worth keeping in view: the
  * invisibles are covered by an enumeration of Unicode properties, so this is as tolerant as those
- * properties are and no more. {@link INVISIBLE_FORMAT_CHARS} states that residual; a character
+ * properties are and no more. `INVISIBLE_FORMAT_CHARS` states that residual; a character
  * measured to render as blank and walk through belongs in that class, not in a second matcher here.
  *
  * Self-reconstruction is impossible by construction: the replacement contains no angle bracket and
@@ -1216,7 +1216,7 @@ export function buildRaterPrompt(
     home?: string;
     /**
      * [[EXT-29]] (§5.2) — whether a rejection will be handed back to the AGENT rather than to a
-     * person, i.e. the rung negotiates ({@link import('#src/config.js').isNegotiatingRung}).
+     * person, i.e. the rung negotiates ({@link @gaunt-sloth/core!config/shell-policy.isNegotiatingRung | isNegotiatingRung}).
      *
      * It changes the SYSTEM prompt only. The user message is a function of the command alone, so an
      * `auto` rating and an `assisted` rating of the same command have a byte-identical user prompt.
@@ -1224,7 +1224,7 @@ export function buildRaterPrompt(
     negotiable?: boolean;
     /**
      * [[EXT-106]] (§4.6) — whether the user-provenance carve-out lifted the open-world floor on
-     * this command, decided by {@link import('./provenance.js').isOpenWorldCarved} before the call.
+     * this command, decided by {@link @gaunt-sloth/core!core/shell/provenance.isOpenWorldCarved | isOpenWorldCarved} before the call.
      *
      * **It changes BOTH halves of the prompt, and it has to.** Two places assert that the floor
      * fired: §4.6.1's deception guidance in the system prompt, and the open-world PREFLIGHT NOTE in
@@ -1546,7 +1546,7 @@ export interface RaterDecisionOptions {
   /**
    * [[EXT-106]] §4.6 — **the user's own messages, verbatim**, for the carve-out that lifts the
    * open-world floor on a host the human named themselves
-   * ({@link import('./provenance.js').carvedOpenWorldHosts}).
+   * ({@link @gaunt-sloth/core!core/shell/provenance.carvedOpenWorldHosts | carvedOpenWorldHosts}).
    *
    * **Absent or empty means "no provenance", and floors exactly as before.** That default is what
    * `gth eval`'s rater target rests on: a corpus case is not a session, `forced_by:
@@ -1602,7 +1602,7 @@ export interface RaterDecision {
  * may rewrite. **This is the whole floor rule, and it is a table rather than a comparison on
  * purpose.**
  *
- * A preflight ({@link preflightFloorReason}'s script-env-leak and open-world checks; §4.7.3's
+ * A preflight (`preflightFloorReason`'s script-env-leak and open-world checks; §4.7.3's
  * tool-annotation check) may only ever RAISE an outcome to `destructive`. Expressing that as
  * `outcome < 'destructive'` would need a total order over the outcomes, and §4.1 refuses to give
  * one: `catastrophic` and `attack` ask different questions and *"neither is a severity ranking"*.
@@ -1634,7 +1634,7 @@ const BELOW_DESTRUCTIVE_FLOOR: Readonly<Record<RaterOutcome, boolean>> = {
 /**
  * Is this outcome below the deterministic `destructive` floor — i.e. may a preflight rewrite it?
  *
- * See {@link BELOW_DESTRUCTIVE_FLOOR}. An outcome that is not in the table is treated as below the
+ * See `BELOW_DESTRUCTIVE_FLOOR`. An outcome that is not in the table is treated as below the
  * floor, so an out-of-band value is FLOORED to `destructive` rather than sailing past the preflight
  * carrying the model's own unvalidated reason.
  *
@@ -1655,7 +1655,7 @@ export function isBelowDestructiveFloor(outcome: RaterOutcome): boolean {
  * **THE deterministic floor — the one place an outcome is raised to `destructive`.**
  *
  * Every gated call reaches it: a shell command through {@link mapVerdictToAction}'s preflights
- * ({@link preflightFloorReason}), a tool call through its effective `openWorldHint`
+ * (`preflightFloorReason`), a tool call through its effective `openWorldHint`
  * ({@link openWorldToolFloorReason}, §4.7.3). They differ only in the *reason* they compute; what
  * the reason then does to the outcome is decided here and nowhere else. A second implementation is
  * how a gate and a display come to disagree about what a call is, and how one of them comes to
@@ -1696,7 +1696,7 @@ export function applyDestructiveFloor(
  * EXT-70 (§4.7.2, §4.7.3) — the **tool** arm of the open-world floor: the reason a call whose
  * EFFECTIVE `openWorldHint` is true is floored at `destructive`, or `null` when it is not.
  *
- * It sits beside {@link preflightFloorReason} because it is the same rule seen from the other side.
+ * It sits beside `preflightFloorReason` because it is the same rule seen from the other side.
  * §4.6 floors a shell fetch before any model call precisely so that no misreading of a hostname can
  * auto-approve; *the same fetch reached through a tool instead of through `curl` must not be
  * ungated*, or the preflight is a rule about spelling rather than about fetching. Both feed
@@ -1783,7 +1783,7 @@ export interface PreflightFloorFinding {
 }
 
 /**
- * [[TUI-C27]] — the same finding {@link preflightFloorReason} returns, with the ARM NAMED.
+ * [[TUI-C27]] — the same finding `preflightFloorReason` returns, with the ARM NAMED.
  *
  * The reason alone is what the decision needs; a diagnostic archive needs to say *which* stage
  * decided, and "an environment variable was expanded into a script" and "a host literal sat in a
@@ -1935,7 +1935,7 @@ export function isNegotiableCall(
  *    gated set is built. A call that reaches this function is already one the rung did not grant,
  *    and the shell — this function's only subject — is granted by neither.)
  * 3. **The deterministic preflight FINDINGS, which FLOOR the outcome at `destructive` and never
- *    lower one** ({@link preflightFloorReason}): the script-env-leak preflight
+ *    lower one** (`preflightFloorReason`): the script-env-leak preflight
  *    ({@link hasScriptEnvLeakRisk}) and EXT-61's open-world preflight
  *    ({@link findOpenWorldHostLiterals} — a host literal in a fetch/transfer position, §4.6). Both
  *    are recomputed from the RAW command, independently of what the rater said — the open-world arm
@@ -2100,7 +2100,7 @@ export function mapVerdictToAction(
  * The rater's job on an allow-listed call is to catch the tail where a broad entry matched
  * something structurally hostile — not to re-ask a question the human answered.
  *
- * **The deterministic preflights are deliberately not consulted** ({@link preflightFloorReason} is
+ * **The deterministic preflights are deliberately not consulted** (`preflightFloorReason` is
  * not called). §4.6 states it directly for the open-world arm: *an allow match lifts this floor even
  * when the entry keeps the rater involved — the tripwire still sees the call; the floor does not
  * apply to it.* The script-env-leak arm is lifted with it, and doing so changes no outcome: a

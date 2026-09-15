@@ -111,7 +111,7 @@ export type GthCommand = 'ask' | 'pr' | 'review' | 'chat' | 'code' | 'api' | 'ex
 
 /**
  * GS2-16 — per-run analytics harvested from a finished agent turn, threaded into the opt-in
- * history recorder ({@link recordSessionSafe}) so `gth insights` reports real numbers instead of
+ * history recorder ({@link @gaunt-sloth/core!history/recordSession.recordSessionSafe | recordSessionSafe}) so `gth insights` reports real numbers instead of
  * zeros. All fields are best-effort: token counts are only present when the provider actually
  * reported `usage_metadata` (otherwise omitted so the recorder stores NULL and the insights
  * formatter suppresses the misleading `0`), and `tools` lists the names of tools invoked during
@@ -130,7 +130,7 @@ export interface GthRunStats {
    * arrival order and NOT deduplicated (a tool called twice yields two records), so `gth eval`'s
    * tool-RESULT assertions (`must_error` / `tool_result_json_path`) can grade what a tool
    * *returned*, not just that it was called. Optional (additive): producers that predate the field
-   * simply omit it; {@link runStats.js finalizeRunStats} always sets it.
+   * simply omit it; {@link @gaunt-sloth/core!core/runStats.finalizeRunStats | finalizeRunStats} always sets it.
    */
   toolResults?: GthToolResult[];
 }
@@ -139,7 +139,7 @@ export interface GthRunStats {
  * BATCH-21 — one executed tool call's result, harvested from its `ToolMessage` by the GS2-16
  * run-stats accumulator (`core/runStats.ts`). Fail-soft like everything else there: `content` is
  * omitted when no text payload could be derived, and is size-capped
- * ({@link runStats.js TOOL_RESULT_CONTENT_CAP}) so a giant payload can't bloat run stats.
+ * ({@link @gaunt-sloth/core!core/runStats.TOOL_RESULT_CONTENT_CAP | TOOL_RESULT_CONTENT_CAP}) so a giant payload can't bloat run stats.
  */
 export interface GthToolResult {
   /** The tool that produced the result (`ToolMessage.name`). */
@@ -347,7 +347,7 @@ export type AgentStreamEvent =
 
 /**
  * The minimal structural surface of a compiled LangGraph agent that the shared agent
- * plumbing in {@link GthAbstractAgent} drives. `createAgent` (lean) returns a graph that
+ * plumbing in {@link @gaunt-sloth/core!core/GthAbstractAgent.GthAbstractAgent | GthAbstractAgent} drives. `createAgent` (lean) returns a graph that
  * satisfies this, so the base class can stream/invoke it without knowing which builder
  * produced it. Inputs are intentionally loose
  * (`any`) so concrete builder return types assign without casts; the base re-applies
@@ -590,7 +590,7 @@ export type ToolApprovalDecision =
   | { type: 'reject'; message?: string; scope?: ToolRejectScope };
 
 /**
- * Callback the {@link GthAgentRunner} invokes when a run suspends on a tool-approval
+ * Callback the {@link @gaunt-sloth/core!core/GthAgentRunner.GthAgentRunner | GthAgentRunner} invokes when a run suspends on a tool-approval
  * interrupt, once per pending tool call. Returns the human's decision. When no handler is
  * wired (e.g. a non-interactive run), the runner defaults to reject so a run can never
  * silently hang or auto-approve.
@@ -636,7 +636,7 @@ export interface ApprovalOutcome {
 }
 
 /**
- * [[EXT-150]] — callback the {@link GthAgentRunner} invokes once per human-answered approval, after
+ * [[EXT-150]] — callback the {@link @gaunt-sloth/core!core/GthAgentRunner.GthAgentRunner | GthAgentRunner} invokes once per human-answered approval, after
  * it has recorded the answer, so a surface can render what HAPPENED rather than what was asked for.
  *
  * Separate from {@link ToolApprovalCallback} because it is a separate question asked at a separate
@@ -677,7 +677,7 @@ export interface PendingAttackHalt {
 export type AttackHaltAnswer = 'run-anyway' | 'stop';
 
 /**
- * §6.1 — callback the {@link GthAgentRunner} invokes when the rater rates a command an `attack`, so
+ * §6.1 — callback the {@link @gaunt-sloth/core!core/GthAgentRunner.GthAgentRunner | GthAgentRunner} invokes when the rater rates a command an `attack`, so
  * an interactive surface can show the red banner and let a human type their way past it.
  *
  * **Absent means halt**, exactly as an absent {@link ToolApprovalCallback} means the §6.2
@@ -754,7 +754,7 @@ export interface GthAgentInterface {
   /**
    * Inspect the checkpointed state for the thread and return any tool calls currently pending
    * human approval (empty when the run completed normally). Optional: only implemented by
-   * agents whose graph exposes `getState`. Used by {@link GthAgentRunner} to drive the
+   * agents whose graph exposes `getState`. Used by {@link @gaunt-sloth/core!core/GthAgentRunner.GthAgentRunner | GthAgentRunner} to drive the
    * approve/reject confirmation loop.
    */
   getPendingToolInterrupts?(runConfig: RunnableConfig): Promise<PendingToolInterrupt[]>;
@@ -763,7 +763,7 @@ export interface GthAgentInterface {
    * [[TUI-C69]] §5.4 — **name the tool calls the auto-rater bounced back for clarification**, so
    * both display paths can tone those rows as a negotiation round rather than as a failed tool.
    *
-   * Called by {@link GthAgentRunner} with the id of a call it has just refused BACK TO THE MODEL
+   * Called by {@link @gaunt-sloth/core!core/GthAgentRunner.GthAgentRunner | GthAgentRunner} with the id of a call it has just refused BACK TO THE MODEL
    * under §5 — never for a human's "no", a deny entry or the §8 floor, which are refusals rather
    * than rounds of an argument. The agent holds the ids only until the results carrying them have
    * been rendered — {@link clearRaterClarifications} is what makes that true — and a run that never
@@ -821,7 +821,7 @@ export interface GthAgentInterface {
 
   /**
    * GS2-16 — reset the per-run analytics accumulator so the NEXT turn's token/tool totals start
-   * from zero. Called by {@link GthAgentRunner} at each turn boundary (the runner is reused across
+   * from zero. Called by {@link @gaunt-sloth/core!core/GthAgentRunner.GthAgentRunner | GthAgentRunner} at each turn boundary (the runner is reused across
    * turns in interactive sessions). Optional: agents that don't collect stats simply omit it.
    */
   resetRunStats?(): void;
@@ -950,7 +950,7 @@ export interface GthAgentInterface {
 
 /**
  * Factory that produces a {@link GthAgentInterface} implementation. Injected into
- * {@link GthAgentRunner} so embedders can swap the lean `GthLangChainAgent` (the default, in
+ * {@link @gaunt-sloth/core!core/GthAgentRunner.GthAgentRunner | GthAgentRunner} so embedders can swap the lean `GthLangChainAgent` (the default, in
  * core) for another graph builder without core ever importing it.
  */
 export type GthAgentFactory = (

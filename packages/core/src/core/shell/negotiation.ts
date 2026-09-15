@@ -159,7 +159,7 @@ export class ShellNegotiationState {
    * the checker made one. What §5.1's withholding rules used to govern here is gone with the flat
    * context they governed: the classifier now sees the command alone at every round, and the
    * checker's context is assembled across message roles by
-   * {@link import('./alignment.js').buildAlignmentMessages} rather than handed over as a block.
+   * {@link @gaunt-sloth/core!core/shell/alignment.buildAlignmentMessages | buildAlignmentMessages} rather than handed over as a block.
    *
    * **The user's words are deliberately NOT here.** They come from
    * {@link retainedUserMessages} — the gated provenance channel — and never from this method or
@@ -210,7 +210,7 @@ export class ShellNegotiationState {
    * information and came back better informed is making progress, not ping-pong. But the approved
    * call is very often the agent doing exactly what the rejection told it to do, and clearing the
    * rounds there makes that compliance erase the record of the advice: the retry is then rated with
-   * an empty transcript, which {@link contextFor} correctly reads as round 1 and so withholds the
+   * an empty transcript, which `contextFor` correctly reads as round 1 and so withholds the
    * justification and the user messages from. **Measured**: the rater refused `git reset --hard`
    * advising a stash first, the agent stashed, and the rater then advised a stash twice more —
    * recommending a thing already done, because on the evidence it was given it could not know.
@@ -275,7 +275,7 @@ export class ShellNegotiationState {
    * [[EXT-106]] §4.6 — **the user's own words, for the provenance carve-out that lifts the
    * open-world floor.** A snapshot, oldest first, of the whole retained window.
    *
-   * **This is deliberately NOT {@link contextFor}, and the difference is the point.** That function
+   * **This is deliberately NOT `contextFor`, and the difference is the point.** That function
    * returns `userMessages: []` at round 1 by design — §5.1's *"round 1 sees the command alone"* —
    * and round 1 is exactly the round the carve-out exists to act on: the user asks for a fetch, the
    * agent proposes it, and there has been no rejection for a round 2 to exist. §5.1 bounds what the
@@ -311,8 +311,8 @@ export class ShellNegotiationState {
    * **It defaults to `false` and the caller must positively establish otherwise**, so a surface that
    * never calls this — or a future driver nobody has classified — floors exactly as it did before
    * the carve-out existed. The one caller is
-   * {@link import('../GthAgentRunner.js').GthAgentRunner.init}, which decides it from the CLI verb
-   * ({@link import('../../config/shell-policy.js').commandCarriesUserProvenance}) and never from
+   * {@link @gaunt-sloth/core!core/GthAgentRunner.GthAgentRunner | GthAgentRunner}`.init`, which decides it from the CLI verb
+   * ({@link @gaunt-sloth/core!config/shell-policy.commandCarriesUserProvenance | commandCarriesUserProvenance}) and never from
    * anything inside a message: those bytes are attacker-controlled, so a marker in them can be
    * forged by the text it is supposed to classify.
    */
@@ -591,7 +591,7 @@ export const NEGOTIATION_MAX_ROUNDS_SHOWN = 3;
  *   them all prior rounds, which both under-reported the argument and put the pending command on
  *   the screen twice with nothing saying they were the same call.
  * - **The first round was rated on the command alone.** An EMPTY transcript IS the round-1 case
- *   (see {@link ShellNegotiationState.contextFor}), so §5.1 withheld the justification and the user
+ *   (see `ShellNegotiationState.contextFor`), so §5.1 withheld the justification and the user
  *   messages from that rating — while {@link ShellNegotiationState.recordRejection} stores the
  *   justification the agent supplied whatever the round. Printed unmarked, the round reads as a
  *   rater brushing past a direct answer to its own objection, which is the opposite of what

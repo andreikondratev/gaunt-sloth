@@ -70,7 +70,7 @@
  * refusals and later broke the file has no other way to learn that none of them are in force — the
  * gate behaves exactly as though they had never been saved. So a whole file that cannot be read, and
  * an individual entry that cannot be read, are both reported at {@link StatusLevel.ERROR}
- * ({@link unreadableFileNotice}, {@link skippedEntriesNotice}), while the fallback stays exactly
+ * (`unreadableFileNotice`, `skippedEntriesNotice`), while the fallback stays exactly
  * what it was.
  *
  * **And a store that could not read its file does not write it** ([[EXT-144]]). A write here
@@ -175,7 +175,7 @@ interface PersistedGrantsFileV2 {
  *   A save would destroy that; this is the case the guard exists for.
  * - `holdsNothing` — it could not be read, and there is nothing in it to recover
  *   ({@link holdsRecoverableText}). A save would destroy nothing, and it is still refused: what
- *   counts as a failed load is {@link unreadableFileNotice}'s question, already settled by
+ *   counts as a failed load is `unreadableFileNotice`'s question, already settled by
  *   [[EXT-143]], and a write guard that disagreed with the reader about which files are broken would
  *   be a second definition free to drift from the first. It is also the shape a truncated write
  *   leaves behind, which is not a thing to overwrite on sight.
@@ -365,7 +365,7 @@ export function annotationWeakenings(
  *
  * Withdrawing trust pushes a hint back to its MCP fail-closed default, and every weakening move
  * *ends* at that default, so the answer does not depend on what a server declared: it is exactly
- * whether the move (not-the-default → the default) is one of {@link WEAKENING_MOVES}. Three of the
+ * whether the move (not-the-default → the default) is one of `WEAKENING_MOVES`. Three of the
  * four hints answer yes — `readOnlyHint`, `openWorldHint` and `destructiveHint`, whose fail-closed
  * default is `true`, so a server whose `destructiveHint: false` was believed becomes destructive
  * again the moment it is not. `idempotentHint` is the only one that answers no, because no
@@ -588,7 +588,7 @@ const UNRECOGNISED_SHAPE = 'the file holds no list of saved entries this version
 /**
  * [[EXT-143]] — **did this shape lose something a human saved?**
  *
- * {@link unreadableFileNotice} asserts a loss, so it may only fire where there is one. A file whose
+ * `unreadableFileNotice` asserts a loss, so it may only fire where there is one. A file whose
  * entry list is absent or empty — `{}`, a bare `{"version": 2}`, a v1 `{"prefixes": []}`, a JSON
  * `null` — holds nothing, and telling its owner every session that saved answers they do not have
  * are not in force is the same over-claim the consequence sentence had to drop, one level down.
@@ -644,7 +644,7 @@ function describeIoFailure(error: unknown): string {
  * A sentence promising a prompt would understate the loss in exactly the configuration the deny
  * store exists for, so this one names the possible outcomes and claims none of them.
  *
- * ## The level, for this notice and {@link skippedEntriesNotice} alike
+ * ## The level, for this notice and `skippedEntriesNotice` alike
  *
  * **{@link StatusLevel.ERROR}, not a warning**, and the axis is **filterability**. `consoleLevel` is
  * user-configurable down to `error`, at which a WARNING is dropped entirely while the session runs
@@ -684,7 +684,7 @@ function unreadableFileNotice(
 /**
  * [[EXT-144]] — **the answer was not saved, and the file it would have been saved to is untouched.**
  *
- * The write side of {@link unreadableFileNotice}, and the reason it can be worded as flatly as it
+ * The write side of `unreadableFileNotice`, and the reason it can be worded as flatly as it
  * is: nothing is lost by the time this is read. A persist rewrites the whole file from the store,
  * and a store whose load failed holds nothing, so writing would have replaced everything the user
  * saved with the one entry they just answered — a recoverable syntax error made permanent by the
@@ -710,7 +710,7 @@ function unreadableFileNotice(
  * gets this identical message in a loop. Telling them to answer again *now* would make the one
  * sentence that exists to correct a false belief about their file into another one.
  *
- * {@link StatusLevel.ERROR}, on the same filterability axis argued in {@link unreadableFileNotice}:
+ * {@link StatusLevel.ERROR}, on the same filterability axis argued in `unreadableFileNotice`:
  * `consoleLevel` is user-configurable down to `error`, at which a WARNING is dropped entirely, and a
  * user who believes an answer was saved when it was not is exactly who this exists for.
  *
@@ -774,7 +774,7 @@ type WritePurpose = 'save' | 'lift' | 'migrate';
  * infer and the half that differs per {@link WritePurpose}.
  *
  * {@link StatusLevel.ERROR} for the two the user answered for, on the filterability axis argued in
- * {@link unreadableFileNotice}: `consoleLevel` is configurable down to `error`, where a WARNING is
+ * `unreadableFileNotice`: `consoleLevel` is configurable down to `error`, where a WARNING is
  * dropped entirely, and a user who believes an answer was written down when it was not is exactly
  * who this exists for. A failed MIGRATION is a WARNING instead, and the difference is the axis
  * itself: nobody was told anything about it, nothing they hold is wrong, and the whole consequence
@@ -826,7 +826,7 @@ function failedWriteNotice(
  * migration notice makes — a line each would bury the count in its own repetition.
  *
  * **The same {@link StatusLevel.ERROR} the whole-file case gets**, on the same filterability axis,
- * argued once in {@link unreadableFileNotice}. Bounded scope was the obvious reason to go quieter
+ * argued once in `unreadableFileNotice`. Bounded scope was the obvious reason to go quieter
  * here and is the wrong axis: at `consoleLevel: error` a WARNING is filtered to nothing, and this
  * case emits no file-level notice to fall back on, so the one refusal the human typed would be lost
  * in exactly the silence the whole notice exists to end. The bound is still worth saying, and the
@@ -864,7 +864,7 @@ function skippedEntriesNotice(
 /**
  * [[EXT-151]] — **the v1 members the migration could not carry, and the rewrite therefore DELETED.**
  *
- * The migration's twin of {@link skippedEntriesNotice}, and a separate message because the two
+ * The migration's twin of `skippedEntriesNotice`, and a separate message because the two
  * outcomes differ in the one way the reader cares about: a skipped v2 entry is still in their file
  * and can be fixed, and a dropped v1 prefix is gone from it the moment the migration writes. Saying
  * so is the whole point — this path used to be the one place a loss happened with a sentence beside
@@ -873,7 +873,7 @@ function skippedEntriesNotice(
  * Same shape as its twin — a position and the text itself, capped at {@link SKIPPED_ENTRIES_NAMED}
  * with a count for the rest — because the reader's job is the same: find the thing in a file they
  * may have committed. Same {@link StatusLevel.ERROR}, on the filterability axis argued in
- * {@link unreadableFileNotice}.
+ * `unreadableFileNotice`.
  *
  * **Only the caller that performed the rewrite may send this**, and only when the rewrite landed:
  * every sentence in it is about a file that has already changed. The constructor is that caller, and
@@ -929,7 +929,7 @@ export interface PersistedApprovalGrantsOptions {
   legacyPrefixMigration?: boolean;
   /**
    * [[EXT-143]] — **what this file holds, in the noun a user reads** in a load-failure notice
-   * ({@link unreadableFileNotice}, {@link skippedEntriesNotice}). The allow store passes
+   * (`unreadableFileNotice`, `skippedEntriesNotice`). The allow store passes
    * `'approvals'` and the deny store `'refusals'`.
    *
    * It is a word, not a behaviour, and that is what keeps the class list-agnostic: nothing here
@@ -938,7 +938,7 @@ export interface PersistedApprovalGrantsOptions {
    * message that could not name what was lost would be a message the reader cannot act on, since
    * the two files fail in opposite directions.
    *
-   * Omitting it is safe: {@link savedNoun} then says something true of either file rather than
+   * Omitting it is safe: `savedNoun` then says something true of either file rather than
    * guessing. What is NOT safe is defaulting it to one side, so it does not.
    */
   holds?: 'approvals' | 'refusals';
@@ -975,11 +975,11 @@ export class PersistedApprovalGrants {
   /**
    * [[EXT-144]] — **what the load found in the file**, which decides whether it may ever be
    * rewritten ({@link StoreReadState}). Anything but `readable` is a file whose load failed, exactly
-   * the outcomes {@link unreadableFileNotice} reports, and none of them may be written over.
+   * the outcomes `unreadableFileNotice` reports, and none of them may be written over.
    *
    * **An entry-level loss is deliberately not one of them.** A file whose `grants` array parsed but
    * held one malformed member is a file this version *can* read: the rest of it is in force, which
-   * {@link skippedEntriesNotice} states to the user as a promise, and blocking every future save
+   * `skippedEntriesNotice` states to the user as a promise, and blocking every future save
    * over one cosmetic typo would disable a working feature to protect an entry the reader has
    * already been pointed at — by position and quoted text for the first
    * {@link SKIPPED_ENTRIES_NAMED}, and by a count of the rest beyond that.

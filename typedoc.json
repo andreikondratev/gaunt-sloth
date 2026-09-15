@@ -22,7 +22,15 @@
   "navigationLinks": {
     "GitHub": "https://github.com/pukeko-robotics/gaunt-sloth"
   },
-  "highlightLanguages": ["typescript", "javascript", "markdown", "json", "bash"],
+  "highlightLanguages": [
+    "typescript",
+    "javascript",
+    "markdown",
+    "json",
+    "jsonc",
+    "yaml",
+    "bash"
+  ],
   "markdownItOptions": {
     "html": true
   },

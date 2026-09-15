@@ -35,11 +35,11 @@ import type { MouseSubscribe } from '#src/tui/useMouse.js';
 
 /**
  * One in-flight tool-approval request bridged from the runner into the mounted `<App>`
- * (EXT-9 Phase B2): the {@link PendingToolInterrupt} the runner suspended on, plus a `resolve`
- * that hands the human's {@link ToolApprovalDecision} back to the awaiting runner callback.
+ * (EXT-9 Phase B2): the {@link @gaunt-sloth/core!core/types.PendingToolInterrupt | PendingToolInterrupt} the runner suspended on, plus a `resolve`
+ * that hands the human's {@link @gaunt-sloth/core!core/types.ToolApprovalDecision | ToolApprovalDecision} back to the awaiting runner callback.
  * Idempotent — calling `resolve` more than once is a no-op (the first decision wins).
  *
- * [[EXT-150]] — **`resolve` answers back.** It returns the {@link ApprovalOutcome} the runner
+ * [[EXT-150]] — **`resolve` answers back.** It returns the {@link @gaunt-sloth/core!core/types.ApprovalOutcome | ApprovalOutcome} the runner
  * reports once it has recorded the answer, which is the only way this surface can learn whether an
  * `always` reached the project file: [[EXT-149]] decides that inside the runner, after the decision
  * has already been handed back. `null` means no outcome will arrive — the session ended with the
@@ -56,8 +56,8 @@ export interface PendingApproval {
 
 /**
  * [[TUI-C68]] §6.1 — one in-flight **attack halt** bridged from the runner into the mounted
- * `<App>`: the {@link PendingAttackHalt} the rater produced, plus a `resolve` that hands the
- * human's {@link AttackHaltAnswer} back to the awaiting runner callback. Idempotent, like
+ * `<App>`: the {@link @gaunt-sloth/core!core/types.PendingAttackHalt | PendingAttackHalt} the rater produced, plus a `resolve` that hands the
+ * human's {@link @gaunt-sloth/core!core/types.AttackHaltAnswer | AttackHaltAnswer} back to the awaiting runner callback. Idempotent, like
  * {@link PendingApproval} — the first answer wins.
  *
  * Deliberately NOT a {@link PendingApproval} with a special decision. The banner is a different
@@ -72,7 +72,7 @@ export interface PendingAttackBanner {
 /**
  * The minimal agent surface the Ink `<App>` drives. Decoupling the component from
  * `GthAgentRunner` keeps the UI unit-testable with a scripted fake (a generator that
- * yields {@link AgentStreamEvent}s) — see the component spec.
+ * yields {@link @gaunt-sloth/core!core/types.AgentStreamEvent | AgentStreamEvent}s) — see the component spec.
  */
 export interface TuiAgent {
   /** Run one user turn, yielding typed events; aborts when `signal` fires (Esc). */
@@ -120,7 +120,7 @@ export interface TuiAgent {
    * the App can render a state-aware notice and the status-bar badge. Wired to `/approvals
    * <rung>`. Optional so the fixture agent (no runner) may omit it.
    *
-   * It returns the landed {@link ResolvedApprovals} rather than the requested rung so the copy
+   * It returns the landed {@link @gaunt-sloth/core!config/shell-policy.ResolvedApprovals | ResolvedApprovals} rather than the requested rung so the copy
    * can only ever describe the posture actually in force.
    */
   setApprovalRung?(rung: ApprovalRung): ResolvedApprovals;

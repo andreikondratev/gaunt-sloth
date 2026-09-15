@@ -16,7 +16,7 @@
  * would vanish before any schema-embedded check could see it.
  *
  * Design notes:
- * - The top-level object is a {@link z.looseObject} so unknown keys PASS THROUGH
+ * - The top-level object is a `z.looseObject` so unknown keys PASS THROUGH
  *   (they are neither stripped nor a hard failure). The loader separately diffs
  *   present-vs-known top-level keys ({@link findUnknownTopLevelKeys}) to warn about
  *   likely typos without failing. That typo-tolerance is deliberate: only the KNOWN
@@ -30,7 +30,7 @@
  *   `a2aAgents`, `builtInToolsConfig`) are modelled permissively because JS/MJS
  *   `configure()` returns live instances/objects there.
  *
- * The exported {@link RawGthConfig}/{@link GthConfig} interfaces in `config.ts`
+ * The exported {@link @gaunt-sloth/core!config/types.RawGthConfig | RawGthConfig}/{@link @gaunt-sloth/core!config/types.GthConfig | GthConfig} interfaces in `config.ts`
  * remain the public type surface; the `z.infer` here ({@link RawGthConfigInput})
  * is additive and legitimately differs (no deprecated fields).
  */
@@ -213,7 +213,7 @@ export type GthOutputHeaderRung = (typeof OUTPUT_HEADER_RUNGS)[number];
  * EXT-117 — the commands an ACP (editor) session may be resolved under, as `acp.mode`. Both are
  * existing members of `GthCommand`, which is the whole point of the key: the value is a command the
  * tool-gating branches already understand rather than a new one they would each have to learn. The
- * read-site default is `code` ({@link import('#src/config/types.js').GthConfig.acp}).
+ * read-site default is `code` ({@link @gaunt-sloth/core!config/types.GthConfig.acp | GthConfig.acp}).
  */
 export const ACP_SESSION_MODES = ['chat', 'code'] as const;
 
@@ -305,7 +305,7 @@ export const APPROVAL_ENTRY_TYPES = ['shell', 'tool', 'mcpTool'] as const;
 /**
  * EXT-71 §3.1 — the **comparison** axis of a rule entry, and only that. `exact`/`glob`/`regexp`
  * take a string pattern; `hint` takes an object over the annotation names and is valid on tool
- * subjects only (on `shell` it is a config error — see {@link shellEntrySchema}).
+ * subjects only (on `shell` it is a config error — see `shellEntrySchema`).
  */
 export const APPROVAL_ENTRY_MATCHERS = ['exact', 'glob', 'regexp', 'hint'] as const;
 
@@ -484,7 +484,7 @@ const RESERVED_MCP_SERVER_NAME = '*';
  * EXT-78 §4.7.5 — the key an MCP server may be configured under, and the one spelling of that rule
  * a JSON Schema can carry. It states exactly what {@link findApprovalsGrammarIssues} refuses ahead
  * of the parse: a name of at least one character (nothing could be written about a server keyed
- * with the empty string) and any name other than {@link RESERVED_MCP_SERVER_NAME}.
+ * with the empty string) and any name other than `RESERVED_MCP_SERVER_NAME`.
  *
  * It is on the record's KEY so the emitted schema carries both rules as `propertyNames`
  * (`minLength` plus `pattern`). Without them the hosted channels publish a contract that accepts
@@ -1503,7 +1503,7 @@ const REMOVED_COMMAND_KEYS: ReadonlyArray<readonly [string, string]> = [
 /**
  * CFG-26 — approval knobs retired from the `builtInTools.run_shell_command` entry and moved to the
  * top-level `approvals` block. `[retired, "how to say it now"]`. Rejected pre-parse for the same
- * reason as {@link REMOVED_COMMAND_KEYS}: these knobs lived under `builtInToolConfigSchema`, a
+ * reason as `REMOVED_COMMAND_KEYS`: these knobs lived under `builtInToolConfigSchema`, a
  * plain `z.object`, which SILENTLY STRIPS unknown keys — so once the field is gone an old config
  * would parse clean and run with its approval posture quietly ignored, the worst possible failure
  * for a safety gate.
@@ -1616,7 +1616,7 @@ const RETIRED_APPROVAL_MODES: ReadonlyArray<readonly [string, string]> = [
 /**
  * EXT-114 — retired `agent.backend` VALUES → what to say instead. `[retired, replacement]`.
  *
- * Caught pre-parse for the same reason as {@link RETIRED_APPROVAL_MODES}: the enum's own message
+ * Caught pre-parse for the same reason as `RETIRED_APPROVAL_MODES`: the enum's own message
  * would list the surviving identifier and leave the user to guess whether their setting still
  * means anything. It does not — `deep` named a runtime that no longer exists, so the value is a
  * HARD error rather than a coercion to `lean`. Coercing would silently run a different agent than
@@ -1763,7 +1763,7 @@ function collectRetiredApprovalsIssues(
 }
 
 /**
- * EXT-114 — scan the `agent` value for a retired `backend` name ({@link RETIRED_AGENT_BACKENDS}),
+ * EXT-114 — scan the `agent` value for a retired `backend` name (`RETIRED_AGENT_BACKENDS`),
  * pushing one issue per occurrence so the error names the surviving backend and what the retired
  * one took with it.
  */
@@ -1793,18 +1793,18 @@ function collectRetiredAgentBackendIssues(
  * must error and point at the fix rather than be silently remapped or ignored.
  *
  * Detects:
- * - (A) a COMMAND name ({@link COMMAND_KEYS}) at the config ROOT — must move under `commands.<cmd>`;
- * - (C) a deprecated `*Provider*` name ({@link DEPRECATED_ROOT_PAIRS} at root,
- *   {@link DEPRECATED_COMMAND_PAIRS} per command) — must use its `*Source*` replacement;
- * - (D, CFG-18) a removed per-command key folded into another ({@link REMOVED_COMMAND_KEYS}, e.g.
+ * - (A) a COMMAND name (`COMMAND_KEYS`) at the config ROOT — must move under `commands.<cmd>`;
+ * - (C) a deprecated `*Provider*` name (`DEPRECATED_ROOT_PAIRS` at root,
+ *   `DEPRECATED_COMMAND_PAIRS` per command) — must use its `*Source*` replacement;
+ * - (D, CFG-18) a removed per-command key folded into another (`REMOVED_COMMAND_KEYS`, e.g.
  *   `commands.<cmd>.devTools` → configure under `builtInTools`);
- * - (E, CFG-26) a retired `run_shell_command` approval knob ({@link RETIRED_SHELL_TOOL_PAIRS}) at
+ * - (E, CFG-26) a retired `run_shell_command` approval knob (`RETIRED_SHELL_TOOL_PAIRS`) at
  *   EITHER `builtInTools.run_shell_command.*` or `commands.<cmd>.builtInTools.run_shell_command.*`
  *   — each message names the `approvals.*` key that replaced it;
- * - (F, CFG-27) a retired `approvals` key or `mode` value ({@link RETIRED_APPROVALS_KEYS},
- *   {@link RETIRED_APPROVAL_MODES}) at EITHER `approvals.*` or `commands.<cmd>.approvals.*` —
+ * - (F, CFG-27) a retired `approvals` key or `mode` value (`RETIRED_APPROVALS_KEYS`,
+ *   `RETIRED_APPROVAL_MODES`) at EITHER `approvals.*` or `commands.<cmd>.approvals.*` —
  *   each message names the rung that replaced it;
- * - (G, EXT-114) a retired `agent.backend` value ({@link RETIRED_AGENT_BACKENDS}) — the message
+ * - (G, EXT-114) a retired `agent.backend` value (`RETIRED_AGENT_BACKENDS`) — the message
  *   names the surviving backend and what the retired one took with it.
  *
  * Runs on the raw input specifically so nested `commands.*.contentProvider` is still visible
@@ -1900,7 +1900,7 @@ export function findDeprecatedConfigIssues(raw: Record<string, unknown>): Deprec
  * relationship can ever refer to by name. Its tools resolve to the unattributable-server sentinel:
  * fail-closed, which is safe, but also silently un-configurable — the user would get a server whose
  * every call is gated with no way to say anything about it and no error explaining why. Refused at
- * load, for the same reason as {@link RESERVED_MCP_SERVER_NAME}: a name whose rules cannot be
+ * load, for the same reason as `RESERVED_MCP_SERVER_NAME`: a name whose rules cannot be
  * expressed is worse than a rejected config.
  */
 const UNNAMEABLE_MCP_SERVER_NAME = '';
@@ -2006,10 +2006,10 @@ function collectMcpApprovalsIssues(
 /**
  * EXT-71 §3.1 — every hard error the rule grammar defines, found on the RAW input: each entry in
  * `allow`/`deny`/`escalate` validated with a path that names the offending field
- * ({@link collectApprovalEntryIssues}), the `approvals.mcp` block ({@link collectMcpApprovalsIssues}),
- * and the two `mcpServers` keys no rule can refer to — `*` ({@link RESERVED_MCP_SERVER_NAME}, which
+ * (`collectApprovalEntryIssues`), the `approvals.mcp` block (`collectMcpApprovalsIssues`),
+ * and the two `mcpServers` keys no rule can refer to — `*` (`RESERVED_MCP_SERVER_NAME`, which
  * an entry already reads as "every server") and the empty name
- * ({@link UNNAMEABLE_MCP_SERVER_NAME}, which no entry's `server` field can hold). Both need to see
+ * (`UNNAMEABLE_MCP_SERVER_NAME`, which no entry's `server` field can hold). Both need to see
  * `mcpServers`, a sibling of `approvals` rather than a field of it.
  *
  * All of them are HARD errors, reported the same way {@link findDeprecatedConfigIssues} reports

@@ -307,7 +307,7 @@ export interface GthAgentRunnerInitOptions {
    *
    * **It is read for the wording of a notice, and for one safety decision.** [[EXT-106]] §4.6 asks
    * whether this run's human messages are the user's own words, and answers it from
-   * `command ?? owningCommand` ({@link import('../config/shell-policy.js').commandCarriesUserProvenance}
+   * `command ?? owningCommand` ({@link @gaunt-sloth/core!config/shell-policy.commandCarriesUserProvenance | commandCarriesUserProvenance}
    * at the top of {@link GthAgentRunner#init}) — precisely because a command-less helper agent whose
    * human turn is content the product FETCHED must not be classified by the absence of a verb. The
    * key has to be out-of-band metadata like this field: a marker inside the message would be
@@ -387,7 +387,7 @@ export class GthAgentRunner {
    *
    * **`null` means neither happens, and that is the point.** An `exec` or CI run has nobody to
    * show an approval to, so an 800 ms hold there would tax every headless run and every gate for a
-   * display that does not exist. Deliberately NOT keyed on {@link toolApprovalCallback}: that one
+   * display that does not exist. Deliberately NOT keyed on `toolApprovalCallback`: that one
    * answers *"is there a human to ASK"*, a different question with a different answer — a piped
    * readline session can have one wired and no live display, and the §6.2 non-interactive path has
    * a display and no one to ask.
@@ -466,7 +466,7 @@ export class GthAgentRunner {
    * {@link resolveApprovals} and thereafter switchable for the session by `/approvals <rung>`.
    * **This field, not the interrupt wiring, is where the rung lives.** The agent wires the
    * interrupt rung-independently, so every tool any rung could gate arrives at the top of
-   * {@link decideToolApproval} and is judged against the rung recorded here — which is what makes
+   * `decideToolApproval` and is judged against the rung recorded here — which is what makes
    * `/approvals manual` take effect mid-session, and what keeps a config that pre-selects
    * `bypass` switchable back. Never persisted.
    *
@@ -590,7 +590,7 @@ export class GthAgentRunner {
   /**
    * Register the tool-approval handler the runner calls when a run suspends on a tool-approval
    * interrupt (the interactive readline session wires a y/n prompt here). Pass `null` to clear.
-   * Without a handler the runner rejects pending tool calls (see {@link toolApprovalCallback}).
+   * Without a handler the runner rejects pending tool calls (see `toolApprovalCallback`).
    */
   public setToolApprovalCallback(callback: ToolApprovalCallback | null): void {
     this.toolApprovalCallback = callback;
@@ -621,7 +621,7 @@ export class GthAgentRunner {
    * Separate from {@link setToolApprovalCallback} because it is a separate question with an
    * inverted default: an absent approval callback means *this session has nobody to ask*, and an
    * absent one here means *end the run*. Wiring it is what an interactive surface opts into; every
-   * other surface keeps the halt (see {@link attackHaltCallback}).
+   * other surface keeps the halt (see `attackHaltCallback`).
    */
   public setAttackHaltCallback(callback: AttackHaltCallback | null): void {
     this.attackHaltCallback = callback;
@@ -635,7 +635,7 @@ export class GthAgentRunner {
    * argue with the rater at all is that a human can watch it, and an argument conducted in the dark
    * is a different thing from one that can be interrupted."* Wiring this is a surface saying it
    * has somewhere to draw that, which is also what makes §5.5's hold meaningful — see
-   * {@link negotiationDisplay} for why one seam carries both.
+   * `negotiationDisplay` for why one seam carries both.
    */
   public setNegotiationDisplay(display: NegotiationDisplay | null): void {
     this.negotiationDisplay = display;
@@ -1131,7 +1131,7 @@ export class GthAgentRunner {
   /**
    * Init is split into a separate method. This may create a number of connections,
    * and we'd better have an instance by that moment, for the case things will go wrong,
-   * so we can wrap init into try-catch and then call {@link #cleanup} within finally.
+   * so we can wrap init into try-catch and then call `#cleanup` within finally.
    */
   async init(
     command: GthCommand | undefined,
@@ -1489,7 +1489,7 @@ export class GthAgentRunner {
 
   /**
    * Accumulate a text stream into a single string. Extracted so {@link processMessages} and
-   * the interrupt-resume loop ({@link resolveToolInterrupts}) drain streams identically.
+   * the interrupt-resume loop (`resolveToolInterrupts`) drain streams identically.
    */
   private async drainTextStream(stream: AsyncIterable<string>): Promise<string> {
     let result = '';
@@ -1502,7 +1502,7 @@ export class GthAgentRunner {
 
   /**
    * After a streamed run ends, resolve any tool-approval interrupts it suspended on. For each
-   * pending tool call the {@link toolApprovalCallback} is consulted (defaulting to REJECT when
+   * pending tool call the `toolApprovalCallback` is consulted (defaulting to REJECT when
    * no handler is wired, so a non-interactive run never hangs or auto-approves); the collected
    * decisions are then sent back via the agent's `streamResume` as a LangChain HITL resume
    * (`{ decisions }`). Because a resumed run can suspend again on the next gated tool call, this
@@ -1819,7 +1819,7 @@ export class GthAgentRunner {
    * shape: it is what teaches the user the gesture that then silently fails.
    *
    * **Both halves are gated on a surface being wired**, so a headless `exec`/CI run neither draws
-   * nor sleeps and pays nothing. See {@link negotiationDisplay}.
+   * nor sleeps and pays nothing. See `negotiationDisplay`.
    */
   private async showNegotiatedApproval(
     command: string,
@@ -1907,7 +1907,7 @@ export class GthAgentRunner {
     }
   }
 
-  /** The decision itself; {@link decideToolApproval} wraps it with §5.3's reset. */
+  /** The decision itself; `decideToolApproval` wraps it with §5.3's reset. */
   private async decideToolApprovalInner(
     tool: PendingToolInterrupt,
     record: ApprovalDecisionCapture
@@ -3303,8 +3303,8 @@ export class GthAgentRunner {
    * Tool-approval round-trip (EXT-11): after the stream ends, a gated `run_shell_command`
    * leaves the graph suspended on a `humanInTheLoopMiddleware` interrupt rather than
    * completing. This is the event-stream counterpart to the readline path's
-   * {@link resolveToolInterrupts}: it drains any pending interrupts through
-   * {@link decideToolApproval} (bypass → allow-list → rater → bridged human prompt), resumes via
+   * `resolveToolInterrupts`: it drains any pending interrupts through
+   * `decideToolApproval` (bypass → allow-list → rater → bridged human prompt), resumes via
    * `streamWithEventsResume({ decisions })`, and loops until the graph completes with no
    * pending interrupts — so the executed command's output renders into the TUI. Without
    * this the TUI silently finalized an empty turn (approval gate was dead code on the
@@ -3500,10 +3500,10 @@ export class GthAgentRunner {
   }
 
   /**
-   * Event-stream counterpart to {@link resolveToolInterrupts}: after a streamed run ends,
+   * Event-stream counterpart to `resolveToolInterrupts`: after a streamed run ends,
    * resolve any tool-approval interrupts it suspended on, yielding the resumed run's typed
    * {@link AgentStreamEvent}s so the renderer (the Ink TUI) shows the executed command's
-   * output. Each pending tool call is consulted via {@link decideToolApproval} — the SAME
+   * output. Each pending tool call is consulted via `decideToolApproval` — the SAME
    * gate the readline path uses (bypass → allow-list approve → CFG-26 AI rater →
    * bridged human callback, defaulting to REJECT when no handler is wired) — and the
    * collected decisions are sent back via `streamWithEventsResume` as a LangChain HITL
@@ -3525,7 +3525,7 @@ export class GthAgentRunner {
     if (!agent || !runConfig) return;
     if (!agent.getPendingToolInterrupts || !agent.streamWithEventsResume) return;
 
-    // [[EXT-159]] — see {@link resolveToolInterrupts}: which way the loop left is the fact that
+    // [[EXT-159]] — see `resolveToolInterrupts`: which way the loop left is the fact that
     // distinguishes this ending, and it is discarded unless the loop itself records it. An abort
     // `return`s below and never reaches the note, which is right — a cancelled turn was stopped by
     // the user, not by this bound.

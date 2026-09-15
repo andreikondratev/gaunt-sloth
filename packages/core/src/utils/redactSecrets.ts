@@ -2,7 +2,7 @@
  * @packageDocumentation
  * GS2-47 — a shared, reusable secret-redaction pass for diagnostic output.
  *
- * Built for `/debug-dump` ({@link file://./debugDump.ts}) but deliberately generic and
+ * Built for `/debug-dump` (`debugDump.ts`) but deliberately generic and
  * dependency-free — it takes `env` as a PARAMETER rather than reading `process.env`, so the pass is
  * pure, deterministic in tests, and reusable by GS2-48's crash-report handler (which hard-depends on
  * this module). Nothing here reads ambient process state.
@@ -169,13 +169,13 @@ const PROVIDER_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
 
 /**
  * Collect the literal secret VALUES to substitute everywhere (technique 1), from two sources:
- *  - process-env vars whose NAME matches {@link SECRET_ENV_NAME_RE}, PLUS the specific var(s) named
+ *  - process-env vars whose NAME matches `SECRET_ENV_NAME_RE`, PLUS the specific var(s) named
  *    by any `apiKeyEnvironmentVariable` in the config;
  *  - non-empty inline secret field values in the config (technique 3's field names), so a key pasted
  *    inline is scrubbed wherever it *also* surfaces (transcript, log, env), not only in config.json.
  *
  * `env` is a PARAMETER — never read ambiently — so the pass is pure, reusable (GS2-48) and
- * deterministic in tests. Values shorter than {@link MIN_SECRET_LITERAL_LENGTH} are skipped. The
+ * deterministic in tests. Values shorter than `MIN_SECRET_LITERAL_LENGTH` are skipped. The
  * result is returned longest-first so an overlapping-substring secret can't leave a shorter one
  * partially intact. Never throws (a hostile config getter is swallowed — patterns + structural
  * masking still apply).

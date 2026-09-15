@@ -19,7 +19,7 @@
  * therefore do double duty — the ⭐ ranking overlay over live ids **and** the
  * offline/timeout fallback.
  *
- * The provider ids here are the same strings used by {@link LLMConfig.type} and
+ * The provider ids here are the same strings used by `LLMConfig.type` and
  * the provider factory in `#src/providers/<type>.js`, so a selected
  * `{ providerId, model }` maps directly onto a `RawGthConfig.llm`.
  */
@@ -31,7 +31,7 @@ import { env } from '#src/utils/systemUtils.js';
 
 /**
  * Provider identifiers understood by model discovery. These match the provider
- * factory module names (`#src/providers/<id>.js`) and {@link LLMConfig.type},
+ * factory module names (`#src/providers/<id>.js`) and `LLMConfig.type`,
  * plus `ollama` for locally-served models.
  */
 export type ProviderId = ConfigType | 'ollama';
@@ -505,7 +505,7 @@ const DISCOVERY_TIMEOUT_MS = 2000;
  * models) to arrive over a cold connection, rather than losing the 2s race and
  * silently dropping to a 3-item curated stub. Threaded per-call so ONLY the dialog
  * uses it — `detectProviders` / `resolveInitModel` stay on the short
- * {@link DISCOVERY_TIMEOUT_MS} probe (a long global would hang the *provider* step
+ * `DISCOVERY_TIMEOUT_MS` probe (a long global would hang the *provider* step
  * whenever the local Ollama daemon is down).
  */
 export const INTERACTIVE_MODEL_FETCH_TIMEOUT_MS = 12_000;
@@ -529,7 +529,7 @@ export type ModelDiscoveryStatus = 'live' | 'fallback' | 'curated';
 /** Per-call discovery options (CFG-21). */
 export interface ModelDiscoveryOptions {
   /**
-   * Live-fetch timeout in ms. Defaults to the short {@link DISCOVERY_TIMEOUT_MS} so
+   * Live-fetch timeout in ms. Defaults to the short `DISCOVERY_TIMEOUT_MS` so
    * every existing caller is unchanged; the interactive first-run dialog passes the
    * generous {@link INTERACTIVE_MODEL_FETCH_TIMEOUT_MS}.
    */
@@ -595,7 +595,7 @@ function parseGoogleModels(body: unknown): string[] {
  * a by-design curated result from an attempted-and-failed one (CFG-21).
  *
  * @param options.timeoutMs live-fetch timeout, defaulting to the short
- *   {@link DISCOVERY_TIMEOUT_MS} so background probes are unchanged.
+ *   `DISCOVERY_TIMEOUT_MS` so background probes are unchanged.
  * @returns `{ models, live, status }`. `live` is true only when the models came
  *   from a successful, non-empty live `/v1/models` query (kept as the Ollama
  *   availability signal). `status` is `live` in that case, `fallback` when a live

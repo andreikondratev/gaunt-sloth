@@ -3,7 +3,7 @@
  * BATCH-25 Half B — the `rater` classification target: grade gth's OWN approvals rater over a
  * corpus of shell commands.
  *
- * It is the {@link ../evalTypes.js RunClassifyFn} seam Half A defined, and nothing more. Every case
+ * It is the {@link "evalTypes.js"!RunClassifyFn | RunClassifyFn} seam Half A defined, and nothing more. Every case
  * is a sequence of commands; each round is put through the SAME three pieces the production gate
  * uses — `rateShellCommand` (the rating prompt), `mapVerdictToAction` (the rung-keyed decision
  * mapping) and `ShellNegotiationState` (§5's transcript and its two bounds) — and what they return
@@ -23,8 +23,9 @@
  *    because the argument ran out is produced nowhere else, so `neg-01-escalate` — the same command
  *    proposed three times, ending at a human — is not expressible without it.
  *
- * Both come from core's own {@link import('@gaunt-sloth/core/core/shell/negotiation.js')
- * ShellNegotiationState}, the class the production runner drives, rather than from counters of our
+ * Both come from core's own
+ * {@link @gaunt-sloth/core!core/shell/negotiation.ShellNegotiationState | ShellNegotiationState},
+ * the class the production runner drives, rather than from counters of our
  * own. Re-implementing "when is this round-1" or "when is the bound spent" here would be exactly the
  * second opinion rule 1 below forbids — and §5.6's warning is that an implementation clearing the
  * counter without the transcript *"looks correct and passes any obvious test"*.
@@ -39,7 +40,7 @@
  *    eval facility has no second opinion about what a rating MEANS, and cannot drift from the thing
  *    it measures. A suite's `classification.labels` is the only place the vocabulary is written
  *    down, and it is authored, not compiled in.
- * 2. **A model-free decision reports no label.** See {@link classifyOneRound}.
+ * 2. **A model-free decision reports no label.** See `classifyOneRound`.
  */
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { checkHardline } from '@gaunt-sloth/core/core/shell/hardline.js';
@@ -90,7 +91,7 @@ import type {
 
 /**
  * The marker a rationale carries when the §8 hardline floor refuses the command — see
- * {@link ../evalTypes.js HARDLINE_REFUSAL_MARKER} for why it is a rationale marker and not a label.
+ * {@link "evalTypes.js"!HARDLINE_REFUSAL_MARKER | HARDLINE_REFUSAL_MARKER} for why it is a rationale marker and not a label.
  * Re-exported here, beside the code that emits it:
  *
  * ```yaml
@@ -149,7 +150,7 @@ export const NEGOTIATION_BOUND_MARKER = 'negotiation bound spent';
  *
  * ## What the probes are for
  *
- * Two things, neither of which is attribution — {@link forcedMechanism} gets the arm's NAME from
+ * Two things, neither of which is attribution — `forcedMechanism` gets the arm's NAME from
  * core directly:
  *
  * 1. **They derive the permissive rating.** A preflight raises only an outcome below core's
@@ -161,14 +162,14 @@ export const NEGOTIATION_BOUND_MARKER = 'negotiation bound spent';
  *    corpus. That belongs in a unit test here rather than in someone's eval report, which is what
  *    {@link calibrateMechanisms} is for.
  *
- * The probe table is typed as a TOTAL record over {@link ../evalTypes.js PreflightMechanism}, which
+ * The probe table is typed as a TOTAL record over {@link "evalTypes.js"!PreflightMechanism | PreflightMechanism}, which
  * derives from core's own preflight list — so a preflight core gains does not compile here until
  * someone writes the command that observes it.
  *
  * A probe cannot be run with NO verdict: the preflights raise only an outcome below the
  * deterministic floor, and a missing verdict becomes core's fail-closed one, which is *at* the
  * floor. Every command then comes back with the identical placeholder — see
- * {@link ../evalTypes.js PREFLIGHT_MECHANISMS} for the whole rule.
+ * {@link "evalTypes.js"!PREFLIGHT_MECHANISMS | PREFLIGHT_MECHANISMS} for the whole rule.
  *
  * Exported for the unit suite, which exercises each mechanism on a command that is NOT its probe:
  * that test has to be able to prove the two differ, or it silently stops being that test.
@@ -189,7 +190,7 @@ export const MECHANISM_PROBES: Readonly<Record<PreflightMechanism, string>> = {
  */
 const PROBE_REASON = '__gth-eval probe: not a finding__';
 
-/** What {@link calibrateGate} learned; see {@link MECHANISM_PROBES}. */
+/** What `calibrateGate` learned; see {@link MECHANISM_PROBES}. */
 interface GateCalibration {
   /** Reason sentence → the preflight that wrote it. */
   index: Map<string, ForcedByMechanism>;
@@ -249,7 +250,7 @@ function calibrateGate(): GateCalibration {
  * fail across every corpus. That must be a red unit test rather than a surprise in someone's eval
  * report.
  *
- * Attribution itself is not at stake. {@link forcedMechanism} names the arm from core's
+ * Attribution itself is not at stake. `forcedMechanism` names the arm from core's
  * `preflightFloorFinding` rather than from this index, so two mechanisms that came to share a
  * sentence stay individually attributable — a shrunken map is the SIGNAL that something moved, not
  * the damage it causes.
@@ -260,7 +261,7 @@ export function calibrateMechanisms(): Map<string, ForcedByMechanism> {
 
 /**
  * The rating a `forced_by: <preflight>` round is driven with, discovered from core rather than
- * spelled — see {@link calibrateGate}. Exported for the unit suite, which pins that it is an outcome
+ * spelled — see `calibrateGate`. Exported for the unit suite, which pins that it is an outcome
  * the gate APPROVES on a command with no preflight (i.e. genuinely permissive, so overriding it is a
  * real finding), without naming one.
  */
@@ -294,7 +295,7 @@ function forcedMechanism(command: string, decision: RaterDecision): ForcedByMech
   return preflightMechanismFor(finding.kind);
 }
 
-/** The memoized {@link calibrateGate} — core's answers do not change within a run. */
+/** The memoized `calibrateGate` — core's answers do not change within a run. */
 function calibrated(): GateCalibration {
   calibration ??= calibrateGate();
   return calibration;
@@ -371,7 +372,7 @@ function resolveRung(target: RaterTarget, config: GthConfig): ApprovalRung {
  * but it is the second line of the two, not the only one.
  *
  * So a rated case whose command the floor refuses does not exist, and cannot: the two rated rungs
- * are refused at the floor arm before reaching a rating ({@link classifyOneRound}), and `bypass` —
+ * are refused at the floor arm before reaching a rating (`classifyOneRound`), and `bypass` —
  * the one rung that arm does not cover — is not a rated rung either. The marker therefore never
  * accompanies a rater verdict. At `bypass` it accompanies an `approve`, which is the honest report:
  * the gate approved before the arm and only the exec-time check refuses.
@@ -571,7 +572,7 @@ function advanceNegotiation(
  * the mechanism, in the rationale ({@link buildRationale}).
  *
  * **A round claiming a preflight FINDING is driven with a permissive rating** — see
- * {@link ../evalTypes.js PREFLIGHT_MECHANISMS}. Still no model call: the rating is a stub, derived
+ * {@link "evalTypes.js"!PREFLIGHT_MECHANISMS | PREFLIGHT_MECHANISMS}. Still no model call: the rating is a stub, derived
  * from core, and it is the only way a preflight is observable at all since CFG-28. It does not
  * flatter the case — when the claimed preflight really fires the action is the same either way, and
  * when it does not, the marker and the action go red together.
@@ -895,7 +896,7 @@ async function classifyOneRound(
  * config error into an N-times-repeated one and add a profile load to every case's latency.
  *
  * @param target The parsed `rater` target (its `rung` is the suite's declaration — see
- *   {@link resolveRung}).
+ *   `resolveRung`).
  * @param config The run's resolved config — the sweep cell's, when sweeping, so `model:` and
  *   `config: { approvals: … }` axes both land here.
  * @param options Test/caller overrides; see {@link RaterClassifierOptions}.

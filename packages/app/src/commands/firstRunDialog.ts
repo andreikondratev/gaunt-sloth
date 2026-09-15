@@ -64,7 +64,7 @@ export type SelectFn = (title: string, options: string[], defaultIndex: number) 
 export interface FirstRunDialogDeps {
   detectProviders: typeof detectProviders;
   /**
-   * CFG-21 — fetches the chosen provider's model list WITH its {@link ModelDiscoveryResult}
+   * CFG-21 — fetches the chosen provider's model list WITH its {@link @gaunt-sloth/core!providers/modelDiscovery.ModelDiscoveryResult | ModelDiscoveryResult}
    * provenance, baking in the generous interactive timeout by default. Returns `{ models, status }`
    * so the dialog can surface an honest degrade notice when a live fetch was attempted and failed
    * (`status: 'fallback'`) rather than silently swapping in a by-design curated list (`'curated'`).
@@ -118,7 +118,7 @@ export function defaultModelIndex(models: ModelInfo[]): number {
 
 /**
  * Builds the `.gsloth.config.json` body for a chosen provider + model. Delegates to the shared
- * {@link buildInitConfigContent} so the interactive first-run path stamps the same `$schema`
+ * {@link @gaunt-sloth/core!providers/modelDiscovery.buildInitConfigContent | buildInitConfigContent} so the interactive first-run path stamps the same `$schema`
  * pointer (GS2-1) as the per-provider template writers. Previously this local builder omitted
  * `$schema`, so a config created through the first-run dialog got no editor autocomplete/validation.
  * First-run always has an explicit model chosen, so it is written into the config (unlike a bare
@@ -264,7 +264,7 @@ function makeDefaultSelect(ask: AskFn): SelectFn {
 /**
  * CFG-21 — the default {@link FirstRunDialogDeps.withProgress}: an Ink spinner while `run` is in
  * flight when the environment can drive interactive Ink (the same activation policy as
- * {@link makeDefaultSelect}), otherwise a plain printed line via {@link displayInfo} on the
+ * `makeDefaultSelect`), otherwise a plain printed line via {@link @gaunt-sloth/core!utils/consoleUtils.displayInfo | displayInfo} on the
  * readline / non-TTY path. Either way the wait is visible, never silent. The Ink module is
  * imported lazily so a readline-only run never loads React/Ink.
  */

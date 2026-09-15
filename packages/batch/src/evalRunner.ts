@@ -154,14 +154,14 @@ function buildUnits(suite: EvalSuite): EvalUnit[] {
  * PASSES iff EVERY applicable block passes — ported from the field user's proven harness semantics
  * (`docs/batch-eval-user-requirements.md` Appendix A), generalized to per-identity blocks.
  *
- * ONE concurrency pool: flat and matrix suites both normalize to {@link EvalUnit}s and ride the same
+ * ONE concurrency pool: flat and matrix suites both normalize to `EvalUnit`s and ride the same
  * `runBatchMatrix` pool; the only divergence is which `RunCellFn` a unit's identity resolves to.
  *
  * BATCH-12 Task 2 — a unit whose case has `turns.length > 1` is a MULTI-TURN conversation: it runs
  * through the injected {@link RunConversationFn} seam (agent/tools built once, messages accumulated
  * across turns) instead of {@link RunCellFn}, still inside the SAME pool, and is graded turn-by-turn
- * by {@link gradeConversationUnit} — the cell PASSES iff EVERY turn's applicable blocks pass. A
- * single-turn unit keeps the proven `runCell` + {@link gradeUnit} path byte-for-byte.
+ * by `gradeConversationUnit` — the cell PASSES iff EVERY turn's applicable blocks pass. A
+ * single-turn unit keeps the proven `runCell` + `gradeUnit` path byte-for-byte.
  */
 export async function runEvalSuite(
   suite: EvalSuite,
@@ -645,7 +645,7 @@ export function classifyEvalExit(summary: EvalSuiteSummary): EvalExitCode {
 
 /**
  * Grade ONE answer (+ its tool trace) against a set of APPLICABLE expectation blocks — the shared
- * inner loop of both the single-turn {@link gradeUnit} and the multi-turn {@link gradeConversationUnit}.
+ * inner loop of both the single-turn `gradeUnit` and the multi-turn `gradeConversationUnit`.
  * Runs each block's deterministic checks, tool-trace checks, tool-RESULT checks (BATCH-21), and
  * judge (when it declares a rubric), accumulating failure `reasons` (a passing block/judge appends
  * nothing). `judgeOutcome` is the FIRST block that declared a judge, so a single-block case's

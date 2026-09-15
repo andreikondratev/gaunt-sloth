@@ -27,7 +27,7 @@
 /**
  * (Spec §4.1) — the **four** outcomes the rater may return. There is no ordering knob and no
  * threshold: each outcome's consequence is fixed by the rung
- * ({@link import('./rater.js').mapVerdictToAction}).
+ * ({@link @gaunt-sloth/core!core/shell/rater.mapVerdictToAction | mapVerdictToAction}).
  *
  * - `safe` — no harmful effect.
  * - `destructive` — **the catch-all**: harmful, but recoverable from inside the session, and not
@@ -44,7 +44,7 @@
  * **`catastrophic` and `attack` are not ranked against each other** — they ask different
  * questions, and the spec says so explicitly. A command can be both; `attack` wins the
  * *consequence* (a manipulated session cannot be trusted to continue) but MUST NOT swallow the
- * finding — see the §6.1 clause in {@link import('./rater.js').buildRaterSystemPrompt}. Nothing
+ * finding — see the §6.1 clause in {@link @gaunt-sloth/core!core/shell/rater.buildRaterSystemPrompt | buildRaterSystemPrompt}. Nothing
  * here may be written as a severity comparison between the two.
  */
 export const RATER_OUTCOMES = ['safe', 'destructive', 'catastrophic', 'attack'] as const;
@@ -54,7 +54,7 @@ export type RaterOutcome = (typeof RATER_OUTCOMES)[number];
 
 /**
  * The actions the approvals gate can resolve to for a single gated call, BEFORE the human prompt.
- * {@link import('./rater.js').mapVerdictToAction} is the whole mapping from an outcome and a rung
+ * {@link @gaunt-sloth/core!core/shell/rater.mapVerdictToAction | mapVerdictToAction} is the whole mapping from an outcome and a rung
  * onto one of these, and its docblock carries the table.
  *
  * - `approve` — approve ONCE; do not touch the human or the allow-list.
@@ -82,7 +82,7 @@ export type RaterOutcome = (typeof RATER_OUTCOMES)[number];
  * confident something is a threat; where we cannot tell, the model decides*. A parser reporting that
  * it could not resolve a string is not a detection, so it earns no action of its own; what it earns
  * is a neutral note in the rating prompt
- * ({@link import('./abstention.js').buildParserPreflightNote}) and a real rating. That is also what
+ * ({@link @gaunt-sloth/core!core/shell/abstention.buildParserPreflightNote | buildParserPreflightNote}) and a real rating. That is also what
  * keeps the ceiling reachable: an action of its own would make `catastrophic` and `attack`
  * unreachable for every composed, substituting or redirecting command, so `pwd && rm -rf ~` could
  * only ever be floored at `destructive`.
@@ -108,7 +108,7 @@ export type RaterAction = (typeof RATER_ACTIONS)[number];
 
 /**
  * The deterministic preflights that can floor a command at `destructive`, in the FIXED order
- * {@link import('./rater.js').preflightFloorFinding} evaluates them.
+ * {@link @gaunt-sloth/core!core/shell/rater.preflightFloorFinding | preflightFloorFinding} evaluates them.
  *
  * - `script-env-leak` — an interpreter invocation expanding an ALL_CAPS environment variable into
  *   its arguments. §11.1b's narrowing of the `attack` clause rests on this arm firing.

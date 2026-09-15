@@ -17,7 +17,7 @@
  * registry (`string[] | Record<string, boolean | BuiltInToolConfig>`), NOT the removed per-command
  * `commands.<mode>.devTools` key. {@link GthDevToolsConfig} is therefore no longer an on-disk shape:
  * it is the internal, resolved view that {@link getEffectiveDevToolsConfig} builds from the effective
- * `builtInTools` registry, and that {@link GthDevToolkit} + the shell accessors below consume. This
+ * `builtInTools` registry, and that `GthDevToolkit` + the shell accessors below consume. This
  * keeps the toolkit/accessor surface stable while the single config surface is `builtInTools`.
  */
 import { type GthCommand, StatusLevel } from '#src/core/types.js';
@@ -121,7 +121,7 @@ export type BuiltInToolsSetting = string[] | Record<string, boolean | BuiltInToo
 
 /**
  * The fixed dev-command tools: each maps a `command` string (from its {@link BuiltInToolConfig})
- * to a run_* tool emitted by {@link GthDevToolkit}.
+ * to a run_* tool emitted by `GthDevToolkit`.
  */
 export const DEV_COMMAND_TOOL_NAMES = [
   'run_tests',
@@ -135,7 +135,7 @@ export const SHELL_TOOL_NAME = 'run_shell_command';
 
 /**
  * All dev/shell tool names carried in the {@link GthConfig.builtInTools} registry. These are emitted
- * by {@link GthDevToolkit} via the dev-tools bucket, NOT loaded as plain built-in tools — so
+ * by `GthDevToolkit` via the dev-tools bucket, NOT loaded as plain built-in tools — so
  * `getBuiltInTools` skips them (a `run_shell_command` entry in `builtInTools` is legitimate, not an
  * "unknown built-in tool").
  */
@@ -154,7 +154,7 @@ export const GH_READ_FILE_TOOL_NAME = 'gth_gh_read_file';
 /**
  * Built-in tool names that are legitimate {@link GthConfig.builtInTools} entries but are NOT loaded
  * by `getBuiltInTools`, because the tool is constructed elsewhere: the dev/shell tools come from
- * {@link GthDevToolkit}, and {@link GH_READ_FILE_TOOL_NAME} is built by the review module with the
+ * `GthDevToolkit`, and {@link GH_READ_FILE_TOOL_NAME} is built by the review module with the
  * PR context bound in. Without the skip, configuring one of these prints
  * `Unknown built-in tool: <name>` on EVERY command's run — including the ones that never load it.
  */
@@ -303,7 +303,7 @@ export function isBuiltInToolEntryEnabled(value: boolean | BuiltInToolConfig | u
 }
 
 /**
- * Config for {@link GthDevToolkit} — the INTERNAL, resolved dev/shell view (CFG-18: no longer an
+ * Config for `GthDevToolkit` — the INTERNAL, resolved dev/shell view (CFG-18: no longer an
  * on-disk shape; built from the {@link GthConfig.builtInTools} registry by
  * {@link getEffectiveDevToolsConfig}). Tools are not applied when the config is empty. Only active
  * in `code`/`exec` mode (and `ask --write`).
@@ -769,7 +769,7 @@ export function isRatedRung(rung: ApprovalRung): boolean {
  *
  * **This is the one predicate that separates `auto` from `assisted`, and it is deliberately ONE.**
  * Three places have to agree about it — the decision mapping
- * ({@link import('../core/shell/rater.js').mapVerdictToAction}, which returns `reject` here and
+ * ({@link @gaunt-sloth/core!core/shell/rater.mapVerdictToAction | mapVerdictToAction}, which returns `reject` here and
  * `escalate` at `assisted`), the rating prompt (§5.2's wording rules are addressed to the agent, so
  * they are turned on by this and not by whether a transcript happens to exist yet), and the runner
  * that counts the rounds. Two of them agreeing and the third not is exactly how the two rated rungs
@@ -778,7 +778,7 @@ export function isRatedRung(rung: ApprovalRung): boolean {
  * **It answers about the RUNG, never about a particular call.** [[EXT-106]] §3 withholds the
  * negotiation from a command §4.6's deterministic preflight floors — one that cannot reach
  * `approve` however the agent argues — and both the decision and the prompt read that through
- * {@link import('../core/shell/rater.js').isNegotiableCall}, which composes this predicate with the
+ * {@link @gaunt-sloth/core!core/shell/rater.isNegotiableCall | isNegotiableCall}, which composes this predicate with the
  * preflight. Anything asking *"may the agent argue about THIS call"* wants that function; this one
  * is a fact about the ladder and stays free of the shell module.
  *
@@ -809,7 +809,7 @@ export function isNegotiatingRung(rung: ApprovalRung): boolean {
  * `auto` is chosen deliberately, by someone who has read what the rung does.
  *
  * It answers about the RUNG, never about a particular call: whether THIS command is carved is
- * {@link import('../core/shell/provenance.js').carvedOpenWorldHosts}, which composes this predicate with
+ * {@link @gaunt-sloth/core!core/shell/provenance.carvedOpenWorldHosts | carvedOpenWorldHosts}, which composes this predicate with
  * the open-world preflight and the user's retained messages. This one is a fact about the ladder and
  * stays free of the shell module, exactly as {@link isNegotiatingRung} does.
  *
@@ -847,7 +847,7 @@ export function isUserProvenanceRung(rung: ApprovalRung): boolean {
  * Andrew accepted on the record, and it is documented for the user in
  * `docs/guides/shell-tool-and-approvals.md`.
  *
- * **Total over {@link GthCommand} on purpose**, exactly like {@link COMMAND_ANSWERS_APPROVALS}: an
+ * **Total over {@link GthCommand} on purpose**, exactly like `COMMAND_ANSWERS_APPROVALS`: an
  * eighth command must be classified here before it compiles, rather than defaulting silently into
  * "the user typed it".
  */
@@ -871,7 +871,7 @@ const COMMAND_CARRIES_USER_PROVENANCE: Record<GthCommand, boolean> = {
 };
 
 /**
- * {@link COMMAND_CARRIES_USER_PROVENANCE} as a predicate — **and it fails closed**: anything not
+ * `COMMAND_CARRIES_USER_PROVENANCE` as a predicate — **and it fails closed**: anything not
  * positively established as the user's own words answers `false`, `undefined` included.
  *
  * The `?? false` coalesce and the `undefined` arm are the fail-closed half, not defensive noise.
@@ -1014,7 +1014,7 @@ const COMMAND_ANSWERS_APPROVALS: Record<GthCommand, boolean> = {
 };
 
 /**
- * {@link COMMAND_ANSWERS_APPROVALS} as a predicate. An unset command is a session driven by
+ * `COMMAND_ANSWERS_APPROVALS` as a predicate. An unset command is a session driven by
  * `GthAgentRunner` (nothing else leaves it unset), so it answers approvals.
  *
  * **`?? true` is the fail-safe default, not defensive noise.** The lookup yields `undefined` for a
@@ -1267,7 +1267,7 @@ export interface ApprovalsObjectConfig {
    */
   escalate?: ApprovalEntry[];
   /**
-   * EXT-66 — wall-clock budget (ms) for ONE rating call. Absent = {@link RATER_DEFAULT_TIMEOUT_MS}
+   * EXT-66 — wall-clock budget (ms) for ONE rating call. Absent = {@link @gaunt-sloth/core!core/shell/rater.RATER_DEFAULT_TIMEOUT_MS | RATER_DEFAULT_TIMEOUT_MS}
    * (30s), which is a hosted-model number: a local rater is knowably slower, and when it runs out
    * of time the gate escalates, so an unreachable timeout turns the permissive rung into one that
    * asks about everything while every layer reports success.

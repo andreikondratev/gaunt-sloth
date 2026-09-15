@@ -134,8 +134,8 @@ function userNamedTokens(userMessages: readonly string[]): Set<string> {
  * an empty array when the carve-out does not apply to this call.
  *
  * This is the ONE implementation of the carve, read by every reader of it: the floor
- * ({@link import('./rater.js').mapVerdictToAction}), negotiability
- * ({@link import('./rater.js').isNegotiableCall}), the diagnostic archive and the warning. A second
+ * ({@link @gaunt-sloth/core!core/shell/rater.mapVerdictToAction | mapVerdictToAction}), negotiability
+ * ({@link @gaunt-sloth/core!core/shell/rater.isNegotiableCall | isNegotiableCall}), the diagnostic archive and the warning. A second
  * derivation is how a gate and a warning come to disagree about whether a command was carved.
  *
  * **The rung is enforced here, not at the call site.** A caller that forgets to check it cannot
@@ -143,11 +143,11 @@ function userNamedTokens(userMessages: readonly string[]): Set<string> {
  * {@link isUserProvenanceRung}.
  *
  * **`provenance` is the user's own retained messages, and it is NOT
- * {@link import('./negotiation.js').ShellNegotiationState.contextFor}'s.** That function returns
+ * `ShellNegotiationState.contextFor`'s.** That function returns
  * `userMessages: []` at round 1 by design — §5.1's *"round 1 sees the command alone"* — and round 1
  * is precisely the round this carve-out exists to act on. §5.1 bounds what the **rater** may see;
  * the floor is not the rater, and a floor reading nothing at round 1 would never fire at all. The
- * runner reads {@link import('./negotiation.js').ShellNegotiationState.retainedUserMessages}
+ * runner reads `ShellNegotiationState.retainedUserMessages`
  * instead.
  *
  * **The window is cumulative across the turns of a thread** (capped and de-duplicated by that

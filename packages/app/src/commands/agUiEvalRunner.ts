@@ -2,7 +2,7 @@
  * @module agUiEvalRunner
  * BATCH-15 — the AG-UI target's production runner builders for `gth eval`. The eval runner
  * ({@link @gaunt-sloth/batch#runEvalSuite}) is target-agnostic: it consumes an injected
- * {@link RunCellFn} (single-shot) and {@link RunConversationFn} (multi-turn) and grades whatever
+ * `RunCellFn` (single-shot) and `RunConversationFn` (multi-turn) and grades whatever
  * `answer` (and `tools`) they produce with the SAME assertion surface used for the `gth-agent`
  * target. This module builds those two functions for an EXTERNAL agent exposed over the AG-UI
  * protocol, driving its HTTP/SSE run endpoint — the analogue of `batchCommand.ts`'s
@@ -216,7 +216,7 @@ async function releaseBody(body: ReadableStream<Uint8Array> | null | undefined):
 /**
  * Create a real {@link AgUiClient} that drives the target's AG-UI run endpoint over HTTP/SSE. Each
  * `run` POSTs a `RunAgentInput` to `{url}/agents/{agentId}/run` and decodes the SSE response via
- * {@link decodeAgUiStream}. A non-2xx response, an absent body, a `RUN_ERROR` event, a truncated
+ * `decodeAgUiStream`. A non-2xx response, an absent body, a `RUN_ERROR` event, a truncated
  * stream, or a run that exceeds `timeoutMs` all throw — the runner builders contain that into a
  * failed cell (`ok:false`).
  *
@@ -313,7 +313,7 @@ export function createAgUiClient(
 export const defaultAgUiClientFactory: AgUiClientFactory = (target) => createAgUiClient(target);
 
 /**
- * Build the injectable single-shot {@link RunCellFn} that drives ONE AG-UI run: send the cell's
+ * Build the injectable single-shot `RunCellFn` that drives ONE AG-UI run: send the cell's
  * prompt as the sole `user` message (fresh `threadId`/`runId`) and return the agent's assembled text
  * as the cell `answer` plus the tool names captured from the stream as `tools`. A transport/stream
  * error is contained as a failed cell (`ok:false`) so one bad case can never take the whole suite
@@ -342,13 +342,13 @@ export function buildAgUiRunCell(
 }
 
 /**
- * Build the injectable multi-turn {@link RunConversationFn} that drives a whole scripted conversation
+ * Build the injectable multi-turn `RunConversationFn` that drives a whole scripted conversation
  * against the AG-UI agent, threading continuity via the `messages` array + a STABLE `threadId` across
  * the turns of ONE conversation: each turn appends its `user` message, POSTs the accumulated history
  * under the same `threadId`, then appends the assistant's answer so the next turn's request carries
  * it. ONE `threadId` for the whole conversation; a fresh `runId` per turn.
  *
- * Returns one {@link TurnRunOutcome} per turn attempted (answer + per-turn tool trace). A turn that
+ * Returns one `TurnRunOutcome` per turn attempted (answer + per-turn tool trace). A turn that
  * throws is recorded as a failed turn and ABORTS the conversation (the returned array is short) — the
  * runner fails the un-run turns with a clear reason, exactly as it does for a gth-agent conversation
  * that ended early.

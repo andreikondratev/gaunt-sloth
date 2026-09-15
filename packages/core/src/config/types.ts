@@ -152,14 +152,14 @@ export interface SubagentProfileSpec {
 /**
  * This is a processed Gaunt Sloth config ready to be passed down into components.
  *
- * Default values can be found in {@link DEFAULT_CONFIG}
+ * Default values can be found in {@link @gaunt-sloth/core!config/defaults.DEFAULT_CONFIG | DEFAULT_CONFIG}
  */
 export interface GthConfig {
   llm: BaseChatModel;
   /**
    * Selects the agent backend.
    *
-   * `lean` — the plain LangChain agent ({@link GthLangChainAgent}), given gsloth's full toolset
+   * `lean` — the plain LangChain agent ({@link @gaunt-sloth/core!core/GthLangChainAgent.GthLangChainAgent | GthLangChainAgent}), given gsloth's full toolset
    * (filesystem + hardened dev/shell + the `gth_checklist` planning tool) — is the only backend,
    * and what runs when the key is omitted. Every command resolves the same one, so the key selects
    * nothing today; it exists so a config can name what it runs on, and so a second backend has a
@@ -191,7 +191,7 @@ export interface GthConfig {
   /**
    * Content source type. Source used to fetch content (usually diff) for `review` or `pr` command.
    *
-   * {@link DEFAULT_CONFIG#contentSource}
+   * {@link @gaunt-sloth/core!config/defaults.DEFAULT_CONFIG | DEFAULT_CONFIG}
    */
   contentSource: string;
   /**
@@ -254,7 +254,7 @@ export interface GthConfig {
   /**
    * Selects and configures the built-in tools the agent loads. Either a `string[]` of tool names
    * (each enabled) or a registry keyed by tool name whose values enable (`true`), force-disable
-   * (`false`), or configure ({@link BuiltInToolConfig}) each tool. CFG-18 folded the former
+   * (`false`), or configure ({@link @gaunt-sloth/core!config/shell-policy.BuiltInToolConfig | BuiltInToolConfig}) each tool. CFG-18 folded the former
    * per-command `devTools` (the `run_*` commands + `run_shell_command`'s EXT-9/10/12 config) into
    * this single registry: e.g. `{ "run_tests": { "command": "npm test" }, "run_shell_command": {
    * "timeout": 300000 } }`. Settable at the root or per command (`commands.<command>.builtInTools`);
@@ -328,7 +328,7 @@ export interface GthConfig {
   /**
    * Stream output. Some models do not support streaming. Set value to `false` for them.
    *
-   * {@link DEFAULT_CONFIG#streamOutput}
+   * {@link @gaunt-sloth/core!config/defaults.DEFAULT_CONFIG | DEFAULT_CONFIG}
    */
   streamOutput: boolean;
   /**
@@ -503,7 +503,7 @@ export interface GthConfig {
    * `gth code` runs under — and at `chat` from `commands.chat`. There is no ACP-only copy of those
    * knobs to keep in step.
    *
-   * Defaulted at the read site (not in {@link DEFAULT_CONFIG}) to avoid churning the
+   * Defaulted at the read site (not in {@link @gaunt-sloth/core!config/defaults.DEFAULT_CONFIG | DEFAULT_CONFIG}) to avoid churning the
    * effective-config snapshot, à la {@link injectModelContext}.
    */
   acp?: {
@@ -514,10 +514,10 @@ export interface GthConfig {
    * Sloth has no dedicated commit tool (it commits via `run_shell_command`), so this identity is
    * injected into the code-mode system prompt, which instructs the agent to co-author commits as
    * this account. Optional and defaulted, each field independently: when the name is unset the
-   * default is {@link DEFAULT_COMMIT_CO_AUTHOR_NAME} decorated with the resolved active model —
+   * default is {@link @gaunt-sloth/core!constants.DEFAULT_COMMIT_CO_AUTHOR_NAME | DEFAULT_COMMIT_CO_AUTHOR_NAME} decorated with the resolved active model —
    * `Gaunt Sloth (provider:model)` — falling back to the bare
-   * {@link DEFAULT_COMMIT_CO_AUTHOR_NAME} when no model resolves or {@link injectModelContext} is
-   * `false`; when the email is unset it is {@link DEFAULT_COMMIT_CO_AUTHOR_EMAIL}. A CONFIGURED
+   * {@link @gaunt-sloth/core!constants.DEFAULT_COMMIT_CO_AUTHOR_NAME | DEFAULT_COMMIT_CO_AUTHOR_NAME} when no model resolves or {@link injectModelContext} is
+   * `false`; when the email is unset it is {@link @gaunt-sloth/core!constants.DEFAULT_COMMIT_CO_AUTHOR_EMAIL | DEFAULT_COMMIT_CO_AUTHOR_EMAIL}. A CONFIGURED
    * name is emitted verbatim — the model identity decorates only the default.
    */
   commit?: {
@@ -531,7 +531,7 @@ export interface GthConfig {
    * GS2-53 — the configured provider `type` string (`openrouter`/`deepseek`/`xai`/`anthropic`/…),
    * stashed by the loader from the raw `llm.type` before the built `BaseChatModel` replaces the raw
    * spec. INTERNAL (loader-set, never user-supplied), so it is deliberately absent from the config
-   * schema. {@link import('#src/utils/systemPromptNotes.js').resolveModelIdentity} PREFERS this over
+   * schema. {@link @gaunt-sloth/core!utils/systemPromptNotes.resolveModelIdentity | resolveModelIdentity} PREFERS this over
    * the live model's `_llmType()` for the injected identity, because that is the model class's own
    * label rather than the gth provider namespace (`huggingface` reports `openai`, and both Gemini
    * providers report `google`) and would otherwise mislabel the provider half. Absent for module
@@ -551,7 +551,7 @@ export interface GthConfig {
    * ({@link GthConfig.commit}), so turning this off also removes the model from the commit trailer,
    * which degrades to the plain default name. The identity LINE applies in all modes; the trailer
    * it also feeds is code-mode-only, like the cwd/os-shell notes. Defaulted at the read site (not
-   * in {@link DEFAULT_CONFIG}) to avoid churning the effective-config snapshot.
+   * in {@link @gaunt-sloth/core!config/defaults.DEFAULT_CONFIG | DEFAULT_CONFIG}) to avoid churning the effective-config snapshot.
    */
   injectModelContext?: boolean;
   /**
@@ -560,7 +560,7 @@ export interface GthConfig {
    * patterns and sensitive config fields are masked before any artifact hits disk. Set
    * `debugDump.redact: false` (or run `/debug-dump --unsafe-no-redact`) to write a RAW archive, which
    * the command flags with a loud "may contain secrets" warning. Defaulted at the read site (not in
-   * {@link DEFAULT_CONFIG}) to avoid churning the effective-config snapshot.
+   * {@link @gaunt-sloth/core!config/defaults.DEFAULT_CONFIG | DEFAULT_CONFIG}) to avoid churning the effective-config snapshot.
    */
   debugDump?: {
     redact?: boolean;
@@ -600,7 +600,7 @@ export interface GthConfig {
    *
    * The interactive TUI ignores the setting and always shows the full header. Only the opening is
    * graded — never model/tool output, errors, or config-validation warnings, and never the live
-   * `Thinking…` indicator. Defaulted at the read site, not in {@link DEFAULT_CONFIG}, to avoid
+   * `Thinking…` indicator. Defaulted at the read site, not in {@link @gaunt-sloth/core!config/defaults.DEFAULT_CONFIG | DEFAULT_CONFIG}, to avoid
    * churning the effective-config snapshot.
    */
   output?: {
@@ -639,13 +639,13 @@ export interface GthConfig {
    * SAME call verbatim, whether it keeps erroring or keeps "succeeding" with the same result.
    *
    * - `false` disables it entirely.
-   * - `true` / omitted → WARN on, HALT off, default threshold ({@link DEFAULT_TOOL_LOOP_THRESHOLD}).
+   * - `true` / omitted → WARN on, HALT off, default threshold ({@link @gaunt-sloth/core!core/GthLangChainAgent.DEFAULT_TOOL_LOOP_THRESHOLD | DEFAULT_TOOL_LOOP_THRESHOLD}).
    * - object → per-field: `warn` (default ON) injects a control-flow-free nudge at the threshold;
    *   `halt` (default OFF, opt-in) ends the run cleanly (`jumpTo:'end'`, never a throw) at the
    *   threshold; `threshold` is the number of consecutive identical calls that trip it.
    *
    * WARN is provably harmless (no routing effect, one nudge per signature per streak). The WARN-on
-   * default is applied at the read site (not in {@link DEFAULT_CONFIG}) to avoid churning the
+   * default is applied at the read site (not in {@link @gaunt-sloth/core!config/defaults.DEFAULT_CONFIG | DEFAULT_CONFIG}) to avoid churning the
    * effective-config snapshot.
    */
   toolLoopGuard?: boolean | { warn?: boolean; halt?: boolean; threshold?: number };
@@ -684,7 +684,7 @@ export interface GthConfig {
    * `--tui`/`--no-tui` flags and the `GTH_NO_TUI` escape hatch both outrank it, and the capability
    * gates (no TTY, `TERM=dumb`, `ink` not installed) outrank everything because they are checks and
    * not preferences — so `true` degrades to readline rather than forcing a crash. Deliberately NOT
-   * in {@link DEFAULT_CONFIG}. The flag arrives separately as
+   * in {@link @gaunt-sloth/core!config/defaults.DEFAULT_CONFIG | DEFAULT_CONFIG}. The flag arrives separately as
    * {@link CommandLineConfigOverrides.tui}; the two meet only in `shouldUseTui`.
    */
   tui?: boolean;
@@ -979,7 +979,7 @@ export interface CommandLineConfigOverrides {
    * `GthConfig` (with its own freshly-constructed `.llm`) per distinct model in the matrix,
    * instead of structurally cloning an already-instantiated LangChain model object (unsafe for
    * any provider class that keeps state behind private `#fields`). Applied in
-   * {@link tryJsonConfig} by overriding `llmConfig.model` before the provider's
+   * {@link @gaunt-sloth/core!config/loader.tryJsonConfig | tryJsonConfig} by overriding `llmConfig.model` before the provider's
    * `processJsonConfig()` builds the instance, so it flows through the same supported
    * construction path every other model comes from.
    *

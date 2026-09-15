@@ -24,7 +24,7 @@ import {
 
 /**
  * GS2-46/GS2-47 — `/debug-dump`: a live-session diagnostic archive. GS2-46 shipped it raw; GS2-47
- * adds a shared secret-redaction pass ({@link file://./redactSecrets.ts}) that is ON BY DEFAULT and
+ * adds a shared secret-redaction pass (`redactSecrets.ts`) that is ON BY DEFAULT and
  * applied to EVERY artifact before it hits disk. The caller opts out via `redact: false`, in which
  * case the archive is raw and the caller surfaces the loud "may contain secrets" warning; when
  * redaction is on the caller shows a softened "secrets redacted; review before sharing" note.
@@ -72,7 +72,7 @@ export interface WriteDebugDumpInput {
    * `approvals.json`; absent or empty ⇒ the file is simply omitted (a session that gated nothing
    * has nothing to say about it).
    *
-   * It goes through the same {@link renderStructured} pass as `transcript.json` and
+   * It goes through the same `renderStructured` pass as `transcript.json` and
    * `model-messages.json` — the [[GS2-47]]/[[GS2-54]] literal + pattern redaction over the secret
    * values {@link collectSecretValues} harvested from env and config. That is deliberate reuse
    * rather than a policy of its own: the captured rating prompt carries the user's own last five
@@ -407,7 +407,7 @@ function renderStructured(value: unknown, redact: boolean, secrets: readonly str
  * ring buffer, and (best-effort) git repo state.
  *
  * GS2-47 — unless `input.redact === false`, the shared secret-redaction pass
- * ({@link file://./redactSecrets.ts}) is applied to EVERY artifact before it is written: the literal
+ * (`redactSecrets.ts`) is applied to EVERY artifact before it is written: the literal
  * values of secret-named env vars + inline config secrets are substituted everywhere, a tight set of
  * provider-key/auth-header patterns is masked, and the config's sensitive fields are masked in place.
  * On opt-out the archive is raw and the caller surfaces the loud "may contain secrets" warning.
@@ -590,13 +590,13 @@ export interface WriteCrashSnapshotResult {
  * `~/.gsloth/debug-dumps/crash-<timestamp>/crash.json` and return its paths.
  *
  * This is the unattended sibling of {@link writeDebugDump}: it fires from the process-level crash
- * handler ({@link file://./crashHandler.ts}) with no human present, so — unlike `/debug-dump` — it
+ * handler (`crashHandler.ts`) with no human present, so — unlike `/debug-dump` — it
  * exposes NO `redact` opt-out. Redaction (GS2-47, hard-dep) is MANDATORY and applied to the whole
  * snapshot. It reuses this module's location convention (`ensureGlobalGslothDir()` + `debug-dumps/`)
  * and rendering helpers, but deliberately stays minimal and crash-safe:
  *  - a SINGLE `crash.json` (not the multi-file interactive archive);
  *  - it does NOT shell out for git state (a subprocess is unsafe/slow while the process is dying);
- *  - it keeps only the last {@link CRASH_DEBUG_LOG_TAIL_LINES} debugLog lines and the transcript TAIL.
+ *  - it keeps only the last `CRASH_DEBUG_LOG_TAIL_LINES` debugLog lines and the transcript TAIL.
  *
  * Redaction shape (conscious choice): the entire normalized snapshot is passed through
  * {@link redactValue} in one pass. That is stricter than {@link writeDebugDump}, which uses
@@ -606,7 +606,7 @@ export interface WriteCrashSnapshotResult {
  * one place, so it is intended, not an oversight. The config subtree is stripped of live instances
  * first (as `writeDebugDump` does) so a live LLM client's internals never serialize.
  *
- * Callers wrap this in their own try/catch (see {@link file://./crashHandler.ts}); it does its best
+ * Callers wrap this in their own try/catch (see `crashHandler.ts`); it does its best
  * to be fail-safe internally (`redactValue`/`safeStringify` never throw), but the ONE unavoidably
  * throwing operation is the `mkdirSync`/`writeFileSync` to disk — an unwritable `~/.gsloth` is what
  * the handler's degraded path is for.

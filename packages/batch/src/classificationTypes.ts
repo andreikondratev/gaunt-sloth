@@ -3,7 +3,7 @@
  * BATCH-25 — the shapes for a CLASSIFIER eval: a suite-declared label/action enum, the extractors
  * that turn a SUT answer into a label, the confusion matrix, and declared aggregate metrics.
  *
- * Deliberately its own file rather than more weight in {@link ./evalTypes.js}: eval's per-case
+ * Deliberately its own file rather than more weight in `evalTypes.js`: eval's per-case
  * PASS/FAIL shapes and a classifier's corpus-wide *distribution* shapes answer different questions,
  * and only the latter needs the anti-blind-metric machinery below.
  *
@@ -91,7 +91,7 @@ export interface EvalClassificationSpec {
  *
  * There is deliberately **no `model.action`**: the deterministic layer overrides the label and
  * produces the action, so an "action the model chose" does not exist and a predicate on it could
- * never match. {@link ./metrics.js parseMetricPredicate} rejects it by name.
+ * never match. {@link "metrics.js"!parseMetricPredicate | parseMetricPredicate} rejects it by name.
  */
 export type MetricField =
   'expected.label' | 'expected.action' | 'actual.label' | 'actual.action' | 'model.label';
@@ -257,7 +257,7 @@ export interface EvalConfusionMatrix {
 
 /**
  * The suite-level classification report — the classifier eval's answer, attached to
- * {@link ./evalTypes.js EvalSuiteSummary}. Absent entirely for a suite that declares no
+ * {@link "evalTypes.js"!EvalSuiteSummary | EvalSuiteSummary}. Absent entirely for a suite that declares no
  * `classification:` block, so a #405-era suite's `results.json` is unchanged.
  */
 export interface EvalClassificationReport {
@@ -282,7 +282,7 @@ export interface EvalClassificationReport {
 
 /**
  * One graded cell reduced to what the matrices and the metrics need. Built by
- * {@link ../evalRunner.js} from the graded results; its own tiny shape so both consumers read the
+ * `evalRunner.js` from the graded results; its own tiny shape so both consumers read the
  * same thing and the aggregation is unit-testable without constructing whole `EvalCaseResult`s.
  */
 export interface ClassifiedCell {
@@ -294,14 +294,14 @@ export interface ClassifiedCell {
   actualAction?: string;
   /** BATCH-26 — the judgement the MODEL rendered, read by `model.label`. Equal to
    * {@link actualLabel} except where a deterministic step raised it; absent when nobody judged. See
-   * {@link ./evalTypes.js ClassifyOutcome.modelLabel}. */
+   * {@link "evalTypes.js"!ClassifyOutcome.modelLabel | ClassifyOutcome.modelLabel}. */
   modelLabel?: string;
   /** `false` = the SUT did not run / the classifier failed, so this cell has no place in any matrix
    * or denominator. It is counted as `excluded` and reported, never as a wrong answer. */
   scored: boolean;
 }
 
-/** One cell's classification, as recorded on its {@link ./evalTypes.js EvalCaseResult}. */
+/** One cell's classification, as recorded on its {@link "evalTypes.js"!EvalCaseResult | EvalCaseResult}. */
 export interface EvalCaseClassification {
   expectedLabel?: string;
   expectedAction?: string;
@@ -310,7 +310,7 @@ export interface EvalCaseClassification {
   /** BATCH-26 — the judgement the MODEL rendered, before any deterministic step overrode it. Equal
    * to {@link actualLabel} except where one did; absent when nobody judged. Written to the cell's
    * `results.json` so a floored case is diagnosable without re-running, and read by a `model.label`
-   * metric. See {@link ./evalTypes.js ClassifyOutcome.modelLabel}. */
+   * metric. See {@link "evalTypes.js"!ClassifyOutcome.modelLabel | ClassifyOutcome.modelLabel}. */
   modelLabel?: string;
   /** The raw text the extractors read, kept so an `(unrecognized)` result is diagnosable without
    * re-running. Omitted when it is identical to the cell's `answer`. */

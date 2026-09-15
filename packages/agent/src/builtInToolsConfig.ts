@@ -22,9 +22,9 @@ import GthDevToolkit from '#src/tools/GthDevToolkit.js';
 import GthCustomToolkit from '#src/tools/GthCustomToolkit.js';
 
 /**
- * Available built-in tools may be configured in JSON config, see `builtInTools` of {@link GthConfig}.
+ * Available built-in tools may be configured in JSON config, see `builtInTools` of {@link @gaunt-sloth/core!config/types.GthConfig | GthConfig}.
  *
- * Does not include `filesystem`, because filesystem has its own config in {@link GthConfig}.
+ * Does not include `filesystem`, because filesystem has its own config in {@link @gaunt-sloth/core!config/types.GthConfig | GthConfig}.
  */
 export const AVAILABLE_BUILT_IN_TOOLS = {
   /**
@@ -41,14 +41,14 @@ export const AVAILABLE_BUILT_IN_TOOLS = {
   show_a2ui_surface: '#src/tools/showA2UISurfaceTool.js',
   /**
    * Checklist / todo planning tool for the lean agent (the `write_todos` equivalent). Enabled
-   * by default (see {@link DEFAULT_CONFIG}); disable by setting your own `builtInTools`.
+   * by default (see {@link @gaunt-sloth/core!config/defaults.DEFAULT_CONFIG | DEFAULT_CONFIG}); disable by setting your own `builtInTools`.
    */
   gth_checklist: '#src/tools/gthChecklistTool.js',
   /**
    * Content-search (grep) tool: ripgrep-backed regex search over file CONTENTS, with an
    * in-process JS fallback when `rg` is absent. Permission-light (no shell approval) and
    * available in every mode. Named `gth_grep` rather than `grep` so it cannot collide with a
-   * built-in a graph builder registers under that name. Enabled by default (see {@link DEFAULT_CONFIG.builtInTools}, GS2-51); disable
+   * built-in a graph builder registers under that name. Enabled by default (see `DEFAULT_CONFIG.builtInTools`, GS2-51); disable
    * with `{ "builtInTools": { "gth_grep": { "enabled": false } } }`. Its searched corpus is
    * selectable via the `fileSet` tool-config key (`gitignore` default / `all`).
    */

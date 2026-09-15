@@ -82,7 +82,7 @@ interface ProfileScopeOptions {
  * `identityProfile`: only a `--global` run relocates the global layer into
  * `~/.gsloth/.gsloth-settings/<name>/`. Without `--global`, `-i <name>` selects a PROJECT-layer
  * directory and the global layer stays the plain `~/.gsloth/.gsloth.config.*` — which is exactly
- * what a run does ({@link applyGlobalConfigBase} reads it with no profile). Every reader of the
+ * what a run does (`applyGlobalConfigBase` reads it with no profile). Every reader of the
  * global layer goes through this so the diagnostics (`gth config validate`, the `tui` reader,
  * first-run detection) cannot scope it differently from the run.
  */
@@ -335,7 +335,7 @@ function* walkConfigSearchDirs(): Generator<string> {
  * A `customConfigPath` override wins outright (no walking).
  *
  * NOTE (identity profile): with an `identityProfile` set, each dir's per-format resolver
- * ({@link resolveConfigPath}) tries the profile path `.gsloth/.gsloth-settings/<profile>/<file>`
+ * (`resolveConfigPath`) tries the profile path `.gsloth/.gsloth-settings/<profile>/<file>`
  * but FALLS BACK to the plain `<dir>/<file>` when the profile file is absent. So a match here does
  * NOT prove the named profile itself has a config — it may be a plain (non-profile) config. Use
  * {@link resolveIdentityProfileConfigPath} when you need to know a profile specifically resolved.
@@ -485,7 +485,7 @@ function identityProfileNotFoundMessage(profile: string, isGlobal = false): stri
  *
  * @param options CFG-56 — `identityProfile` relocates the lookup to
  * `~/.gsloth/.gsloth-settings/<name>/` and `globalOnly` scopes the profile names this layer refers
- * to. Both are set ONLY for a `--global` run; see {@link globalLayerProfile}.
+ * to. Both are set ONLY for a `--global` run; see `globalLayerProfile`.
  * @returns The raw global config object, or `undefined` when no global config exists.
  */
 export async function loadGlobalRawConfig(options?: {
@@ -572,7 +572,7 @@ async function applyGlobalConfigBase<T extends Record<string, unknown>>(
 const MAX_EXTENDS_CHAIN_DEPTH = 50;
 
 /**
- * GS2-73 — the typed failure the `extends` traversal ({@link resolveExtendsChain}) raises on a
+ * GS2-73 — the typed failure the `extends` traversal (`resolveExtendsChain`) raises on a
  * cycle, a missing base, an over-deep chain, or an unreadable base. It carries the SAME clear,
  * user-facing message the run path prints, so the two consumers can translate one shared failure
  * into their own convention WITHOUT the traversal being forked or the checks duplicated:
@@ -590,7 +590,7 @@ class ConfigExtendsError extends Error {}
  * (recursively — a base may itself extend another, so base-of-base resolves first), then this
  * profile's own fields merge on top with last-wins semantics: the child overrides the base, nested
  * objects merge, arrays REPLACE except the additive-array fields (`allowDirs`, `aiignore.patterns`
- * and the three `approvals` rule lists, see {@link isAdditiveArrayField}) which accumulate
+ * and the three `approvals` rule lists, see `isAdditiveArrayField`) which accumulate
  * base+child. The `extends` key itself is consumed and never leaks into the composed output.
  *
  * A config WITHOUT `extends` is returned UNCHANGED — every non-inheriting config (the vast
@@ -600,7 +600,7 @@ class ConfigExtendsError extends Error {}
  * acts as the project-file layer the global config underlays and CLI flags overlay, preserving
  * GS2-33's outer precedence `CLI flags > profile (base+child composed) > global > defaults`. It is
  * therefore invoked in {@link initConfig} on the loaded project/profile config BEFORE
- * {@link applyGlobalConfigBase}.
+ * `applyGlobalConfigBase`.
  *
  * The base profile is discovered with {@link resolveIdentityProfileConfigPath} (the SAME strict
  * up-tree profile walk `--profile` uses), so `extends` names a profile exactly as a user selects
@@ -609,7 +609,7 @@ class ConfigExtendsError extends Error {}
  * CYCLE GUARD: the chain of profile NAMES is tracked (seeded with the selected profile's own name);
  * because `extends` is single-valued the chain is linear, so a repeated name — `A extends B extends
  * A`, or a self-extend — is an unambiguous cycle and fails fast with a clear error NAMING the cycle,
- * never infinite-looping / stack-overflowing. A hard {@link MAX_EXTENDS_CHAIN_DEPTH} cap backstops
+ * never infinite-looping / stack-overflowing. A hard `MAX_EXTENDS_CHAIN_DEPTH` cap backstops
  * it regardless of how the base path was derived.
  *
  * @param rawConfig   the just-loaded, schema-validated raw config that MAY declare `extends`.
@@ -653,7 +653,7 @@ export async function resolveConfigExtends(
 
 /**
  * GS2-73 — seed the `extends` chain from the selected profile's own name and run the throwing
- * traversal ({@link resolveExtendsChain}). Shared by BOTH consumers so the walk and its
+ * traversal (`resolveExtendsChain`). Shared by BOTH consumers so the walk and its
  * cycle/missing-base checks live in ONE place: the run-path {@link resolveConfigExtends} (which
  * re-raises a {@link ConfigExtendsError} as a {@link ConfigDiscoveryError}) and the read-path
  * {@link validateConfig} (which records it as a not-ok layer). Propagates the typed error to its
@@ -838,7 +838,7 @@ export async function loadConfiguredTui(
   // The global layer's `extends` is resolved on EXACTLY the branch a run resolves it: only when no
   // project layer was discovered. That is the branch `initConfig` composes the chain on, and the
   // one `--global` always takes; with a project layer present the run underlays the RAW global
-  // config ({@link applyGlobalConfigBase}) and never walks its `extends`, so a `tui` reached
+  // config (`applyGlobalConfigBase`) and never walks its `extends`, so a `tui` reached
   // through the chain is not part of that run and must not decide the surface either. The scope
   // travels with the run too — `globalOnly` only under `--global`, because only then are profile
   // names confined to `~/.gsloth/.gsloth-settings/`.
@@ -1422,7 +1422,7 @@ export async function tryJsonConfig(
  * | ------------------------------- | -------- | --------------------------------------------- |
  * | `allowDirs`                     | ADDITIVE | extra sandbox roots accumulate across layers  |
  * | `aiignore.patterns`             | ADDITIVE | ignore patterns accumulate across layers      |
- * | `approvals.deny`/`escalate`     | ADDITIVE | see {@link isAdditiveArrayField}              |
+ * | `approvals.deny`/`escalate`     | ADDITIVE | see `isAdditiveArrayField`              |
  * | `approvals.allow`               | replace  | a PERMISSIVE list; see the same doc           |
  * | `allowedTools`                  | replace  | the explicit allow-list IS the set            |
  * | `builtInTools`                  | replace  | the explicit tool selection IS the set        |
@@ -1442,7 +1442,7 @@ export async function tryJsonConfig(
  * default carries `allowDirs`/`aiignore`, so there is no collision today — but do NOT add a
  * key to THIS SET that could also appear as a per-command field, or it would silently become
  * additive inside command merges too. The approvals RESTRICTIVE lists are the deliberate exception
- * and are therefore matched by path SHAPE ({@link isAdditiveArrayField}) rather than listed here:
+ * and are therefore matched by path SHAPE (`isAdditiveArrayField`) rather than listed here:
  * for them, additive at every scope is the rule and not an accident.
  */
 const ADDITIVE_ARRAY_FIELDS: ReadonlySet<string> = new Set(['allowDirs', 'aiignore.patterns']);
@@ -1534,7 +1534,7 @@ function isMergeableObject(value: unknown): value is Record<string, unknown> {
  * Plain objects are merged recursively; an object carrying behaviour (a class instance — see
  * {@link isMergeableObject}) is REPLACED whole by the higher-precedence layer rather than recursed
  * into, so it keeps its methods. Arrays REPLACE by default; arrays at an
- * {@link isAdditiveArrayField} path are concatenated (target-first) then de-duplicated by
+ * `isAdditiveArrayField` path are concatenated (target-first) then de-duplicated by
  * value. Every other non-plain-object value is replaced by the source value.
  *
  * The de-duplication is by VALUE identity (a `Set`), so it removes repeated primitives and leaves
@@ -1651,7 +1651,7 @@ function resolvePrecedencePickedField(
  * any global side effects. It deep-merges defaults, applies CLI overrides, resolves the numeric
  * `consoleLevel` (warning + defaulting to INFO on an invalid value), and computes
  * `canInterruptInferenceWithEsc` and `useColour`. The process-global setters (`setUseColour` /
- * `setConsoleLevel`) are applied separately by {@link mergeConfig}, so this function can be
+ * `setConsoleLevel`) are applied separately by `mergeConfig`, so this function can be
  * reasoned about and reused without touching global state.
  *
  * It WRITES nothing globally, but it does READ the environment: `canInterruptInferenceWithEsc`
@@ -1973,12 +1973,12 @@ export interface ConfigValidationReport {
  * loadGlobalRawConfigUnvalidated}.
  *
  * GS2-73 — for the PROJECT layer it also walks the GS2-41 profile `extends` chain (via the SAME
- * {@link composeExtends}/{@link resolveExtendsChain} the run path uses), so a cycle or a missing
+ * `composeExtends`/`resolveExtendsChain` the run path uses), so a cycle or a missing
  * base — which fail a real run — is reported here as a not-ok layer instead of passing OK and only
  * failing at run time. The GLOBAL layer is walked on exactly the branch a run walks it: when NO
  * project layer was discovered, so the global config is what `initConfig` loads and resolves
  * `extends` on. With a project layer present the run underlays the raw global config
- * ({@link applyGlobalConfigBase}) and never resolves its `extends`, so neither does this.
+ * (`applyGlobalConfigBase`) and never resolves its `extends`, so neither does this.
  */
 export async function validateConfig(
   commandLineConfigOverrides: CommandLineConfigOverrides
@@ -2045,7 +2045,7 @@ export async function validateConfig(
     // profile inheritance chain and hard-fails a real run on a cycle or a missing base; the read
     // side must surface the SAME failures, else a profile whose `extends` names a missing base (or
     // forms a cycle) reports OK here yet dies at run time — the exact GS2-29 "validate mirrors the
-    // layer set a run loads" divergence. Reuse the SAME traversal (via {@link composeExtends}) —
+    // layer set a run loads" divergence. Reuse the SAME traversal (via `composeExtends`) —
     // no forked walk — and record its typed failure as a not-ok layer instead of exiting. Gated on
     // `layer.ok` and on a string `extends`, mirroring run order (a run validates the raw shape and
     // only THEN resolves `extends`) and skipping the read + walk for the common no-`extends` config.

@@ -280,7 +280,7 @@ function stableArgs(args: unknown): string {
  * Shared, graph-agnostic agent plumbing.
  *
  * A backend differs from another only in how it builds the compiled LangGraph in {@link init} —
- * today that is the lean {@link GthLangChainAgent} (`createAgent`, in core); everything downstream — invoking,
+ * today that is the lean {@link @gaunt-sloth/core!core/GthLangChainAgent.GthLangChainAgent | GthLangChainAgent} (`createAgent`, in core); everything downstream — invoking,
  * streaming to the console, emitting typed {@link AgentStreamEvent}s, client-tool
  * `interrupt()` stubbing, suspend/resume, and cleanup — is identical and lives here.
  *
@@ -904,7 +904,7 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
    * EXT-37 — surface a detected content-policy refusal: emit the clear, user-facing explanation at
    * WARNING level (an empty-content refusal streams nothing, so without this the console shows
    * nothing) and return the same message so it becomes the turn's terminal answer. Shared by the
-   * non-streaming {@link invoke} and streaming {@link streamFromInput} paths so both render a
+   * non-streaming {@link invoke} and streaming `streamFromInput` paths so both render a
    * refusal identically. A refusal is a *successful* (if declined) response — never a retry.
    */
   protected surfaceRefusal(info: RefusalInfo): string {
@@ -916,7 +916,7 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
 
   /**
    * Invoke LLM with a message and runnable config.
-   * For streaming use {@link #stream} method, streaming is preferred if model API supports it.
+   * For streaming use `#stream` method, streaming is preferred if model API supports it.
    * Please note that this when tools are involved, this method will anyway do multiple LLM
    * calls within LangChain dependency.
    */

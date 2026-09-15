@@ -1,7 +1,7 @@
 /**
  * @packageDocumentation
  * BATCH-2 — the shapes for `gth eval`: a parsed suite/case, deterministic-check results, the
- * judge's verdict, and per-case/suite outcomes. Deliberately separate from {@link ../types.js}
+ * judge's verdict, and per-case/suite outcomes. Deliberately separate from `types.js`
  * (BATCH-1's cell/outcome shapes), which documents itself as scoped to "cells and outcomes" only
  * — eval's shapes layer on top of (not into) that file.
  */
@@ -89,7 +89,7 @@ const PREFLIGHT_MECHANISM_OF = {
  * The floor is spelled here because it is not a preflight — it is a lexical scan core keeps no list
  * of, consulted by the approvals gate before any rating (every rung but `bypass`) and again by the
  * shell tool at execution time (every rung). The preflights are NOT spelled: they come from
- * {@link PREFLIGHT_MECHANISM_OF}, which is core's own `PREFLIGHT_FLOOR_KINDS` with our `forced_by`
+ * `PREFLIGHT_MECHANISM_OF`, which is core's own `PREFLIGHT_FLOOR_KINDS` with our `forced_by`
  * spelling attached.
  *
  * ## Why a case asserts a mechanism at all (the I1 finding)
@@ -189,7 +189,7 @@ export type PreflightMechanism = (typeof PREFLIGHT_MECHANISM_OF)[PreflightFloorK
 
 /**
  * The `forced_by` spelling of one of core's preflight arms — the typed lookup into
- * {@link PREFLIGHT_MECHANISM_OF}, which stays private so this is the only way in.
+ * `PREFLIGHT_MECHANISM_OF`, which stays private so this is the only way in.
  *
  * TOTAL over core's `PreflightFloorKind` and therefore never `undefined`, which is the point: a
  * caller cannot be handed an arm it has no name for, because such an arm would not have compiled.
@@ -218,7 +218,7 @@ export function mechanismNeedsPermissiveRating(mechanism: ForcedByMechanism | un
 export interface GthAgentTarget {
   type: 'gth-agent';
   /** Suite-level profile hint. Only `undefined`/`'default'` is accepted (see
-   * {@link ../evalSuite.js}'s `parseEvalSuite`) — per-case/per-identity profile switching is
+   * `evalSuite.js`'s `parseEvalSuite`) — per-case/per-identity profile switching is
    * `identities` scope, not this. */
   profile?: string;
 }
@@ -283,7 +283,7 @@ export interface AgUiAgentTarget {
  * §8 hardline floor — decides some commands outright, with no model in the loop.
  *
  * Unlike the agent targets this one is NOT driven by a `RunCellFn`: it supplies the
- * {@link RunClassifyFn} seam instead (`buildRaterClassifier` in {@link ../raterTarget.js}), which
+ * {@link RunClassifyFn} seam instead (`buildRaterClassifier` in `raterTarget.js`), which
  * the command passes to `runEvalSuite` as `options.classify`.
  */
 export interface RaterTarget {
@@ -295,7 +295,7 @@ export interface RaterTarget {
    * It is the suite's declaration, not the last word: a run whose config declares `approvals`
    * overrides it, which is what makes the `rung × model` sweep work through the existing `config:`
    * axis (a sweep cell cannot reach a `target` field). The override is announced, never silent —
-   * see {@link ../raterTarget.js}.
+   * see `raterTarget.js`.
    */
   rung: ApprovalRung;
 }
@@ -308,7 +308,7 @@ export interface RaterTarget {
 export type EvalTarget = GthAgentTarget | AdkAgentTarget | AgUiAgentTarget | RaterTarget;
 
 /** One `json_path` assertion (BATCH-10): resolve `path` against the answer-parsed-as-JSON and check
- * it. Exactly one of `equals`/`contains` is set (enforced in {@link ../evalSuite.js}'s parse):
+ * it. Exactly one of `equals`/`contains` is set (enforced in `evalSuite.js`'s parse):
  * - `equals` — the resolved value must deep-equal this (any JSON value, incl. `null`).
  * - `contains` — the resolved value must be a string containing this substring. */
 export interface JsonPathCheck {
@@ -321,7 +321,7 @@ export interface JsonPathCheck {
  * One `tool_result_json_path` assertion (BATCH-21): select tool results by name `tool` (exact or
  * glob, the same matcher `must_call` uses), parse each matching result's payload as JSON, and
  * resolve `path` against it (the same minimal dot/`[index]` path `json_path` uses). At most one of
- * `equals`/`contains` may be set (enforced in {@link ../evalSuite.js}'s parse):
+ * `equals`/`contains` may be set (enforced in `evalSuite.js`'s parse):
  * - neither — pure existence check: the path must resolve in a matching result's payload;
  * - `equals` — the resolved value must deep-equal this (any JSON value, incl. `null`);
  * - `contains` — the resolved value must be a string containing this substring.
@@ -426,7 +426,7 @@ export interface EvalTurn {
    *
    * **Carrying it is not the same as showing it to the rater.** §5.1 admits the justification from
    * round 2 onward, so the round-1 rating withholds it; the target hands the whole context to core's
-   * {@link import('@gaunt-sloth/core/core/shell/negotiation.js').ShellNegotiationState}, which is
+   * {@link @gaunt-sloth/core!core/shell/negotiation.ShellNegotiationState | ShellNegotiationState}, which is
    * the single implementation of that rule.
    */
   justification?: string;
@@ -459,7 +459,7 @@ export interface EvalTurn {
 
 /**
  * One turn's raw run outcome inside a multi-turn conversation (BATCH-12 Task 2). Structurally the
- * per-turn analogue of BATCH-1's {@link ../types.js CellRunOutcome}: the turn's answer plus the
+ * per-turn analogue of BATCH-1's {@link "types.js"!CellRunOutcome | CellRunOutcome}: the turn's answer plus the
  * tools/tokens captured FOR THAT TURN — a per-invoke GS2-16 delta (each `processMessages` call
  * resets the tally), NOT the cumulative conversation total. `ok:false` with `error` set means that
  * turn's SUT invocation failed (no answer to grade). The conversational runner returns one of these
@@ -485,8 +485,8 @@ export interface TurnRunOutcome {
 
 /**
  * Injectable "run one whole scripted conversation" function (BATCH-12 Task 2) — the multi-turn
- * analogue of BATCH-1's {@link ../types.js RunCellFn}, and the seam that lets
- * {@link ../evalRunner.js}'s multi-turn path be unit tested without any real LLM/MCP. Given the
+ * analogue of BATCH-1's {@link "types.js"!RunCellFn | RunCellFn}, and the seam that lets
+ * `evalRunner.js`'s multi-turn path be unit tested without any real LLM/MCP. Given the
  * ordered user messages of ONE (case × identity) conversation, it builds the agent + resolves tools
  * ONCE, runs each turn against the accumulated message history, and returns one {@link TurnRunOutcome}
  * per turn (per-turn answer + per-turn tool delta), cleaning up once. The production wiring
@@ -504,7 +504,7 @@ export type RunConversationFn = (userMessages: string[]) => Promise<TurnRunOutco
  * a round-1 rating, and a reset makes a later round a round-1 rating again — so the target hands the
  * accumulated state to `ShellNegotiationState.contextFor` rather than deciding here. A shape that
  * carried "what the rater sees" would be this package holding a second opinion about §5.1, which is
- * the one thing {@link ../raterTarget.js} exists not to do.
+ * the one thing `raterTarget.js` exists not to do.
  */
 export interface ClassifyRound {
   /** The command the agent proposes in this round. */
@@ -523,7 +523,7 @@ export interface ClassifyRound {
  * ## The Half-B seam, now filled
  *
  * Half A shipped this shape, the runner plumbing and the tests (against an injected fake); Half B
- * supplies the one function — `buildRaterClassifier` in {@link ../raterTarget.js}, the
+ * supplies the one function — `buildRaterClassifier` in `raterTarget.js`, the
  * {@link RaterTarget}'s implementation, which drives the approvals rating prompt + decision mapping
  * at a declared rung. The shape did not have to move to fit it.
  *
@@ -703,7 +703,7 @@ export interface EvalCase {
   modelFree: boolean;
 }
 
-/** A fully parsed and validated suite — see {@link ../evalSuite.js}'s `parseEvalSuite`. */
+/** A fully parsed and validated suite — see `evalSuite.js`'s `parseEvalSuite`. */
 export interface EvalSuite {
   target: EvalTarget;
   /**
@@ -745,7 +745,7 @@ export interface EvalSuite {
    * BATCH-25 — the config sweep: named cells the WHOLE suite is run once per, so one corpus
    * produces one comparison table instead of N unrelated runs. Absent = a single run.
    *
-   * Consumed by the CLI, not by {@link ../evalRunner.js runEvalSuite}: a sweep is a run-level
+   * Consumed by the CLI, not by {@link "evalRunner.js"!runEvalSuite | runEvalSuite}: a sweep is a run-level
    * concept (same suite, different config) exactly like BATCH-19's multi-suite loop, so the runner
    * stays about grading and #405's identity matrix is untouched.
    */
@@ -792,7 +792,7 @@ export interface DeterministicCheckResult {
 }
 
 /** The judge's structured verdict on one case's answer — matches `review`'s `RateSchema` shape
- * (0-10 `rate` + a reason string) for UX consistency, see {@link ../judge.js}. */
+ * (0-10 `rate` + a reason string) for UX consistency, see `judge.js`. */
 export interface JudgeVerdict {
   rate: number;
   reason: string;
@@ -812,7 +812,7 @@ export interface JudgeOutcome {
 }
 
 /** Injectable "grade one answer against one rubric" function — the seam that lets
- * {@link ../evalRunner.js}'s `runEvalSuite` be fully unit tested without any real LLM call, mirror
+ * `evalRunner.js`'s `runEvalSuite` be fully unit tested without any real LLM call, mirror
  * of BATCH-1's `RunCellFn`. The production wiring (`evalCommand.ts`) adapts `judgeEvalCase` to
  * this shape; tests inject a fake that resolves/fails as needed. */
 export type JudgeFn = (answer: string, rubric: string) => Promise<JudgeOutcome>;

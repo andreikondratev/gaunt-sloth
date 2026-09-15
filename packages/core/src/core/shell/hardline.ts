@@ -45,7 +45,7 @@
  * In short: stress-test a new case for side effects, and drop it if the false positives cannot be
  * avoided cheaply. **What decides every one of those calls is the asymmetry — a false positive here
  * is unappealable at EVERY rung including `bypass`, while a miss still has the rater and the
- * escalation behind it at every rung but `bypass`.** {@link CMD_POS} carries the worked example of
+ * escalation behind it at every rung but `bypass`.** `CMD_POS` carries the worked example of
  * a case measured and dropped.
  *
  * **How it may SHRINK — a narrowing ships with its removal set pinned.** Any edit that makes the
@@ -82,13 +82,13 @@
  *
  * **Mechanism.** Patterns match the NORMALIZED command (`@gaunt-sloth/core` `core/shell/normalize`)
  * so ANSI, fullwidth, backslash-split and whitespace-padded spellings cannot walk past them. The
- * normalized form PRESERVES line breaks — they are separators, not padding — and {@link CMD_POS}
+ * normalized form PRESERVES line breaks — they are separators, not padding — and `CMD_POS`
  * and {@link TARGET_TOKEN_END} are both built from core's one shared `COMMAND_SEPARATOR_CLASS`, so
  * the two halves cannot come to disagree about what a separator is. Every destructive-verb pattern
- * is anchored at {@link CMD_POS}, so a verb in an ordinary argument is not a refusal.
+ * is anchored at `CMD_POS`, so a verb in an ordinary argument is not a refusal.
  *
  * **There are TWO pattern lists and the second is platform-gated.** {@link HARDLINE_PATTERNS} is
- * catastrophic everywhere and is tried on every host; {@link WINDOWS_HARDLINE_PATTERNS} is tried in
+ * catastrophic everywhere and is tried on every host; `WINDOWS_HARDLINE_PATTERNS` is tried in
  * ADDITION when the platform is `win32`, never instead, because a Windows box also runs the POSIX
  * shapes through Git Bash and WSL. The platform is an argument with a `process.platform` default
  * ({@link HardlineOptions}) so both arms are reachable from any host's tests — read that docblock
@@ -125,7 +125,7 @@ const WRAPPER_FLAGS = '(?:-[^\\s]+\\s+)*';
  * pattern out of CATASTROPHIC BACKTRACKING — do not "simplify" it away.** Listing the value-taking
  * branch first only makes it *preferred*; the generic branch can still match `-u ` on backtracking,
  * so a run of `-u ` tokens partitions two ways per pair — Fibonacci-many parses of one input, all
- * of which the engine walks when the overall match fails. {@link CMD_POS} is shared by every
+ * of which the engine walks when the overall match fails. `CMD_POS` is shared by every
  * destructive-verb pattern, so the whole floor inherits it: measured at `sudo ` + `-u `×40 taking
  * 2.5 seconds, ×60 not finishing. The lookahead makes the branches mutually exclusive, removing the
  * ambiguity at its source rather than bounding its cost. Clustered (`-u10`) and long (`--user`)
@@ -162,7 +162,7 @@ const WRAPPER_ARMS: readonly string[] = [
 /**
  * Matches a position where the shell would begin parsing a NEW command: start of string, after a
  * separator (`;` `&` `|` newline), after `$(` or a backtick, optionally consuming any run of the
- * leading wrappers in {@link WRAPPER_ARMS}. Used by every destructive-verb pattern so a verb in an
+ * leading wrappers in `WRAPPER_ARMS`. Used by every destructive-verb pattern so a verb in an
  * ordinary argument (`echo mkfs.ext4 /dev/sda1`, `grep -c mkfs docs/*.md`) is not a refusal.
  *
  * **What this deliberately does NOT model. This is the worked example of the header's drop rule —
@@ -205,7 +205,7 @@ const WRAPPER_ARMS: readonly string[] = [
  * command parser — a quote-aware scanner built for exactly this was measured leaking 6 of 12
  * attacks where the blunt one leaked 0. `sh -c "…"`, `bash -c "…"`, `eval "…"` and
  * `xargs -I{} sh -c "…"` put the command inside an argument and stay uncovered on that basis; the
- * BARE `eval rm -rf /` and `xargs rm -rf /` ARE covered by {@link WRAPPER_ARMS}, so those names
+ * BARE `eval rm -rf /` and `xargs rm -rf /` ARE covered by `WRAPPER_ARMS`, so those names
  * appearing there must not be read as full cover. The same lexical blindness means a mention
  * following a separator or backtick still matches (`echo "step 1; rm -rf / is fatal"` is refused).
  *
@@ -236,10 +236,10 @@ const CMD_POS =
  * it, or the two halves of this module come to disagree about what a separator is and a
  * newline-composed command silently stops matching. (JS `$` without the `m` flag matches only true
  * end-of-input, so the explicit line break in the class is required; `m` is NOT an alternative —
- * it would also change `^` in {@link CMD_POS}.)
+ * it would also change `^` in `CMD_POS`.)
  *
  * **The class also ends the token at a substitution CLOSER — `)` and a backtick** — which is the
- * symmetric case to {@link CMD_POS} treating `$(` and a backtick as command *openers*. Without it a
+ * symmetric case to `CMD_POS` treating `$(` and a backtick as command *openers*. Without it a
  * target's tail cannot bind inside a substitution, and `echo $(rm -rf /)`, `` echo `rm -rf /` ``
  * and the bare `$(rm -rf /)` are allowed: the floor knows where such a command begins and not where
  * it ends.
@@ -258,7 +258,7 @@ const TARGET_TOKEN_END = `(?=$|[\\s)\`${COMMAND_SEPARATOR_CLASS}])`;
 /**
  * A prefix asserting that what follows sits OUTSIDE any single-quoted region — an even number of
  * single quotes between the start of the normalized command and the match. Used by the
- * redirect-to-block-device arm, the one destructive arm that {@link CMD_POS} cannot anchor.
+ * redirect-to-block-device arm, the one destructive arm that `CMD_POS` cannot anchor.
  *
  * **Why this arm needs an anchor of its own.** A redirection operator appears mid-command by
  * definition, so there is no command position to bind it to. Unanchored, the arm fires on the
@@ -287,7 +287,7 @@ const TARGET_TOKEN_END = `(?=$|[\\s)\`${COMMAND_SEPARATOR_CLASS}])`;
  *
  * **Linear, not backtracking.** `[^']*` cannot cross a `'`, so each iteration's partition is forced
  * and the outer `*` is bounded by the quote count — no ambiguity for the engine to explore. The
- * lesson {@link CMD_POS} records about Fibonacci-many parses does not reach this shape, and
+ * lesson `CMD_POS` records about Fibonacci-many parses does not reach this shape, and
  * `shellHardline.spec.ts` measures that rather than arguing it, on quotes interleaved with other
  * characters — a run of ADJACENT quotes is deleted by {@link normalizeCommand} as a token-splitting
  * artefact and never reaches this scan at all.
@@ -360,7 +360,7 @@ const H_SPACE = '[^\\S\\n\\r]+';
 
 /**
  * What may NOT appear inside a single token of one command: whitespace, a command separator, a
- * backtick (which OPENS a command — {@link CMD_POS} lists it as a command position), and `#`
+ * backtick (which OPENS a command — `CMD_POS` lists it as a command position), and `#`
  * (which ENDS one — everything after a comment is inert, so `chown -R app:app dist # perms under /`
  * targets `dist`, not `/`).
  *
@@ -399,7 +399,7 @@ const CHOWN_SKIPPABLE_ARG = `(?:-${H_TOKEN_CHAR}+|${H_OPERAND_CHAR}+)`;
  * `chown`, its options and its owner spec — everything up to the target. The owner is optional
  * because `--reference=FILE` replaces it.
  *
- * **Anchored at {@link CMD_POS}, and it must stay anchored.** Unanchored, `\bchown` matches the
+ * **Anchored at `CMD_POS`, and it must stay anchored.** Unanchored, `\bchown` matches the
  * word anywhere and {@link RECURSIVE_FLAG} accepts any `r`-bearing flag token, so `grep chown -r
  * /etc` — pattern, flag, path, the standard invocation for asking why permissions under `/etc` keep
  * changing — is refused under every rung including `bypass`, with no way for the user to proceed.
@@ -420,14 +420,14 @@ const CHOWN_HEAD =
  * Hardline patterns: [regex, human description]. Matched case-insensitively against the normalized
  * command.
  *
- * **Every destructive-verb pattern is anchored at {@link CMD_POS}, and must stay anchored.** A word
+ * **Every destructive-verb pattern is anchored at `CMD_POS`, and must stay anchored.** A word
  * boundary (`\brm`) — or no anchor at all — matches the verb ANYWHERE, including inside prose and
  * inside another command's arguments. Measured over 30 legitimate commands, the unanchored floor
  * refused 10 of them: `echo never run rm -rf /`, `grep -c mkfs docs/*.md`,
  * `rg -n "dd of=/dev/sd" scripts/`, `grep -rn "kill -1" packages/` and more. **The floor refused
  * commands that merely talk about the floor**, unappealably, at every rung including `bypass`.
  *
- * {@link CMD_POS} consumes the wrapper programs and admits every separator position, so
+ * `CMD_POS` consumes the wrapper programs and admits every separator position, so
  * `sudo rm -rf /`, `ls -la; rm -rf /` and `ls\nrm -rf /` all keep refusing.
  *
  * **What anchoring gives up** is the interpreter-wrapper forms — `sh -c "rm -rf /"`,
@@ -437,9 +437,9 @@ const CHOWN_HEAD =
  * asked for no gate. A false positive in this layer has no recovery at any rung; a miss still has
  * the layers above it. The floor stays narrow and accepts the misses.
  *
- * Two patterns carry no {@link CMD_POS} anchor, because neither is a command-position construct.
+ * Two patterns carry no `CMD_POS` anchor, because neither is a command-position construct.
  * The `>`-redirect-to-device arm is anchored differently instead — see
- * {@link OUTSIDE_SINGLE_QUOTES} — because a redirection operator appears mid-command by definition,
+ * `OUTSIDE_SINGLE_QUOTES` — because a redirection operator appears mid-command by definition,
  * so the discrimination available to it is whether the `>` is QUOTED, not where it sits. The
  * fork-bomb literal is anchored by nothing at all: the string *is* the fork bomb, so prose quoting
  * it is refused, and that false positive is accepted rather than fixed.
@@ -538,14 +538,14 @@ export const HARDLINE_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
  * every host; these are catastrophic only where they name real objects. `format` is a word a Linux
  * agent writes into a deployment script, `del` and `rd` are ordinary words, and `diskpart` is a
  * string someone greps for. Refusing them off-platform would be an unappealable refusal of prose,
- * which is the defect class {@link CMD_POS} exists to record. Gating costs one comparison and
+ * which is the defect class `CMD_POS` exists to record. Gating costs one comparison and
  * removes the whole class, so the two lists never merge.
  *
  * **The POSIX list stays active on win32.** Nothing here replaces it: Git Bash, MSYS and WSL all
  * run `rm -rf /` on a Windows box, and removing an arm from a platform would be a NARROWING of the
  * kind the module header forbids without a pinned removal set. The win32 arm is purely additive.
  *
- * **WHICH SHELL THE REUSED HELPERS MODEL — read this before adding an arm.** {@link CMD_POS} and
+ * **WHICH SHELL THE REUSED HELPERS MODEL — read this before adding an arm.** `CMD_POS` and
  * {@link TARGET_TOKEN_END} model **bash**, and they are reused here on a stated claim rather than
  * by assumption. What carries over is exact: the separators they recognise (`;`, `&`, `|`, a line
  * break) are also cmd.exe's and PowerShell's, and a token still ends at whitespace or end of input
@@ -901,7 +901,7 @@ const NETWORK_SINK_RE = new RegExp(
  * purely local backup written that way is still refused.
  *
  * **That residual is accepted, not overlooked.** Closing it needs a per-flag table of which options
- * take a separate value — the growth {@link CMD_POS} refuses, and where a wrong entry is a MISS
+ * take a separate value — the growth `CMD_POS` refuses, and where a wrong entry is a MISS
  * rather than mere noise — while the attached spelling is the common one and the whole class floored
  * before this arm existed, so the arm narrows it rather than widening it. It is pinned in
  * `shellHardline.spec.ts` as knowingly over-refused, so it is a decision on the record rather than
@@ -938,7 +938,7 @@ const RSYNC_REMOTE_TARGET = '(?!-)[^\\s/|]*:';
  *
  * **It asks whether a remote end is NAMED, not which side of the copy it is on**, so a pull from a
  * remote source into a credential directory also matches. Naming the side means resolving operand
- * positions past a per-flag table of which options take values — the growth {@link CMD_POS}
+ * positions past a per-flag table of which options take values — the growth `CMD_POS`
  * refuses — and the direction this errs in is the safe one: it can only keep a refusal that the
  * unconditional arm already made.
  *
@@ -1018,8 +1018,8 @@ const CREDENTIAL_SOURCE_PATTERNS: readonly RegExp[] = [
  * Floor behaviour depends on it and it is edited in another module, so a change there is exactly the
  * silent narrowing this exists to make loud.
  *
- * A value composed at module load carries its parts with it: {@link CMD_POS} expands
- * {@link WRAPPER_ARMS}, and {@link ROOT_TARGET} expands `quotedOrBare`, so those parts are frozen
+ * A value composed at module load carries its parts with it: `CMD_POS` expands
+ * `WRAPPER_ARMS`, and `ROOT_TARGET` expands `quotedOrBare`, so those parts are frozen
  * whether or not they are also members. The parts are listed anyway, because a diff that names
  * `H_TOKEN_EXCLUSIONS` is actionable where one that names only `CHOWN_HEAD` is a wall of regex.
  *
@@ -1107,7 +1107,7 @@ export interface HardlineMatch {
    *
    * REQUIRED rather than optional, deliberately: an optional field is one a future arm forgets to
    * set, and the dump would then say nothing while looking complete — the same
-   * enumeration-with-a-hole shape {@link CMD_POS} records about itself. The exfiltration arm has no
+   * enumeration-with-a-hole shape `CMD_POS` records about itself. The exfiltration arm has no
    * single pattern (it is a per-pipeline source/sink test), so it carries the stable token
    * {@link EXFILTRATION_ARM} instead; the prose lives in `description`, so anyone grepping this
    * field for a pattern source never gets a sentence.
@@ -1129,7 +1129,7 @@ export const EXFILTRATION_ARM = 'deterministic-exfiltration';
 /** Options for {@link checkHardline}. */
 export interface HardlineOptions {
   /**
-   * The host platform to decide the {@link WINDOWS_HARDLINE_PATTERNS} arm against, in
+   * The host platform to decide the `WINDOWS_HARDLINE_PATTERNS` arm against, in
    * `process.platform`'s vocabulary. Defaults to `process.platform`, which is what every
    * production caller wants.
    *

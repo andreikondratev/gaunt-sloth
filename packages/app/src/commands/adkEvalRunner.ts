@@ -2,7 +2,7 @@
  * @module adkEvalRunner
  * BATCH-14 — the ADK (A2A) target's production runner builders for `gth eval`. The eval runner
  * ({@link @gaunt-sloth/batch#runEvalSuite}) is target-agnostic: it consumes an injected
- * {@link RunCellFn} (single-shot) and {@link RunConversationFn} (multi-turn) and grades whatever
+ * `RunCellFn` (single-shot) and `RunConversationFn` (multi-turn) and grades whatever
  * `answer` they produce with the SAME assertion surface used for the `gth-agent` target. This module
  * builds those two functions for an EXTERNAL Google ADK agent, driving it over the A2A protocol via
  * {@link A2AClientWrapper} (the existing `@a2a-js/sdk` wrapper) — the analogue of `batchCommand.ts`'s
@@ -63,7 +63,7 @@ export const defaultAdkClientFactory: AdkClientFactory = (target) => {
 };
 
 /**
- * Build the injectable single-shot {@link RunCellFn} that drives ONE ADK agent turn over A2A: send
+ * Build the injectable single-shot `RunCellFn` that drives ONE ADK agent turn over A2A: send
  * the cell's prompt as the A2A message text and return the agent's text as the cell `answer`. A
  * transport/agent error is contained as a failed cell (`ok:false`) so one bad case can never take the
  * whole suite down — matching `buildProductionRunCell`'s discipline for the gth-agent path.
@@ -86,13 +86,13 @@ export function buildAdkRunCell(
 }
 
 /**
- * Build the injectable multi-turn {@link RunConversationFn} that drives a whole scripted conversation
+ * Build the injectable multi-turn `RunConversationFn` that drives a whole scripted conversation
  * against the ADK agent over A2A, threading the A2A `contextId` across turns so turn N sees turn
  * N-1's context (an ADK agent keeps conversational memory by `contextId`). ONE client is built for
  * the conversation; the first turn sends no context, and each subsequent turn carries the `contextId`
  * the previous response returned.
  *
- * Returns one {@link TurnRunOutcome} per turn attempted. A turn that throws is recorded as a failed
+ * Returns one `TurnRunOutcome` per turn attempted. A turn that throws is recorded as a failed
  * turn and ABORTS the conversation (the returned array is short) — the runner fails the un-run turns
  * with a clear reason, exactly as it does for a gth-agent conversation that ended early.
  */
