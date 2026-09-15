@@ -54,6 +54,7 @@ Code block with language yaml will not be highlighted in comment for docs/guides
 Code block with language yaml will not be highlighted in comment for docs/guides/evals-for-mcp-servers as it was not included in the highlightLanguages option
 Code block with language yaml will not be highlighted in comment for docs/guides/evals-for-mcp-servers as it was not included in the highlightLanguages option
 Code block with language yaml will not be highlighted in comment for docs/guides/evals-for-mcp-servers as it was not included in the highlightLanguages option
+Code block with language yaml will not be highlighted in comment for docs/guides/evals-for-mcp-servers as it was not included in the highlightLanguages option
 ConvertMessageOptions, defined in @gaunt-sloth/agent/src/modules/apiAgUiModule.ts, is referenced by modules/apiAgUiModule.js.convertMessage.options but not included in the documentation
 ExecCommandOptions, defined in gaunt-sloth/src/commands/execCommand.ts, is referenced by commands/execCommand.buildExecConfig.options but not included in the documentation
 Failed to resolve link to "#cleanup" in comment for @gaunt-sloth/core.core/GthAgentRunner.GthAgentRunner.init

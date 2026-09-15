@@ -27,6 +27,9 @@ import type { ToolResultRecord } from '#src/types.js';
  *   `equals` deep-equals / `contains` substring-matches the resolved value. A non-JSON (or absent)
  *   payload is a deterministic per-result FAIL, never a throw — note capture caps payloads
  *   (`TOOL_RESULT_CONTENT_CAP`), so a truncated over-cap payload also fails as non-JSON.
+ *   (BATCH-43) The payload it reads is the result's `errorPayload` when capture recovered one — an
+ *   errored MCP tool's own error body, freed from the adapter's prose prefix — and otherwise the
+ *   observed `content`, which is left exactly as the model saw it in either case.
  *
  * The runner only ever calls this with expectation blocks a `gth-agent` suite produced — the suite
  * parser rejects tool-result assertions against `ag-ui`/`adk-agent` targets, whose wire carries no
@@ -88,9 +91,16 @@ function evaluateResultAgainstCheck(
   result: ToolResultRecord,
   check: ToolResultJsonPathCheck
 ): string | undefined {
+  // BATCH-43 — grade the recovered MCP error body when capture produced one, else the observed
+  // payload exactly as before. An errored MCP tool's `content` is the adapter's prose-prefixed
+  // message and never parses; `errorPayload` is the server's own body with that prefix removed,
+  // and it is only ever recorded when it parses, so this branch cannot introduce a new failure —
+  // when it is absent (any non-MCP result, or an MCP error whose body is prose) the reason below
+  // is the same deterministic one the check has always given.
+  const payload = result.errorPayload ?? result.content ?? '';
   let root: unknown;
   try {
-    root = JSON.parse((result.content ?? '').trim());
+    root = JSON.parse(payload.trim());
   } catch {
     return 'result payload is not JSON';
   }

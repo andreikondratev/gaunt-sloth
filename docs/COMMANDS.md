@@ -480,7 +480,7 @@ These grade the agent's answer (and its tool trace). Use them at case level, ins
 | `must_not_match` | string[] | **No** regex matches the answer. |
 | `json_path` | list | The answer parses as JSON and every entry holds. Each entry is `{ path, equals }` or `{ path, contains }` (exactly one), where `path` is a minimal dotted/indexed path (`$.items[0].scope`, `data.status`). |
 | `must_error` | string[] | For **each** pattern, at least one called tool matching it **returned an error** (the tool result's real error status, not text sniffing). Globs supported, same matcher as `must_call`. |
-| `tool_result_json_path` | list | Each entry is `{ tool, path }` plus optionally `equals` **or** `contains`. At least one result from a tool matching `tool` (glob) parses as JSON and `path` resolves in it (and matches `equals`/`contains` when set; neither = existence check). A non-JSON payload fails the entry. |
+| `tool_result_json_path` | list | Each entry is `{ tool, path }` plus optionally `equals` **or** `contains`. At least one result from a tool matching `tool` (glob) parses as JSON and `path` resolves in it (and matches `equals`/`contains` when set; neither = existence check). A non-JSON payload fails the entry. For a failed MCP call the payload graded is the server's own error body — see [Tool-result assertions](#tool-result-assertions). |
 | `expect_label` | string | The classification the SUT produced equals this. The value must be one the suite's `classification.labels` declares. Requires a `classification` block. |
 | `expect_action` | string | The **action** the SUT produced equals this. Requires `classification.actions` **and** `classification.action_from`. |
 | `forced_by` | string | The named deterministic mechanism of the approvals gate decided this round: `hardline-floor`, `script-env-leak-preflight` or `open-world-preflight`. `rater` target only — see [The rater target](#the-rater-target), which also covers how each one is driven. |
@@ -499,15 +499,19 @@ A case may also carry `tags: [...]` (its family — the per-tag sub-score axis; 
     - identities: [limited]
       must_call: ["mcp__contracts__report"]        # it tried the tool…
       must_error: ["mcp__contracts__report"]       # …and the call came back as an error
+      tool_result_json_path:                       # …and this is what the denial said
+        - { tool: "mcp__contracts__report", path: "code", equals: "forbidden" }
     - identities: [admin]
       must_call: ["mcp__contracts__report"]
       tool_result_json_path:                       # …while this one got the data itself
         - { tool: "mcp__contracts__report", path: "contracts[0].type", equals: "SUPPLY" }
 ```
 
-The two result keys grade different things. `must_error` reads the result's error status, so it is what asserts a denial. `tool_result_json_path` parses the whole captured payload as JSON, which makes it a check on a result the tool returned **as data** — an MCP tool's failure is captured as the adapter's error message (prose, then the server's text), so it does not parse and cannot be graded this way.
+The two result keys grade different things. `must_error` reads the result's error status, so it is what asserts *that* a call was denied. `tool_result_json_path` parses a result payload as JSON and addresses into it, so it is what asserts *what the tool said* — the data a successful call returned, or the error body a failed MCP call came back with.
 
-Tool-result assertions read the in-process tool trace, so they require `target.type: gth-agent`; a suite using them with an `ag-ui` or `adk-agent` target is rejected before anything runs (exit `2`). Result payloads are captured up to 8 KB — a longer payload is truncated and then fails `tool_result_json_path` as non-JSON.
+A failed MCP call reaches the trace as the message the MCP adapter raises — `MCP tool 'report' on server 'contracts' returned an error:` followed by the server's own text — and the trace records that message unchanged, because it is what the model observed. `tool_result_json_path` grades the part after the prefix when the server's text is JSON, which is how the `code: forbidden` entry above passes. Two things are not gradable: a call whose tool name does not resolve to exactly one configured `mcpServers` key, and an error whose detail the server sent only in MCP `structuredContent` — `@langchain/mcp-adapters` discards structured content on the error path before gaunt-sloth sees the result, so only the text content ever arrives.
+
+Tool-result assertions read the in-process tool trace, so they require `target.type: gth-agent`; a suite using them with an `ag-ui` or `adk-agent` target is rejected before anything runs (exit `2`). Result payloads are captured up to 8 KB — a longer payload is truncated and then fails `tool_result_json_path` as non-JSON, and an MCP error body over that size is not recovered at all rather than recovered half-cut.
 
 ### Identity matrix
 

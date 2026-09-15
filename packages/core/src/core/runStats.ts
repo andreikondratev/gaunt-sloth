@@ -10,6 +10,7 @@
  * message chunks / `ToolMessage`s as they arrive), across providers whose message shapes vary.
  * Nothing here may throw into a run — a missing/odd field just means that datum is skipped.
  */
+import { mcpToolErrorPayload } from '#src/core/mcpErrorPayload.js';
 import type { GthRunStats, GthToolResult } from '#src/core/types.js';
 
 /**
@@ -86,8 +87,17 @@ function toolResultContentText(content: unknown): string | undefined {
  *   `.name` (the executed tool), so both "requested" and "executed" tools are captured, and
  * - (BATCH-21) a per-`ToolMessage` result record — `name` + `isError` (from `.status`) + capped
  *   `content` — into `acc.toolResults`, so tool-RESULT assertions can grade what a tool returned.
+ *
+ * `configuredMcpServers` is `Object.keys(config.mcpServers)`, used only to resolve which server an
+ * errored MCP tool belongs to (BATCH-43; see the record's `errorPayload`). It is passed per fold
+ * rather than held on the accumulator so this never depends on the accumulator being re-created
+ * after the config is known — the default leaves every non-MCP capture exactly as it was.
  */
-export function accumulateMessage(acc: RunStatsAccumulator, message: unknown): void {
+export function accumulateMessage(
+  acc: RunStatsAccumulator,
+  message: unknown,
+  configuredMcpServers: Iterable<string> = []
+): void {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const m = message as any;
@@ -123,10 +133,24 @@ export function accumulateMessage(acc: RunStatsAccumulator, message: unknown): v
       // payload (capped; omitted when no text can be derived). One record per ToolMessage, in
       // arrival order — deliberately NOT deduplicated, unlike the name set above.
       const content = toolResultContentText(m.content);
+      // BATCH-43 — beside the observed payload, never instead of it: an errored MCP tool's result
+      // is the adapter's own prose-prefixed message, which `tool_result_json_path` cannot parse.
+      // `mcpToolErrorPayload` rebuilds that prefix from the resolved server + tool name and strips
+      // it, yielding the server's own error body when (and only when) it is JSON. Derived from the
+      // RAW `m.content`, not from the capped `content` above — deriving after the cap would work on
+      // every payload short enough to test with and silently stop working on the long ones. The cap
+      // is applied inside, to the derived payload, for the reason its docblock gives.
+      const isError = m.status === 'error';
+      const errorPayload = mcpToolErrorPayload(
+        { name: m.name, isError, content: m.content },
+        configuredMcpServers,
+        TOOL_RESULT_CONTENT_CAP
+      );
       acc.toolResults.push({
         name: m.name,
-        isError: m.status === 'error',
+        isError,
         ...(content !== undefined ? { content } : {}),
+        ...(errorPayload !== undefined ? { errorPayload } : {}),
       });
     }
   } catch {
@@ -148,11 +172,14 @@ export function finalizeRunStats(acc: RunStatsAccumulator): GthRunStats {
  * One-shot convenience for the non-streaming path: fold a full `messages[]` (e.g. the final graph
  * state) into a fresh accumulator and finalize. Fail-soft (a non-iterable input yields empties).
  */
-export function extractRunStats(messages: unknown): GthRunStats {
+export function extractRunStats(
+  messages: unknown,
+  configuredMcpServers: Iterable<string> = []
+): GthRunStats {
   const acc = createRunStatsAccumulator();
   try {
     if (Array.isArray(messages)) {
-      for (const m of messages) accumulateMessage(acc, m);
+      for (const m of messages) accumulateMessage(acc, m, configuredMcpServers);
     }
   } catch {
     /* fail-soft */

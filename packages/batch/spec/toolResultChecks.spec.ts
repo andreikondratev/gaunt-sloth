@@ -216,6 +216,52 @@ describe('runToolResultChecks — tool_result_json_path', () => {
     ).toEqual([]);
   });
 
+  // BATCH-43 — an errored MCP tool's observed payload is the adapter's prose-prefixed message and
+  // will never parse. Capture records the server's own error body beside it, and the check grades
+  // that when it is there.
+  it('grades the recovered MCP error body while the observed payload stays un-parseable', async () => {
+    const { runToolResultChecks } = await import('#src/toolResultChecks.js');
+    const observed =
+      "MCP tool 'contract_search' on server 'unimarket' returned an error: " +
+      '{"code":"forbidden","reason":"identity lacks scope contracts:read"}';
+    const record: ToolResultRecord = {
+      name: 'mcp__unimarket__contract_search',
+      isError: true,
+      content: observed,
+      errorPayload: '{"code":"forbidden","reason":"identity lacks scope contracts:read"}',
+    };
+
+    expect(
+      runToolResultChecks([record], {
+        mustError: ['mcp__unimarket__*'],
+        toolResultJsonPath: [
+          { tool: 'mcp__unimarket__*', path: 'code', equals: 'forbidden' },
+          { tool: 'mcp__unimarket__*', path: 'reason', contains: 'contracts:read' },
+        ],
+      })
+    ).toEqual([]);
+
+    // The half that must not be traded away for the half above: strip the recovered body and the
+    // very same assertions go back to failing on the untouched observed payload.
+    expect(
+      runToolResultChecks([{ ...record, errorPayload: undefined }], {
+        mustError: [],
+        toolResultJsonPath: [{ tool: 'mcp__unimarket__*', path: 'code', equals: 'forbidden' }],
+      })
+    ).toEqual([
+      'tool_result_json_path "code" (tool "mcp__unimarket__*"): result payload is not JSON',
+    ]);
+  });
+
+  it('still reads content when no MCP error body was recovered (unchanged behaviour)', async () => {
+    const { runToolResultChecks } = await import('#src/toolResultChecks.js');
+    const failures = runToolResultChecks([result('read_file', false, '{"lines":3}')], {
+      mustError: [],
+      toolResultJsonPath: [{ tool: 'read_file', path: 'lines', equals: 3 }],
+    });
+    expect(failures).toEqual([]);
+  });
+
   it('combines a must_error miss and a json_path failure (the acceptance shape)', async () => {
     const { runToolResultChecks } = await import('#src/toolResultChecks.js');
     const failures = runToolResultChecks([result('mcp__x__y', false, '{"rows":[1,2]}')], {

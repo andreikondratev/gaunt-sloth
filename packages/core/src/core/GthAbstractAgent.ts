@@ -569,9 +569,17 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
     return this.advertisedTools;
   }
 
-  /** GS2-16 — fold one message (or chunk) into the run tally. Fully guarded (fail-soft). */
+  /**
+   * GS2-16 — fold one message (or chunk) into the run tally. Fully guarded (fail-soft).
+   *
+   * BATCH-43 — the configured `mcpServers` keys ride along so an errored MCP tool result can be
+   * attributed to its server and its own error body recovered beside the observed payload. Read
+   * from `this.config` at fold time rather than captured when the accumulator is created: the
+   * accumulator is rebuilt at every turn boundary while the config is set once at `init`, and a
+   * capture would silently record nothing for any turn whose ordering ever changed.
+   */
   protected recordRunStats(message: unknown): void {
-    accumulateMessage(this.runStatsAcc, message);
+    accumulateMessage(this.runStatsAcc, message, Object.keys(this.config?.mcpServers ?? {}));
   }
 
   /**

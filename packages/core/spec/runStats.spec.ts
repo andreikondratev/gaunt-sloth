@@ -161,6 +161,100 @@ describe('core/runStats', () => {
     expect(stats.toolResults).toEqual([]);
   });
 
+  // BATCH-43 — the recovered MCP error body is captured BESIDE the observed payload. Both halves
+  // are asserted on the SAME record on purpose: satisfying one by tidying up the other is the exact
+  // failure this feature must not have, and split across two records neither assertion sees it.
+  it('captures the recovered MCP error body while leaving the observed payload byte-identical', () => {
+    const observed =
+      "MCP tool 'contract_search' on server 'unimarket' returned an error: " +
+      '{"code":"forbidden","reason":"identity lacks scope contracts:read"}';
+    const acc = createRunStatsAccumulator();
+    accumulateMessage(
+      acc,
+      new ToolMessage({
+        content: observed,
+        tool_call_id: 'c1',
+        name: 'mcp__unimarket__contract_search',
+        status: 'error',
+      }),
+      ['unimarket']
+    );
+
+    const stats = finalizeRunStats(acc);
+    expect(stats.toolResults).toEqual([
+      {
+        name: 'mcp__unimarket__contract_search',
+        isError: true,
+        // What the model saw — prose prefix and all, unchanged.
+        content: observed,
+        // What a tool_result_json_path assertion can grade.
+        errorPayload: '{"code":"forbidden","reason":"identity lacks scope contracts:read"}',
+      },
+    ]);
+  });
+
+  it('threads the configured mcpServers keys through, so a key containing "__" still resolves', () => {
+    const observed =
+      "MCP tool 'contract__search' on server 'uni__market' returned an error: " +
+      '{"code":"forbidden"}';
+    const acc = createRunStatsAccumulator();
+    accumulateMessage(
+      acc,
+      new ToolMessage({
+        content: observed,
+        tool_call_id: 'c1',
+        name: 'mcp__uni__market__contract__search',
+        status: 'error',
+      }),
+      ['uni__market']
+    );
+    expect(finalizeRunStats(acc).toolResults![0]).toEqual({
+      name: 'mcp__uni__market__contract__search',
+      isError: true,
+      content: observed,
+      errorPayload: '{"code":"forbidden"}',
+    });
+  });
+
+  it('records no errorPayload when the caller supplies no configured servers', () => {
+    // The default: nothing names the server, so nothing is recovered and the record is exactly the
+    // shape it had before BATCH-43.
+    const observed =
+      'MCP tool \'contract_search\' on server \'unimarket\' returned an error: {"code":"forbidden"}';
+    const acc = createRunStatsAccumulator();
+    accumulateMessage(
+      acc,
+      new ToolMessage({
+        content: observed,
+        tool_call_id: 'c1',
+        name: 'mcp__unimarket__contract_search',
+        status: 'error',
+      })
+    );
+    expect(finalizeRunStats(acc).toolResults).toEqual([
+      { name: 'mcp__unimarket__contract_search', isError: true, content: observed },
+    ]);
+  });
+
+  it('caps the observed payload and records NO errorPayload when the body exceeds the cap', () => {
+    const huge = `{"reason":"${'x'.repeat(TOOL_RESULT_CONTENT_CAP)}"}`;
+    const observed = `MCP tool 'contract_search' on server 'unimarket' returned an error: ${huge}`;
+    const acc = createRunStatsAccumulator();
+    accumulateMessage(
+      acc,
+      new ToolMessage({
+        content: observed,
+        tool_call_id: 'c1',
+        name: 'mcp__unimarket__contract_search',
+        status: 'error',
+      }),
+      ['unimarket']
+    );
+    const record = finalizeRunStats(acc).toolResults![0];
+    expect(record.content).toHaveLength(TOOL_RESULT_CONTENT_CAP);
+    expect(record.errorPayload).toBeUndefined();
+  });
+
   it('is fail-soft on malformed / non-message input (never throws)', () => {
     const acc = createRunStatsAccumulator();
     expect(() => accumulateMessage(acc, null)).not.toThrow();

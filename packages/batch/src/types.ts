@@ -50,6 +50,17 @@ export interface ToolResultRecord {
   isError: boolean;
   /** The result payload as text (non-string payloads JSON-stringified), size-capped at capture. */
   content?: string;
+  /**
+   * BATCH-43 — an errored MCP tool's own error body, recovered at capture and carried BESIDE
+   * {@link content}, which stays exactly what the model observed. `tool_result_json_path` grades
+   * this when it is present; when it is absent the check reads {@link content} and behaves as it
+   * always has. Present implies it parses as JSON, so a check that finds it never has to ask.
+   *
+   * Absent for everything that is not an errored MCP call, and absent too for an MCP error whose
+   * body is prose rather than JSON — a server that puts its detail only in MCP `structuredContent`
+   * is not gradable at all, because the adapter discards that before any of our code runs.
+   */
+  errorPayload?: string;
 }
 
 /** What one attempt at running a cell through the shared single-shot runtime produced. */
