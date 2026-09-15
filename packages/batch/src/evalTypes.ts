@@ -406,6 +406,31 @@ export interface EvalExpectation {
    * touching the first.
    */
   expectAction?: string;
+  /**
+   * BATCH-45 — **assert that a MODEL actually rendered a verdict for this round**, i.e. that
+   * {@link ClassifyOutcome.modelLabel} is present. `true` is the only legal value; `undefined` =
+   * this block makes no such claim. `rater` target only.
+   *
+   * It is NOT an assertion about the rung, and NOT an assertion about WHAT the model said. Those
+   * are {@link expectLabel} and {@link expectAction}, and the whole point of this key is that it
+   * says neither: a case can pin "a rater ruled here" without predicting which verdict three
+   * different raters would render, which is a prediction no measurement backs.
+   *
+   * **Why the action column cannot do this job.** When the gate never obtains a rating (timeout,
+   * throw, unparseable answer) it fails closed, and since EXT-171 that ESCALATES rather than
+   * negotiating. A genuine `catastrophic` verdict escalates too. So `expect_action: escalate` is
+   * satisfied identically by a rater that judged the command unnegotiable and by a rater that
+   * never answered at all — and a case asserting only that passes on a run where nothing was
+   * measured. BATCH-45 found ten such cells live in this repo's own approvals corpus.
+   *
+   * **Why `modelLabel` and not the rationale text.** `modelLabel` is suppressed from the call's own
+   * capture (`rating.failClosed`), never from a reading of the verdict's prose. Core's
+   * `isFailClosed` answers a question about the reason TEXT, and the rating prompt tells a rater to
+   * answer `destructive` and say it could not assess a command it is unsure of — so that predicate
+   * scores an obedient judgement as a gate failure. EXT-171 and `raterHealth` both say never to key
+   * on verdict text.
+   */
+  expectRated?: boolean;
 }
 
 /**

@@ -121,6 +121,11 @@ const RawAssertionsSchema = z.object({
   // Validated against the suite's `classification` enums after normalization.
   expect_label: z.string().optional(),
   expect_action: z.string().optional(),
+  // BATCH-45 — assert that a MODEL rendered a verdict for this round, without saying which. It sits
+  // in the assertion bundle for the same reason the two above do: a negotiation round and an
+  // identity scope both need their own answer to "was this one rated?". `rater` target only, and
+  // `true` only — see `parseExpectRated`.
+  expect_rated: z.boolean().optional(),
   // BATCH-25 Half B — assert WHICH deterministic mechanism of the approvals gate decided this
   // round. `rater` target only; desugars to a `must_contain` on that mechanism's rationale marker.
   forced_by: z.string().optional(),
@@ -317,6 +322,10 @@ const FLAT_ASSERTION_KEYS = [
   // check; omitting them would let a suite declare both surfaces and have one silently ignored.
   'expect_label',
   'expect_action',
+  // BATCH-45 — same reason as the two above: a key missing from this list can be declared beside an
+  // `expect:` array and then silently ignored, which for an assertion about whether anything was
+  // measured at all is the exact defect it was added to catch.
+  'expect_rated',
   'forced_by',
   'judge',
 ] as const;
@@ -380,6 +389,10 @@ type RawAssertions = z.infer<typeof RawAssertionsSchema>;
  *   a `judge:` rubric, since the judge is a second model call the target's `modelCalls` cannot see.
  * - `forced_by` on any target except `rater`, or naming something that is not a mechanism of the
  *   approvals gate.
+ * - `expect_rated` (BATCH-45) on any target except `rater` — every other target reports the model's
+ *   own answer as the label, so the assertion could not fail there; `expect_rated: false`, which
+ *   predicts a timeout rather than asserting behaviour; or `expect_rated` on a `model_free` case,
+ *   which consults no model and so could never satisfy it.
  * - A `judge_profile` containing a path separator or `..`.
  *
  * @param yamlText Raw suite file content.
@@ -795,6 +808,19 @@ export function parseEvalSuite(yamlText: string, sourcePath?: string): EvalSuite
                 '`model_free: true` AND a `judge:` rubric — the judge is a model call, so the case ' +
                 "would not be free and its reported model-call count (the target's, which the " +
                 'judge is not part of) would say it was. Drop the rubric, or drop `model_free`.'
+            );
+          }
+          // BATCH-45 — the mirror of the clash above, failing the other way. A model-free round
+          // reports NO `modelLabel` by design (nobody judged, and writing core's fail-closed
+          // placeholder there would record a verdict no model rendered), so `expect_rated` on such
+          // a case could never pass. An assertion that can never pass is a suite error, not a red
+          // cell for someone to diagnose out of a run — the same rule the rest of this parse keeps.
+          if (expectation.expectRated !== undefined) {
+            throw new Error(
+              `Invalid eval suite${suffix}: case "${rawCase.id}" (index ${index}) declares ` +
+                '`model_free: true` AND `expect_rated` — a model-free round consults no model, so ' +
+                'it reports no verdict and the assertion could never pass. `forced_by:` is how a ' +
+                'model-free case pins WHICH deterministic mechanism decided it; drop one of the two.'
             );
           }
         }
@@ -1488,6 +1514,63 @@ function parseForcedBy(
 }
 
 /**
+ * BATCH-45 — validate `expect_rated`, the assertion that a MODEL rendered a verdict for this round.
+ *
+ * ## Why a case needs this at all
+ *
+ * A gate that never obtains a rating fails closed, and since EXT-171 that ESCALATES rather than
+ * negotiating. A genuine `catastrophic` verdict also escalates. So `expect_action: escalate` is
+ * satisfied identically by a rater that judged the command and by a rater that never answered —
+ * and a case asserting only that PASSES on a run in which nothing was measured. Ten cells of this
+ * repo's own approvals corpus were doing exactly that. `expect_rated: true` is the assertion that
+ * separates the two, reading {@link "evalTypes.js"!ClassifyOutcome.modelLabel | modelLabel}, which
+ * the target omits on the fail-closed path.
+ *
+ * ## Three ways it is rejected, and why each would otherwise be a silent pass
+ *
+ * - **`rater`-only.** On the answer-extraction path the runner sets `modelLabel = actualLabel`
+ *   deliberately (an extracted label IS the model's answer; leaving it absent would exclude every
+ *   extraction suite from a `model.label` denominator). So in a `gth-agent`/`adk-agent`/`ag-ui`
+ *   suite this assertion holds whenever any label was extracted — it could not fail, which is this
+ *   key's own defect class one suite type over.
+ * - **`true` only.** `expect_rated: false` on a rated case asserts the model will NOT answer, which
+ *   is a prediction about latency and transport standing in front of a release. `model_free: true`
+ *   already expresses "no model call" deterministically and is graded against the target's own
+ *   call count.
+ * - **not on a `model_free` case** (enforced where `model_free` is read, with the `judge:` clash).
+ *   A model-free round reports no label and no `modelLabel` BY DESIGN, so the assertion could never
+ *   pass. An assertion that can never pass is as useless as one that can never fail, and both are
+ *   parse errors here rather than a red cell someone has to diagnose from a run.
+ */
+function parseExpectRated(raw: boolean | undefined, ctx: ExpectationContext): boolean | undefined {
+  if (raw === undefined) return undefined;
+
+  const turnPart = ctx.turnIndex === undefined ? '' : ` turn ${ctx.turnIndex}`;
+  const where =
+    ctx.blockIndex === undefined
+      ? `case "${ctx.caseId}" (index ${ctx.caseIndex})${turnPart}`
+      : `case "${ctx.caseId}" (index ${ctx.caseIndex})${turnPart} expect block ${ctx.blockIndex}`;
+
+  if (ctx.targetType !== 'rater') {
+    throw new Error(
+      `Invalid eval suite${ctx.suffix}: ${where} uses \`expect_rated\`, which only the "rater" ` +
+        `target can grade — it asserts that the approvals gate obtained a RATING, and a ` +
+        `"${ctx.targetType}" target reports the model's own answer as the label either way, so the ` +
+        'assertion could never fail there. Remove it, or use `target: { type: rater, rung: … }`.'
+    );
+  }
+  if (raw === false) {
+    throw new Error(
+      `Invalid eval suite${ctx.suffix}: ${where} declares \`expect_rated: false\`, which asserts ` +
+        'that the rater will NOT answer — a prediction about timeouts and transport, not about ' +
+        'behaviour, and a flaky gate in front of a release. Use `model_free: true` to declare a ' +
+        'case the gate decides with no model call at all, or drop the key.'
+    );
+  }
+  return true;
+}
+
+/**
  * Normalize one raw assertion bundle (a flat case's case-level fields, or one `expect:` block) into
  * an {@link EvalExpectation}: default arrays to `[]`, compile regexes at parse time, validate
  * json_path shape, validate the optional `identities` scope against the suite's declared list, and
@@ -1636,6 +1719,10 @@ function buildExpectation(
     }
   }
 
+  // BATCH-45 — validated beside the two above, and for the same reason: an assertion the suite
+  // could not grade is a parse error, never a case that quietly asserts nothing.
+  const expectRated = parseExpectRated(raw.expect_rated, ctx);
+
   const hasChecks =
     mustContain.length > 0 ||
     mustNotContain.length > 0 ||
@@ -1651,7 +1738,12 @@ function buildExpectation(
     // primary shape of a classifier suite; without these two clauses it would be rejected here as
     // "no checks and no judge rubric".
     expectLabel !== undefined ||
-    expectAction !== undefined;
+    expectAction !== undefined ||
+    // BATCH-45 — "a model ruled here" is a complete assertion on its own, and the `sd-*` family of
+    // the approvals corpus is why: nobody has measured what raters say about the shutdown family,
+    // so those cases may not pin a verdict, and this is the only thing left that a run where
+    // nothing answered cannot satisfy.
+    expectRated !== undefined;
   const judgeRubric = raw.judge?.trim();
   const hasJudge = !!judgeRubric;
 
@@ -1660,7 +1752,8 @@ function buildExpectation(
       `Invalid eval suite${ctx.suffix}: ${where} has no checks and no judge rubric — it must ` +
         'declare at least one of must_contain / must_not_contain / should_contain_any / must_call ' +
         '/ must_not_call / must_match / must_not_match / json_path / must_error / ' +
-        'tool_result_json_path / expect_label / expect_action / forced_by, or a judge rubric.'
+        'tool_result_json_path / expect_label / expect_action / expect_rated / forced_by, or a ' +
+        'judge rubric.'
     );
   }
 
@@ -1678,6 +1771,7 @@ function buildExpectation(
     toolResultJsonPath,
     expectLabel,
     expectAction,
+    expectRated,
     judgeRubric: hasJudge ? judgeRubric : undefined,
     forcedBy,
   };
