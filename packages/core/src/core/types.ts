@@ -4,6 +4,7 @@ import type { ApprovalSubject } from '#src/core/approvals/matcher.js';
 import type { ConversationCompaction } from '#src/core/compaction.js';
 import type { AutocompactController } from '#src/core/compactionThreshold.js';
 import type { RaterNegotiationRound, ShellSafetyVerdict } from '#src/core/shell/rater.js';
+import type { GthOutstandingWork } from '#src/core/outstandingWork.js';
 import type {
   GthFinishReasonObservation,
   GthTerminationReason,
@@ -67,6 +68,14 @@ export type {
   GthTerminationSite,
   GthTerminationSource,
 } from '#src/core/terminationReason.js';
+// [[EXT-158]] — the declared type of {@link GthAgentInterface#getOutstandingWork}, re-exported for
+// the same reason the taxonomy's is: an embedder reading it can name what it is holding. The
+// detector and the notice renderer stay at their deep path.
+export type {
+  ChecklistItemStatus,
+  ChecklistSnapshotItem,
+  GthOutstandingWork,
+} from '#src/core/outstandingWork.js';
 
 export type Message = BaseMessage;
 
@@ -858,6 +867,34 @@ export interface GthAgentInterface {
    * observed at all. Optional; reading must never throw.
    */
   getFinishReasonObservations?(): readonly GthFinishReasonObservation[];
+
+  /**
+   * [[EXT-158]] — record whether the turn that just ended left checklist work outstanding, by
+   * reading the graph's `state.messages` for `runConfig`'s thread.
+   *
+   * Called by the runner at the end of the string-path turn; the typed-event paths call it on
+   * themselves, because the AG-UI server drives those directly and has no runner to ask. Optional,
+   * and reading the answer must never throw: an agent whose graph exposes no state records nothing,
+   * and nothing is a valid answer.
+   */
+  noteOutstandingWork?(runConfig: RunnableConfig): Promise<void>;
+
+  /**
+   * [[EXT-158]] — the checklist work the current turn left outstanding, or `null` when it left
+   * none.
+   *
+   * `null` covers three different situations that a consumer must not try to tell apart from this
+   * value alone: the checklist was complete, the turn ended some way other than cleanly, or there
+   * was no checklist at all — which is ordinary, since `gth_checklist`'s own description tells the
+   * model to skip it for a single trivial step. Optional; reading must never throw.
+   */
+  getOutstandingWork?(): GthOutstandingWork | null;
+
+  /**
+   * [[EXT-158]] — forget the previous turn's outstanding-work fact. The session-lived record of
+   * what has already been announced deliberately survives it.
+   */
+  resetOutstandingWork?(): void;
 
   /**
    * GS2-23 — the thread's conversation as the graph holds it: `state.messages` for `runConfig`'s

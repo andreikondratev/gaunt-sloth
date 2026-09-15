@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, resolve, win32 } from 'node:path';
+import { OUTSTANDING_WORK_AUTOMATED_MARKER } from '#src/core/outstandingWork.js';
 
 // Real fs / real temp dir per the brief — only `os.homedir()` is mocked (pointed at a fresh
 // mkdtemp'd dir), so `ensureGlobalGslothDir()` (and therefore the archive path construction it
@@ -237,7 +238,46 @@ describe('utils/debugDump', () => {
             getTerminationReason: () => reason,
             getFinishReasonObservations: () => [],
           })
-        ).toEqual({ reason, finishReasons: [] });
+        ).toEqual({
+          reason,
+          finishReasons: [],
+          // [[EXT-158]] — a runner that predates the getter still yields a section; the fact reads
+          // `null`, and the source line is present either way so a reader of the dump is never left
+          // guessing whether the counts came from a person.
+          outstandingWork: null,
+          outstandingWorkSource: OUTSTANDING_WORK_AUTOMATED_MARKER,
+        });
+      });
+
+      /**
+       * [[EXT-158]] §(3) — the dump carries the outstanding-work fact, and carries it MARKED.
+       *
+       * The marker is the assertion that matters. The one reliable way to find this failure in a
+       * transcript is a human typing "continue", so a dump that recorded the counts without saying
+       * where they came from would add a second thing a reader could mistake for the user's words.
+       */
+      it('records the outstanding-work fact, marked as the runtime automated observation', async () => {
+        const { readTermination } = await import('#src/utils/debugDump.js');
+        const { terminationReason } = await import('#src/core/terminationReason.js');
+        const reason = terminationReason('runner.completed', 'control', 'completed');
+        const work = {
+          outstanding: 2,
+          completed: 1,
+          total: 3,
+          inProgress: 1,
+          signature: 'sig',
+          repeat: false,
+        };
+
+        const section = readTermination({
+          getTerminationReason: () => reason,
+          getFinishReasonObservations: () => [],
+          getOutstandingWork: () => work,
+        });
+
+        expect(section?.outstandingWork).toEqual(work);
+        expect(section?.outstandingWorkSource).toBe(OUTSTANDING_WORK_AUTOMATED_MARKER);
+        expect(section?.outstandingWorkSource.toLowerCase()).toContain('automated');
       });
 
       /**

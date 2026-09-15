@@ -24,6 +24,7 @@ import type { AutocompactStatus } from '@gaunt-sloth/core/core/compactionThresho
 import type { TokenBudget } from '@gaunt-sloth/core/config.js';
 import type { ApprovalStopPart } from '@gaunt-sloth/core/core/shell/approvalStop.js';
 import type { GthTerminationReason } from '@gaunt-sloth/core/core/terminationReason.js';
+import type { GthOutstandingWork } from '@gaunt-sloth/core/core/outstandingWork.js';
 import type { LiveNegotiationRound } from '@gaunt-sloth/core/core/shell/negotiation.js';
 import type { CommandNoticeTone } from '#src/tui/components/CommandNotice.js';
 import type { DebugDumpInput } from '@gaunt-sloth/agent/modules/slashCommands.js';
@@ -86,6 +87,15 @@ export interface TuiAgent {
    * nothing, exactly as it did before.
    */
   getTerminationReason?(): GthTerminationReason | null;
+  /**
+   * [[EXT-158]] — the checklist work the turn that just ended left outstanding, or `null`.
+   *
+   * Read alongside {@link getTerminationReason} and for the same reason it is not an event: a
+   * value read after the stream is done is the only thing an abandoned turn can still answer.
+   *
+   * Optional, so the scripted fixture agent may omit it.
+   */
+  getOutstandingWork?(): GthOutstandingWork | null;
   /**
    * Reset the agent's conversation thread so subsequent turns start from an empty model
    * context — wired to the TUI's `/clear`, which only clears the on-screen transcript.

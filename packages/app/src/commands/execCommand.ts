@@ -182,7 +182,10 @@ export function execCommand(
           createResolvers(),
           'exec',
           // exec asks for the lean backend, the only one shipped; config.agent.backend names no other.
-          resolveAgentFactory(execConfig, 'lean')
+          resolveAgentFactory(execConfig, 'lean'),
+          // [[EXT-158]] — the same reading as `ask`: a person is watching this verb. The notice
+          // goes to stderr, so a script piping `exec`'s stdout sees byte-for-byte what it did.
+          { announceOutstandingWork: true }
         ));
       } catch (error) {
         displayError(error instanceof Error ? error.message : String(error));

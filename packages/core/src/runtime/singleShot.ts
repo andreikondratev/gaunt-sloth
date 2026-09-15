@@ -19,6 +19,7 @@ import type { GthAdvertisedTools, GthRunStats } from '#src/core/types.js';
 import { getProjectDir, stdout } from '#src/utils/systemUtils.js';
 import { ApprovalStopError, approvalStopRows } from '#src/core/shell/approvalStop.js';
 import { displayTermination } from '#src/core/terminationNotice.js';
+import { displayOutstandingWork } from '#src/core/outstandingWork.js';
 import type { GthTerminationReason } from '#src/core/terminationReason.js';
 
 /**
@@ -65,6 +66,35 @@ export interface SingleShotOptions {
    * that renamed itself through it would change which system prompt its runs execute under.
    */
   displayCommand?: string;
+
+  /**
+   * [[EXT-158]] — announce, at the end of the run, that the agent's own checklist still had
+   * non-completed items. **Scope (d), decided here rather than in a red cell.**
+   *
+   * ## WHY THIS IS OPT-IN, AND WHY THE DEFAULT IS THE QUIET ONE
+   *
+   * This runtime has two very different classes of caller. `gth ask` and `gth exec` are a person
+   * running a verb and reading what comes back — the surface this notice exists for, and they set
+   * this. `gth batch`, `gth eval` and `gth workflow` drive it as a HARNESS, hundreds of cells at a
+   * time, folding each run into a report; a per-cell sentence about an unfinished checklist is
+   * noise to a reader who is looking at aggregate outcomes, and it appears on precisely the cells
+   * that PASSED, since the notice speaks only for the `completed` ending.
+   *
+   * A default-on flag with an opt-out would have put that output into every harness whose author
+   * never heard of this node, and the first anyone would know of it is a changed report. Default-off
+   * means the failure direction is a surface that stays silent until someone adds one line — which
+   * is a missing notice rather than a changed contract, and it is recoverable by the person who
+   * notices.
+   *
+   * **This is about the notice, never the detection.** The fact is recorded on every run through
+   * every path; `runner.getOutstandingWork()` answers for a batch cell exactly as it does for
+   * `gth ask`. Only whether a sentence is printed is what this decides.
+   *
+   * Note also that {@link displayOutstandingWork} writes through `displayNotice`, which goes to
+   * **stderr** — so even switched on it cannot change the stdout a caller parses, nor the `answer`
+   * this function returns, which is what `gth batch`'s cases assert on.
+   */
+  announceOutstandingWork?: boolean;
 }
 
 /**
@@ -175,6 +205,15 @@ export async function runSingleShot(
       /* fail-soft: explaining a run must never be what breaks it */
     }
     displayTermination(terminationReason);
+    // [[EXT-158]] — and, for the callers that asked for it, whether the run left its own checklist
+    // unfinished. See `announceOutstandingWork` for why this is opt-in rather than opt-out.
+    if (options?.announceOutstandingWork) {
+      try {
+        displayOutstandingWork(runner.getOutstandingWork(), terminationReason);
+      } catch {
+        /* fail-soft: explaining a run must never be what breaks it */
+      }
+    }
 
     // GS2-16: live token usage + invoked tool names for this run (fail-soft; empty when the
     // provider reported no usage / the runner has no stats). Read post-cleanup — the runner

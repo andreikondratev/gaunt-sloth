@@ -31,6 +31,10 @@ import { buildRejectionMessage } from '@gaunt-sloth/core/core/shell/rejection.js
 import { ApprovalStopError } from '@gaunt-sloth/core/core/shell/approvalStop.js';
 import { shouldAnnounceTermination } from '@gaunt-sloth/core/core/terminationNotice.js';
 import {
+  outstandingWorkNotice,
+  shouldAnnounceOutstandingWork,
+} from '@gaunt-sloth/core/core/outstandingWork.js';
+import {
   attackBannerCopy,
   grantsRunAnyway,
 } from '@gaunt-sloth/core/core/shell/escalationSeverity.js';
@@ -544,6 +548,20 @@ export function App(props: TuiAppProps): React.ReactElement {
         try {
           const reason = agent.getTerminationReason?.() ?? null;
           if (reason && shouldAnnounceTermination(reason)) push({ kind: 'termination', reason });
+          // [[EXT-158]] — and the other silence: a turn that ended cleanly with its own checklist
+          // still carrying work. `shouldAnnounceTermination` declines `completed`, correctly — an
+          // ordinary answer needs no epitaph — which is exactly why this case had nothing at all.
+          //
+          // Committed as an ordinary `notice` item rather than a transcript kind of its own. The
+          // termination item earns its kind by carrying the REASON value so the transcript holds
+          // the classification rather than a rendered line; this fact has no such closed taxonomy
+          // to preserve, and a new kind would buy a second row-count case and a second renderer for
+          // a title and three lines the generic notice already draws.
+          const work = agent.getOutstandingWork?.() ?? null;
+          if (shouldAnnounceOutstandingWork(work, reason) && work) {
+            const notice = outstandingWorkNotice(work);
+            push({ kind: 'notice', title: notice.title, lines: notice.lines, tone: 'warn' });
+          }
         } catch {
           /* fail-soft: explaining a turn must never be what breaks the session */
         }
