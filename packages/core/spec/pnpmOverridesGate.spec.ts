@@ -44,6 +44,12 @@ interface Manifest {
  * Every authored package.json, found by walking the tree rather than by asking git.
  * `git ls-files` returns nothing in a `git archive` extraction, which would turn this gate into a
  * vacuous pass in exactly the environment that has no history to consult.
+ *
+ * The walk deliberately skips dotted directories as well as SKIP_DIRS. That is a choice, not an
+ * oversight: it keeps the sweep off `.github`, `.claude` and friends, and this repo declares its
+ * workspace packages under `packages/*` and `evals/*`. A workspace package added under a dotted
+ * path would be invisible here — widen this if one ever is, because an unswept manifest is the
+ * blind spot this gate exists to remove.
  */
 function manifestsInRepo(): Manifest[] {
   const found: Manifest[] = [];
