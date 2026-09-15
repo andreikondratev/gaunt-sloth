@@ -19,7 +19,7 @@ import type { GthAdvertisedTools, GthRunStats } from '#src/core/types.js';
 import { getProjectDir, stdout } from '#src/utils/systemUtils.js';
 import { ApprovalStopError, approvalStopRows } from '#src/core/shell/approvalStop.js';
 import { displayTermination } from '#src/core/terminationNotice.js';
-import { displayOutstandingWork } from '#src/core/outstandingWork.js';
+import { displayRunEndReport, runEndReport, type GthRunRecap } from '#src/core/runRecap.js';
 import type { GthTerminationReason } from '#src/core/terminationReason.js';
 
 /**
@@ -53,6 +53,19 @@ export interface SingleShotResult extends GthRunStats {
    * `completed`.
    */
   terminationReason: GthTerminationReason | null;
+  /**
+   * [[EXT-178]] — the end-of-run recap, when one was requested and produced; `null` otherwise.
+   *
+   * **The fact, not the prose.** The same principle [[EXT-159]] states for the termination reason
+   * and [[EXT-158]] for the outstanding-work value: the classification a caller (and a test) reads
+   * is this object, so no user-facing string is the only carrier of it. An embedder that wants to
+   * render a recap its own way — or to ask whether the run reported itself complete — reads
+   * `recap.complete` and `recap.work` rather than matching the sentence on the console.
+   *
+   * `null` collapses every "no recap" outcome deliberately; see `requestRunRecap` for why the
+   * failures are a maintainer's question and not a user's.
+   */
+  recap: GthRunRecap | null;
 }
 
 /** Options that qualify a {@link runSingleShot} run without changing how it behaves. */
@@ -90,11 +103,44 @@ export interface SingleShotOptions {
    * every path; `runner.getOutstandingWork()` answers for a batch cell exactly as it does for
    * `gth ask`. Only whether a sentence is printed is what this decides.
    *
-   * Note also that {@link displayOutstandingWork} writes through `displayNotice`, which goes to
-   * **stderr** — so even switched on it cannot change the stdout a caller parses, nor the `answer`
-   * this function returns, which is what `gth batch`'s cases assert on.
+   * Note also that {@link displayRunEndReport}, which draws this notice, writes through
+   * `displayNotice` and so goes to **stderr** — so even switched on it cannot change the stdout a
+   * caller parses, nor the `answer` this function returns, which is what `gth batch`'s cases assert
+   * on.
    */
   announceOutstandingWork?: boolean;
+
+  /**
+   * [[EXT-178]] — request an end-of-run recap on this run, subject to the user's `recap` rung.
+   *
+   * ## SCOPE (4), DECIDED HERE AND NOT IN A RED CELL — AND WHY IT IS A SECOND FLAG
+   *
+   * The surface table is the one {@link announceOutstandingWork} sets out, with the same split:
+   * `gth ask` and `gth exec` are a person running a verb and reading what comes back, and they set
+   * this; `gth batch`, `gth eval` and `gth workflow` drive this runtime as a harness and do not.
+   *
+   * **It is a separate flag rather than a second meaning for that one, because the two differ in
+   * the thing that matters most about a default.** The notice is deterministic, free and bounded; a
+   * recap is a model call — the user's tokens, the user's latency, the user's money — per cell.
+   * Folding them together would mean a harness author who once opted into a free sentence had
+   * thereby opted a thousand-cell suite into a thousand extra model calls, with no line in their
+   * own code to point at. Two flags make the expensive one its own, visible decision.
+   *
+   * Excluded elsewhere by the same structure — a surface that does not ask does not get one:
+   *
+   * - `review` / `pr` end with a full written verdict that already says what was examined and what
+   *   was found. A recap *of* a review is the banner problem in its purest form.
+   * - ACP and AG-UI are embedders whose client owns the end-of-turn surface. Spending a model call
+   *   server-side for a paragraph the protocol has no field for, and that the client may already be
+   *   writing itself, is not ours to decide; [[EXT-158]]'s notice travels there as structured data,
+   *   which is the right shape for a protocol.
+   *
+   * **Neither the rung nor this flag changes what a caller parses.** The recap is rendered through
+   * `displayNotice`, which writes to **stderr**, and the `answer` this function returns is
+   * untouched — the property [[EXT-158]] was careful to keep and that `gth batch`'s cases assert
+   * on. The value itself reaches a caller as `SingleShotResult.recap`.
+   */
+  announceRunRecap?: boolean;
 }
 
 /**
@@ -205,11 +251,31 @@ export async function runSingleShot(
       /* fail-soft: explaining a run must never be what breaks it */
     }
     displayTermination(terminationReason);
-    // [[EXT-158]] — and, for the callers that asked for it, whether the run left its own checklist
-    // unfinished. See `announceOutstandingWork` for why this is opt-in rather than opt-out.
-    if (options?.announceOutstandingWork) {
+    // [[EXT-158]] + [[EXT-178]] — and, for the callers that asked for it, what the clean stop left
+    // behind: a recap when one was requested and produced, otherwise the unfinished-checklist
+    // notice. Never both — `runEndReport` is the single place that decides, and it decides with the
+    // recap already in hand, so a run whose recap timed out still gets the notice.
+    //
+    // The recap is awaited HERE rather than before `cleanup()` because the gate needs the
+    // termination reason, which is read post-cleanup for the reason given above; the runner keeps
+    // the inputs and (only when a rung is set) the config alive across that boundary for exactly
+    // this call.
+    //
+    // TWO catches rather than one, and the split is load-bearing: a recap that threw must still
+    // leave the notice standing. A single `try` around both would let any failure of the paid,
+    // network-facing half silently take the free, deterministic half down with it — which is the
+    // subsumption turning into a regression by accident rather than by decision.
+    let recap: GthRunRecap | null = null;
+    if (options?.announceRunRecap) {
       try {
-        displayOutstandingWork(runner.getOutstandingWork(), terminationReason);
+        recap = await runner.requestRunRecap(terminationReason);
+      } catch {
+        /* fail-soft: the notice below is the floor and still speaks */
+      }
+    }
+    if (options?.announceOutstandingWork || options?.announceRunRecap) {
+      try {
+        displayRunEndReport(runEndReport(recap, runner.getOutstandingWork(), terminationReason));
       } catch {
         /* fail-soft: explaining a run must never be what breaks it */
       }
@@ -272,6 +338,7 @@ export async function runSingleShot(
       ok: succeeded,
       answer: responseText,
       terminationReason,
+      recap,
       ...runStats,
       ...(advertisedTools ? { advertisedTools } : {}),
     };

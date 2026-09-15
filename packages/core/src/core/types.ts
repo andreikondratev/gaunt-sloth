@@ -5,6 +5,7 @@ import type { ConversationCompaction } from '#src/core/compaction.js';
 import type { AutocompactController } from '#src/core/compactionThreshold.js';
 import type { RaterNegotiationRound, ShellSafetyVerdict } from '#src/core/shell/rater.js';
 import type { GthOutstandingWork } from '#src/core/outstandingWork.js';
+import type { GthRunRecapSource } from '#src/core/runRecap.js';
 import type {
   GthFinishReasonObservation,
   GthTerminationReason,
@@ -75,7 +76,18 @@ export type {
   ChecklistItemStatus,
   ChecklistSnapshotItem,
   GthOutstandingWork,
+  // [[EXT-178]] — the rendered form, now nameable because `GthRunEndReport` hands one out.
+  GthOutstandingWorkNotice,
 } from '#src/core/outstandingWork.js';
+// [[EXT-178]] — the declared types of the end-of-run recap, re-exported for the same reason: an
+// embedder holding a `SingleShotResult` can name what its `recap` field is. The renderer, the gate
+// and the model call stay at their deep path.
+export type {
+  GthRunEndReport,
+  GthRunRecap,
+  GthRunRecapNotice,
+  GthRunRecapSource,
+} from '#src/core/runRecap.js';
 
 export type Message = BaseMessage;
 
@@ -895,6 +907,27 @@ export interface GthAgentInterface {
    * what has already been announced deliberately survives it.
    */
   resetOutstandingWork?(): void;
+
+  /**
+   * [[EXT-178]] — snapshot the bounded inputs an end-of-run recap would be built from, by reading
+   * the graph's `state.messages` for `runConfig`'s thread.
+   *
+   * Called at the same three sites as {@link GthAgentInterface.noteOutstandingWork} and for the
+   * same reasons. Optional, and it must never throw: an agent whose graph exposes no state records
+   * nothing, and nothing is a valid answer — the recap is then simply not offered.
+   */
+  noteRunRecapSource?(runConfig: RunnableConfig): Promise<void>;
+
+  /**
+   * [[EXT-178]] — the recap inputs for the turn that just ended, or `null` when there is nothing to
+   * summarise.
+   *
+   * A value, not a call: reading this never contacts a model. Optional; reading must never throw.
+   */
+  getRunRecapSource?(): GthRunRecapSource | null;
+
+  /** [[EXT-178]] — forget the previous turn's recap source. */
+  resetRunRecapSource?(): void;
 
   /**
    * GS2-23 — the thread's conversation as the graph holds it: `state.messages` for `runConfig`'s

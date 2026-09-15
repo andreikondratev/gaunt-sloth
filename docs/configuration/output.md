@@ -331,6 +331,73 @@ setting and always shows the full header.
 A boolean fails config validation, with a message naming the rung that replaces it — see
 [Migrating to 2.0](../MIGRATION.md).
 
+## End of run recap (recap)
+
+A long `gth code` session finishes, the last thing on screen is a paragraph of prose, and you want
+to know what it actually did and whether anything is still open — without scrolling back through
+forty tool calls. Turn the recap on:
+
+```json
+{ "recap": "outstanding" }
+```
+
+Then run the session as usual:
+
+```bash
+gth code "migrate the config loader to zod 4 and update the specs"
+```
+
+When the turn ends, a short block follows the answer:
+
+```
+Run recap: the run reports work still outstanding
+  Goal: Migrate the config loader to zod 4 and update the specs.
+  What happened: Rewrote the loader against the zod 4 API and updated eleven specs; the suite passes.
+  Still outstanding: The migration guide still describes the zod 3 error shape.
+  Checklist: 1 of 4 items not marked completed (counted by the runtime, not by the model).
+  Model-written summary of this run, produced by the gth runtime after the turn ended — not a message from the user, and not a claim the runtime verified.
+```
+
+**A run that ends cleanly is not the same as a run that finished the job.** Every other way a run
+can end already announces itself — the provider rate-limited it, the connection failed, you
+cancelled it — so the one ending that says nothing is the one that *looks* like success. That is
+what this fills in.
+
+### The three rungs
+
+| rung | when a recap is written |
+| --- | --- |
+| `off` (default) | Never. |
+| `outstanding` | Only when the run's own checklist still lists work. |
+| `always` | Every run that ends without an error, including the ones that left nothing behind. |
+
+`outstanding` is the one to start with: it speaks where the silence was costing you something and
+leaves a clean run clean. `always` is the fuller feature — a recap of a run that went well is worth
+reading too — at the price of a paragraph every turn.
+
+The default is `off` because **a recap costs an extra model call**, made after your answer is
+already on screen. Nothing spends your tokens on it until you ask. A boolean fails config
+validation with a message naming the rungs.
+
+### What it does and does not touch
+
+The recap is written to **stderr**, like every other notice, so `gth exec` piped into a script
+produces byte-for-byte the same stdout with the recap on. It is honoured by `gth chat`, `gth code`
+(both the terminal UI and `--no-tui`), `gth ask` and `gth exec`. `gth batch`, `gth eval`,
+`gth workflow`, `gth review` and `gth pr` never write one, whatever the rung — the first three drive
+runs by the hundred, and the last two already end with a written verdict.
+
+**It reports; it never continues the run.** Finding outstanding work is something the recap tells
+you about, not something it acts on: nothing is retried, and no message is sent on your behalf.
+
+The `Checklist:` line is counted by the runtime from the agent's own `gth_checklist` calls, and it
+is the same count you get without a recap — with `recap` off, a run that ends with its checklist
+unfinished says so on its own. When a recap is written it carries that line instead, so you get one
+block about the ending rather than two.
+
+Everything else in the block is the model's summary of its own run, which is what the last line
+says. Read it as a report from the agent, not as a verified statement of what happened on disk.
+
 ## Debug Dump Redaction (debugDump.redact)
 
 The [`/debug-dump`](../debug-dump.md) slash command scrubs secrets from its archive before writing it.

@@ -37,7 +37,7 @@ import {
 } from '@gaunt-sloth/core/core/approvals/approvalRequest.js';
 import { ApprovalStopError, approvalStopRows } from '@gaunt-sloth/core/core/shell/approvalStop.js';
 import { displayTermination } from '@gaunt-sloth/core/core/terminationNotice.js';
-import { displayOutstandingWork } from '@gaunt-sloth/core/core/outstandingWork.js';
+import { displayRunEndReport, runEndReport } from '@gaunt-sloth/core/core/runRecap.js';
 import { readTermination, writeDebugDump } from '@gaunt-sloth/core/utils/debugDump.js';
 import { appendToFile, getCommandOutputFilePath } from '@gaunt-sloth/core/utils/fileUtils.js';
 import {
@@ -686,11 +686,27 @@ export async function createInteractiveSession(
       try {
         const reason = runner.getTerminationReason();
         displayTermination(reason);
-        // [[EXT-158]] — and, on a turn that ended cleanly, whether it left checklist work
-        // outstanding. AFTER the termination notice, so on the one turn that could carry both the
-        // reader gets the ending first and the detail second — though in practice they are
-        // mutually exclusive, since this speaks only for `completed` and that one never does.
-        displayOutstandingWork(runner.getOutstandingWork(), reason);
+        // [[EXT-158]] + [[EXT-178]] — and, on a turn that ended cleanly, what it left behind.
+        // AFTER the termination notice, so on the one turn that could carry both the reader gets
+        // the ending first and the detail second — though in practice they are mutually exclusive,
+        // since both of these speak only for `completed` and that one never does.
+        //
+        // The recap is awaited before the prompt comes back. On this surface that is the right
+        // trade and on the Ink TUI it is not: here there is nothing on screen but a cursor, so a
+        // recap arriving after the prompt would be typed over. `requestRunRecap` answers `null`
+        // without contacting anything when the rung is `off`, which is the default, so an
+        // unconfigured session waits for nothing.
+        //
+        // The recap gets a catch of its own, and that is the point rather than tidiness: a failure
+        // of the paid, network-facing half must leave the free, deterministic half speaking. One
+        // shared `try` would let a provider outage silently delete [[EXT-158]]'s notice.
+        let recap = null;
+        try {
+          recap = await runner.requestRunRecap(reason);
+        } catch {
+          /* fail-soft: the report below is still drawn, and falls back to the notice */
+        }
+        displayRunEndReport(runEndReport(recap, runner.getOutstandingWork(), reason));
       } catch {
         /* fail-soft: explaining a turn must never be what ends the session */
       }

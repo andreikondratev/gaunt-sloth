@@ -122,10 +122,18 @@ describe('execCommand', () => {
     expect(content).toContain('SCRIPT BODY');
     expect(content).toContain('prompt-executable script');
     expect(systemUtilsMock.setExitCode).not.toHaveBeenCalled();
-    // [[EXT-158]] scope (d) — `exec` is a person running a verb, so it opts in to the
-    // unfinished-checklist notice. The harness callers of the same runtime deliberately do not, and
-    // the default is off; `singleShot.spec.ts` pins both halves of that decision.
-    expect(runSingleShot.mock.calls[0][7]).toEqual({ announceOutstandingWork: true });
+    // [[EXT-158]] scope (d) and [[EXT-178]] scope (4) — `exec` is a person running a verb, so it
+    // opts in to the unfinished-checklist notice and declares itself eligible for the end-of-run
+    // recap. The harness callers of the same runtime deliberately do neither, and both defaults are
+    // off; `singleShot.spec.ts` pins both halves of that decision.
+    //
+    // Asserted as the WHOLE options object rather than field by field, deliberately: a surface
+    // silently gaining an opt-in is exactly the change this should make someone look at, and the
+    // recap's is the one that costs a model call per run.
+    expect(runSingleShot.mock.calls[0][7]).toEqual({
+      announceOutstandingWork: true,
+      announceRunRecap: true,
+    });
     // B5: exec defaults to the lean backend; the resolved factory is threaded through.
     expect(resolveAgentFactoryMock.resolveAgentFactory).toHaveBeenCalledWith(
       expect.anything(),

@@ -8,7 +8,11 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseToolkit, StructuredToolInterface } from '@langchain/core/tools';
 import type { StatusLevel } from '#src/core/types.js';
 import type { ApprovalsConfig, BuiltInToolsSetting } from '#src/config/shell-policy.js';
-import type { GthAcpSessionMode, GthOutputHeaderRung } from '#src/config/schema.js';
+import type {
+  GthAcpSessionMode,
+  GthOutputHeaderRung,
+  GthRunRecapRung,
+} from '#src/config/schema.js';
 
 /**
  * GS2-43 — the seven configurable prompt segments. Each maps to a prompt file with a
@@ -602,6 +606,32 @@ export interface GthConfig {
   output?: {
     header?: GthOutputHeaderRung;
   };
+  /**
+   * [[EXT-178]] — the end-of-run recap: a short paragraph on the one stop that says nothing today.
+   *
+   * Every ending except `completed` and `suspended` already announces itself, so the run that
+   * *looks* like success — text, no tool calls, no error — is the silent one, whether or not it
+   * finished the job. This grades what that stop says, across three rungs:
+   *
+   * - `off` (the DEFAULT, so an unset key behaves exactly as before this existed) — nothing. The
+   *   deterministic unfinished-checklist notice still speaks, unchanged.
+   * - `outstanding` — a recap only on a clean stop whose own checklist still lists work. The
+   *   cheapest rung that buys the feature's point, and the one to reach for first.
+   * - `always` — a recap on every clean stop, including the ones where nothing is left. A recap of
+   *   a run that went well is useful in its own right, which is what makes this a feature rather
+   *   than a diagnostic.
+   *
+   * **It costs a model call**, a small non-agentic one made after the turn has already ended, which
+   * is why the default is `off` — see `DEFAULT_RUN_RECAP_RUNG` in `core/runRecap.ts` for the whole
+   * argument. Defaulted at the read site, not in `DEFAULT_CONFIG`, to avoid churning the
+   * effective-config snapshot. **When a recap renders, it replaces the unfinished-checklist notice
+   * for that stop** rather than appearing beside it, and carries the same counts.
+   *
+   * Honoured on `chat`/`code` (both the TUI and `--no-tui`), `ask` and `exec`. Deliberately not on
+   * `batch`, `eval`, `workflow`, `review`, `pr`, ACP or AG-UI — see `SingleShotOptions` and the
+   * node for why each is excluded.
+   */
+  recap?: GthRunRecapRung;
   /**
    * EXT-36 — the tool-loop guard: a repeated-identical-`(tool, args)` / no-progress detector that
    * runs as a lean-backend `beforeModel` middleware, the orthogonal sibling of GS2-36's

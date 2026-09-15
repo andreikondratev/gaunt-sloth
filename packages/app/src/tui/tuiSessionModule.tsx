@@ -933,6 +933,12 @@ async function runTuiSession(
       getOutstandingWork() {
         return runner.getOutstandingWork();
       },
+      // [[EXT-178]] — and, for the surfaces that ask, a recap of the turn. The runner owns the
+      // call because the runner owns the config; the App is never given a live model, and this is
+      // the seam that keeps it that way.
+      requestRunRecap(reason) {
+        return runner.requestRunRecap(reason);
+      },
       // `/clear` rotates the runner's thread_id so the model context truly matches the
       // cleared transcript (the checkpointer otherwise replays the whole prior conversation).
       resetThread() {

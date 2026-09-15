@@ -347,6 +347,31 @@
       "arity": 0
     },
     {
+      "name": "GthOutstandingWorkNotice",
+      "file": "core/outstandingWork.d.ts",
+      "arity": 0
+    },
+    {
+      "name": "GthRunRecap",
+      "file": "core/runRecap.d.ts",
+      "arity": 0
+    },
+    {
+      "name": "GthRunRecapNotice",
+      "file": "core/runRecap.d.ts",
+      "arity": 0
+    },
+    {
+      "name": "GthRunRecapRung",
+      "file": "config/schema.d.ts",
+      "arity": 0
+    },
+    {
+      "name": "GthRunRecapSource",
+      "file": "core/runRecap.d.ts",
+      "arity": 0
+    },
+    {
       "name": "GthRunStats",
       "file": "core/types.d.ts",
       "arity": 0

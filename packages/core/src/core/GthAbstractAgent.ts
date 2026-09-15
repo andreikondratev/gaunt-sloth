@@ -71,6 +71,7 @@ import {
   OUTSTANDING_WORK_NOTICE_MAX_PER_SIGNATURE,
   type GthOutstandingWork,
 } from '#src/core/outstandingWork.js';
+import { buildRunRecapSource, type GthRunRecapSource } from '#src/core/runRecap.js';
 import {
   answerTextOf,
   segmentAssistantContent,
@@ -381,6 +382,21 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
   private outstandingWork: GthOutstandingWork | null = null;
 
   /**
+   * [[EXT-178]] — the bounded inputs an end-of-run recap would be built from, snapshotted when the
+   * turn ended.
+   *
+   * **A snapshot rather than a live read, because the surface that needs it most asks too late.**
+   * `runSingleShot` reads the end-of-run facts after `runner.cleanup()` has dropped the agent, so a
+   * recap that fetched `state.messages` at render time would find nothing on exactly the
+   * non-interactive verbs the node names. It is also what keeps the recap's input deterministic and
+   * bounded: the same window every time, decided once, testable as a pure function.
+   *
+   * Turn-lived like {@link outstandingWork} and reset with it — turn N's transcript must never
+   * become turn N+1's recap.
+   */
+  private runRecapSource: GthRunRecapSource | null = null;
+
+  /**
    * [[EXT-158]] — the stall episode currently in progress: the structural signature of the
    * checklist state, and how many times it has been announced.
    *
@@ -626,6 +642,7 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
     this.terminationReason = null;
     this.finishReasonObservations = [];
     this.resetOutstandingWork();
+    this.resetRunRecapSource();
   }
 
   /**
@@ -637,6 +654,16 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
    */
   resetOutstandingWork(): void {
     this.outstandingWork = null;
+  }
+
+  /**
+   * [[EXT-178]] — forget the previous turn's recap source.
+   *
+   * Its own method rather than a line inside {@link resetOutstandingWork}, whose name says what it
+   * forgets. Called from {@link resetTerminationReason}, the turn boundary, alongside that one.
+   */
+  resetRunRecapSource(): void {
+    this.runRecapSource = null;
   }
 
   /**
@@ -693,6 +720,42 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
    */
   getOutstandingWork(): GthOutstandingWork | null {
     return this.outstandingWork;
+  }
+
+  /**
+   * [[EXT-178]] — snapshot the bounded inputs an end-of-run recap would be built from.
+   *
+   * **A sibling of {@link noteOutstandingWork}, not a line inside it.** The two answer different
+   * questions about the same moment and have different lifetimes at the consumer, and a method
+   * called `noteOutstandingWork` that also captured a transcript digest would be a name that lies —
+   * which is how the next reader comes to delete half of it. The cost of the separation is one more
+   * read of the graph's state per turn, which is a local checkpoint read beside a model turn.
+   *
+   * Called at the same three sites for the same reason: the runner's string path has no site inside
+   * the agent, and the typed-event paths have no runner to ask.
+   *
+   * Fail-soft throughout, and the catch **clears** rather than leaves: a turn whose state could not
+   * be read must not be summarised with the previous turn's transcript, which is the one way this
+   * could put words in a user's mouth about work they never asked for.
+   */
+  async noteRunRecapSource(runConfig: RunnableConfig): Promise<void> {
+    try {
+      this.runRecapSource = buildRunRecapSource(await this.getConversationMessages(runConfig));
+    } catch {
+      /* fail-soft: preparing an explanation must never be what ends a finished turn */
+      this.runRecapSource = null;
+    }
+  }
+
+  /**
+   * [[EXT-178]] — the recap inputs for the turn that just ended, or `null` when there is nothing to
+   * summarise (or nothing could be read).
+   *
+   * The value only; no model has been called at this point and none is called by reading it. The
+   * recap itself is requested by `GthAgentRunner`, which holds the config the call needs.
+   */
+  getRunRecapSource(): GthRunRecapSource | null {
+    return this.runRecapSource;
   }
 
   /** [[EXT-159]] — why this turn ended, or `null` when no site inside this agent classified it. */
@@ -1302,6 +1365,7 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
       // and those endings have their own categories and their own notices. This is also the ONLY
       // site the AG-UI server reaches — it drives this method directly, with no runner to ask.
       await this.noteOutstandingWork(runConfig);
+      await this.noteRunRecapSource(runConfig);
     } catch (e) {
       if (
         e instanceof GraphInterrupt ||
@@ -1363,6 +1427,7 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
       // and those endings have their own categories and their own notices. This is also the ONLY
       // site the AG-UI server reaches — it drives this method directly, with no runner to ask.
       await this.noteOutstandingWork(runConfig);
+      await this.noteRunRecapSource(runConfig);
     } catch (e) {
       if (
         e instanceof GraphInterrupt ||

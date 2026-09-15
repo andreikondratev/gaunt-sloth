@@ -25,6 +25,7 @@ import type { TokenBudget } from '@gaunt-sloth/core/config.js';
 import type { ApprovalStopPart } from '@gaunt-sloth/core/core/shell/approvalStop.js';
 import type { GthTerminationReason } from '@gaunt-sloth/core/core/terminationReason.js';
 import type { GthOutstandingWork } from '@gaunt-sloth/core/core/outstandingWork.js';
+import type { GthRunRecap } from '@gaunt-sloth/core/core/runRecap.js';
 import type { LiveNegotiationRound } from '@gaunt-sloth/core/core/shell/negotiation.js';
 import type { CommandNoticeTone } from '#src/tui/components/CommandNotice.js';
 import type { DebugDumpInput } from '@gaunt-sloth/agent/modules/slashCommands.js';
@@ -96,6 +97,18 @@ export interface TuiAgent {
    * Optional, so the scripted fixture agent may omit it.
    */
   getOutstandingWork?(): GthOutstandingWork | null;
+
+  /**
+   * [[EXT-178]] — ask for an end-of-run recap of the turn that just ended, or `null`.
+   *
+   * The one method on this interface that may contact a model, and the only one that is awaited
+   * after the turn is already over. It answers `null` without contacting anything whenever the
+   * user's `recap` rung is `off` (the default) or the turn did not end at `completed`, so the App
+   * may always call it.
+   *
+   * It never continues the run — see `GthAgentRunner.requestRunRecap`, which this delegates to.
+   */
+  requestRunRecap?(reason: GthTerminationReason | null): Promise<GthRunRecap | null>;
   /**
    * Reset the agent's conversation thread so subsequent turns start from an empty model
    * context — wired to the TUI's `/clear`, which only clears the on-screen transcript.

@@ -2826,6 +2826,14 @@
         }
       }
     },
+    "recap": {
+      "type": "string",
+      "enum": [
+        "off",
+        "outstanding",
+        "always"
+      ]
+    },
     "toolLoopGuard": {
       "anyOf": [
         {

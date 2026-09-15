@@ -12,6 +12,10 @@ const gthAgentRunnerInstanceMock = vi.hoisted(() => ({
   // the fail-soft catch that a missing method would trigger.
   getTerminationReason: vi.fn(() => null),
   getOutstandingWork: vi.fn(() => null),
+  // [[EXT-178]] — the third, and the only one that may contact a model. Present on the double for
+  // the same reason: a missing method would be swallowed by a fail-soft catch, and every cell here
+  // would then pass with the wiring gone.
+  requestRunRecap: vi.fn(async () => null),
 }));
 const gthAgentRunnerMock = vi.hoisted(() =>
   vi.fn(function GthAgentRunnerMock() {
@@ -381,6 +385,141 @@ describe('singleShot', () => {
       const [title, lines] = consoleUtilsMock.displayNotice.mock.calls[0];
       expect(title).toContain('2 of 3');
       expect((lines as string[]).join('\n').toLowerCase()).toContain('automated');
+    });
+  });
+
+  /**
+   * [[EXT-178]] — **the recap on a NON-TUI surface**, which the acceptance asks for by name
+   * alongside the Ink one.
+   *
+   * The core spec proves the gate, the renderer and the subsumption on values; the TUI spec proves
+   * the Ink wiring. Neither catches the defect that lives here: `runSingleShot` asking the runner
+   * for a recap, then handing it and the outstanding-work value to the one function that decides
+   * which of the two speaks. Delete either line from `singleShot.ts` and every cell in
+   * `runRecap.spec.ts` stays green.
+   *
+   * The recap is returned by the runner double rather than produced by a model, because what is
+   * under test here is the wiring and the arbitration — `runRecap.spec.ts` owns the call itself.
+   */
+  describe('[[EXT-178]] the end-of-run recap reaches a non-TUI surface', () => {
+    const outstanding = {
+      outstanding: 2,
+      completed: 1,
+      total: 3,
+      inProgress: 1,
+      signature: 'sig',
+      repeat: false,
+    };
+
+    const recap = {
+      goal: 'Add the recap flag',
+      happened: 'Edited the schema and built the workspace.',
+      outstanding: 'The docs page is still to write.',
+      complete: false,
+      work: outstanding,
+    };
+
+    beforeEach(async () => {
+      const { terminationReason } = await import('#src/core/terminationReason.js');
+      gthAgentRunnerInstanceMock.getTerminationReason.mockReturnValue(
+        terminationReason('runner.completed', 'control', 'completed') as never
+      );
+      gthAgentRunnerInstanceMock.getOutstandingWork.mockReturnValue(outstanding as never);
+      gthAgentRunnerInstanceMock.requestRunRecap.mockResolvedValue(null as never);
+    });
+
+    it('renders the goal, what happened and what is outstanding, and returns the value', async () => {
+      gthAgentRunnerInstanceMock.requestRunRecap.mockResolvedValue(recap as never);
+      const { runSingleShot } = await import('#src/runtime/singleShot.js');
+
+      const result = await runSingleShot(
+        'test-source',
+        'test-preamble',
+        'test-content',
+        { ...mockConfig } as GthConfig,
+        undefined,
+        'ask',
+        undefined,
+        { announceOutstandingWork: true, announceRunRecap: true }
+      );
+
+      expect(consoleUtilsMock.displayNotice).toHaveBeenCalledTimes(1);
+      const [title, lines] = consoleUtilsMock.displayNotice.mock.calls[0];
+      const rendered = [title, ...(lines as string[])].join('\n');
+      expect(rendered).toContain('Add the recap flag');
+      expect(rendered).toContain('Edited the schema');
+      expect(rendered).toContain('docs page is still to write');
+      // The fact travels as a value too, so an embedder is not left parsing the console.
+      expect(result.recap).toEqual(recap);
+    });
+
+    /**
+     * **The subsumption cell on a real surface.** Exactly one notice is drawn, it is the recap, and
+     * it carries the counts the suppressed notice would have carried — asserted by the absence of
+     * that notice's own title prefix in the one thing that was printed.
+     */
+    it('suppresses the unfinished-checklist notice and keeps its counts', async () => {
+      gthAgentRunnerInstanceMock.requestRunRecap.mockResolvedValue(recap as never);
+      const { OUTSTANDING_WORK_NOTICE_TITLE_PREFIX } = await import('#src/core/outstandingWork.js');
+      const { runSingleShot } = await import('#src/runtime/singleShot.js');
+
+      await runSingleShot(
+        'test-source',
+        'test-preamble',
+        'test-content',
+        { ...mockConfig } as GthConfig,
+        undefined,
+        'ask',
+        undefined,
+        { announceOutstandingWork: true, announceRunRecap: true }
+      );
+
+      expect(consoleUtilsMock.displayNotice).toHaveBeenCalledTimes(1);
+      const [title, lines] = consoleUtilsMock.displayNotice.mock.calls[0];
+      expect(title).not.toContain(OUTSTANDING_WORK_NOTICE_TITLE_PREFIX);
+      expect((lines as string[]).join('\n')).toContain('2 of 3 items not marked completed');
+    });
+
+    /**
+     * **The floor survives a failing recap, on the surface rather than in the arbitrator.**
+     *
+     * `runRecap.spec.ts` proves `runEndReport` restores the notice when handed `null`; this proves
+     * the call site actually reaches it when the runner's own call THROWS, which is the failure
+     * mode a single shared `try` would swallow — taking the free notice down with the paid recap.
+     */
+    it('falls back to the notice when the recap call throws', async () => {
+      gthAgentRunnerInstanceMock.requestRunRecap.mockRejectedValue(new Error('provider down'));
+      const { runSingleShot } = await import('#src/runtime/singleShot.js');
+
+      const result = await runSingleShot(
+        'test-source',
+        'test-preamble',
+        'test-content',
+        { ...mockConfig } as GthConfig,
+        undefined,
+        'ask',
+        undefined,
+        { announceOutstandingWork: true, announceRunRecap: true }
+      );
+
+      expect(consoleUtilsMock.displayNotice).toHaveBeenCalledTimes(1);
+      expect(consoleUtilsMock.displayNotice.mock.calls[0][0]).toContain('2 of 3');
+      expect(result.recap).toBeNull();
+    });
+
+    it('is not offered to the harness callers, which ask for neither', async () => {
+      gthAgentRunnerInstanceMock.requestRunRecap.mockResolvedValue(recap as never);
+      const { runSingleShot } = await import('#src/runtime/singleShot.js');
+
+      const result = await runSingleShot('test-source', 'test-preamble', 'test-content', {
+        ...mockConfig,
+      } as GthConfig);
+
+      // `batch`, `eval` and `workflow` land here. Not asked for, so not called at all — the model
+      // call is the cost this decision is about, and it is never made on their behalf.
+      expect(gthAgentRunnerInstanceMock.requestRunRecap).not.toHaveBeenCalled();
+      expect(consoleUtilsMock.displayNotice).not.toHaveBeenCalled();
+      expect(result.recap).toBeNull();
     });
   });
 });

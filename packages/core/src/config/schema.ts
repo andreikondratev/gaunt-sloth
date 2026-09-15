@@ -247,6 +247,52 @@ function describeBadHeaderRung(issue: { input: unknown }): string {
 }
 
 /**
+ * [[EXT-178]] — the rungs of the end-of-run recap, the short paragraph a run prints when it ends
+ * **without** an error.
+ *
+ * Three rungs rather than a boolean, and that is the node's own "banner nobody reads" constraint
+ * answered in the schema rather than left to the user:
+ *
+ * - `off` — never. The default; see `DEFAULT_RUN_RECAP_RUNG` for why an unconfigured install does
+ *   not spend a model call per turn.
+ * - `outstanding` — only where the run's own checklist says work is left. The recap then fires
+ *   exactly where the silence was costing something, and a clean run stays clean.
+ * - `always` — every clean stop. The full feature: a recap is worth reading when nothing is wrong
+ *   too, which is what separates it from a diagnostic.
+ *
+ * A boolean is a config error naming the rungs, exactly as `output.header` is: the middle rung is
+ * the one most users want and a boolean cannot express it, so quietly accepting `true` would hand
+ * them the most expensive answer without telling them the cheaper one exists.
+ */
+export const RUN_RECAP_RUNGS = ['off', 'outstanding', 'always'] as const;
+
+/** One of {@link RUN_RECAP_RUNGS}. The hand-written twin lives on `GthConfig#recap`. */
+export type GthRunRecapRung = (typeof RUN_RECAP_RUNGS)[number];
+
+/**
+ * The message a bad `recap` value fails with — the twin of `describeBadHeaderRung`, and worded the
+ * same way for the same reason: the issue path is already printed by `formatIssueLines`, so the
+ * sentence names the rungs rather than repeating `recap:`.
+ *
+ * A boolean gets its own arm because it is the value a user most plausibly writes — every other
+ * on/off key in this config is one — and being told `true is not a recap rung` without being told
+ * that `always` is the rung they meant leaves them to guess.
+ */
+function describeBadRecapRung(issue: { input: unknown }): string {
+  if (typeof issue.input === 'boolean') {
+    return (
+      `not a boolean: it is one of ${RUN_RECAP_RUNGS.join(', ')}. ` +
+      `Use "${issue.input ? 'always' : 'off'}" instead of ${issue.input} — and note that ` +
+      '"outstanding" recaps only the runs that left work behind.'
+    );
+  }
+  return (
+    `${JSON.stringify(issue.input)} is not a recap rung — the rungs are ` +
+    `${RUN_RECAP_RUNGS.join(', ')}.`
+  );
+}
+
+/**
  * EXT-71 §3.1 — the **subject** axis of a rule entry, and only that: `shell` is a command, `tool`
  * a built-in or custom in-process tool, `mcpTool` a server's tool. The hand-written twin is
  * `ApprovalEntryType` in `shell-policy.ts`. What holds the two together is
@@ -1229,6 +1275,14 @@ export const rawGthConfigSchema = z.looseObject({
       header: z.enum(OUTPUT_HEADER_RUNGS, { error: describeBadHeaderRung }).optional(),
     })
     .optional(),
+  // [[EXT-178]] — the end-of-run recap: a short paragraph on the ONE stop that is silent today,
+  // the clean `completed` ending, saying what the goal was, what happened, and what is left.
+  // One of RUN_RECAP_RUNGS; DEFAULT `off`. It costs a second (non-agentic) model call per clean
+  // stop, which is why an unconfigured install does not take it — see DEFAULT_RUN_RECAP_RUNG in
+  // `core/runRecap.ts` for the argument, including the half about not suppressing EXT-158's free
+  // notice by default. Defaulted at the read site (`resolveRunRecapRung`), not in DEFAULT_CONFIG,
+  // so the effective-config snapshot never churns (à la GS2-34 injectModelContext).
+  recap: z.enum(RUN_RECAP_RUNGS, { error: describeBadRecapRung }).optional(),
   // EXT-36 — tool-loop guard (repeated identical (tool, args) / no-progress detector), the sibling
   // of GS2-36's error budget. `false` disables; `true`/absent = warn-on defaults; object =
   // fine-grained ({ warn, halt, threshold }). WARN (default ON) injects a control-flow-free nudge;

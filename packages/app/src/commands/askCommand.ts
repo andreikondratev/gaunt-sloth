@@ -121,7 +121,11 @@ export function askCommand(
           // [[EXT-158]] — a person typed this verb and is reading what comes back, so a run that
           // stopped with its own checklist unfinished says so. The harness callers of this same
           // runtime (`batch`, `eval`, `workflow`) deliberately do not set it.
-          { announceOutstandingWork: true }
+          //
+          // [[EXT-178]] — and, on the same reading, this verb is eligible for the end-of-run recap.
+          // Eligible, not enabled: the user's `recap` rung decides whether a model call is actually
+          // made, and it is `off` unless they said otherwise.
+          { announceOutstandingWork: true, announceRunRecap: true }
         ));
       } catch (error) {
         displayError(error instanceof Error ? error.message : String(error));

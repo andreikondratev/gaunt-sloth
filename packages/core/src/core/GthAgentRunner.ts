@@ -79,6 +79,12 @@ import {
 import { terminationLogLine } from '#src/core/terminationNotice.js';
 import type { GthOutstandingWork } from '#src/core/outstandingWork.js';
 import {
+  requestRunRecap,
+  resolveRunRecapRung,
+  type GthRunRecap,
+  type GthRunRecapSource,
+} from '#src/core/runRecap.js';
+import {
   applyDestructiveFloor,
   effectivePreflightFloorFinding,
   isBelowDestructiveFloor,
@@ -437,6 +443,15 @@ export class GthAgentRunner {
    * after {@link cleanup} has dropped the agent.
    */
   private agentOutstandingWork: GthOutstandingWork | null = null;
+
+  /** [[EXT-178]] — the recap inputs snapshotted from the agent, so they survive {@link cleanup}. */
+  private agentRunRecapSource: GthRunRecapSource | null = null;
+
+  /**
+   * [[EXT-178]] — the config kept past {@link cleanup} so a post-cleanup recap has a model to call,
+   * and `null` whenever the recap rung is `off` — see the assignment in `cleanup` for why.
+   */
+  private recapConfigSnapshot: GthConfig | null = null;
 
   /**
    * GS2-23 — how many turns are being driven right now, through either driver. Read by
@@ -1291,6 +1306,10 @@ export class GthAgentRunner {
     // here as it is everywhere else: the retry's state is the state that matters, and a fact
     // recorded on the attempt that overflowed would describe a turn that was never shown.
     await this.agent.noteOutstandingWork?.(this.runConfig);
+    // [[EXT-178]] — and the recap's inputs, snapshotted at the same moment and for the same reason
+    // the line above is here: this is the only site on the string path that knows the drain has
+    // finished. No model is called here; this is a bounded digest of the graph's state.
+    await this.agent.noteRunRecapSource?.(this.runConfig);
     return answer;
   }
 
@@ -3552,6 +3571,10 @@ export class GthAgentRunner {
     // [[EXT-158]] — the FACT goes with the turn. The agent's last-announced signature does not:
     // recognising a repeat is the whole mechanism, and it needs a value that outlives the turn.
     this.agentOutstandingWork = null;
+    // [[EXT-178]] — the recap's inputs go with the turn too, for the stronger version of the same
+    // reason: a stale digest would not merely be uninformative, it would describe the previous
+    // turn's work as though it were this one's.
+    this.agentRunRecapSource = null;
     try {
       this.agent?.resetTerminationReason?.();
     } catch {
@@ -3654,6 +3677,58 @@ export class GthAgentRunner {
       /* fail-soft */
     }
     return this.agentOutstandingWork;
+  }
+
+  /**
+   * [[EXT-178]] — the recap inputs for the turn that just ended, read live from the agent while one
+   * is present and falling back to the {@link cleanup} snapshot afterwards, exactly as
+   * {@link getOutstandingWork} does and for the same reason. Never throws.
+   */
+  private captureRunRecapSource(): GthRunRecapSource | null {
+    try {
+      const source = this.agent?.getRunRecapSource?.();
+      if (source) this.agentRunRecapSource = source;
+    } catch {
+      /* fail-soft */
+    }
+    return this.agentRunRecapSource;
+  }
+
+  /**
+   * [[EXT-178]] — ask the configured model to recap the turn that just ended, or answer `null`.
+   *
+   * **The runner owns this call because the runner is what holds the config.** A surface that made
+   * it itself would have to be handed a `GthConfig`, and the Ink TUI deliberately has none — the
+   * App is given a `TuiAgent` and a summary, never the live model. Putting it here keeps every
+   * surface asking the same question the same way, which is the same argument [[EXT-158]] makes for
+   * taking its repeat decision in the agent rather than at six render sites.
+   *
+   * **CALLING THIS IS THE SURFACE OPT-IN.** There is no per-surface flag to read: a surface that
+   * does not want to spend a model call simply does not call it, which is how `batch`, `eval`,
+   * `workflow`, `review`, `pr`, ACP and AG-UI are excluded. The config rung then decides whether a
+   * surface that *did* ask actually gets one, so a user's `off` beats every surface's opt-in.
+   *
+   * **It never continues the run.** `requestRunRecap` is a single non-agentic structured call; the
+   * value comes back here and goes to a renderer. Nothing in this path can re-enter the graph.
+   *
+   * Never throws: explaining a finished run must never become a second failure.
+   */
+  public async requestRunRecap(
+    reason: GthTerminationReason | null | undefined
+  ): Promise<GthRunRecap | null> {
+    try {
+      const config = this.config ?? this.recapConfigSnapshot;
+      if (!config) return null;
+      return await requestRunRecap({
+        config,
+        source: this.captureRunRecapSource(),
+        work: this.getOutstandingWork(),
+        reason,
+      });
+    } catch {
+      /* fail-soft */
+      return null;
+    }
   }
 
   /** [[EXT-159]] — read the live agent's reason into the snapshot (fail-soft). */
@@ -3939,6 +4014,14 @@ export class GthAgentRunner {
     // [[EXT-158]] — and whether the turn left checklist work outstanding, which `reviewModule` and
     // the single-shot verbs also read after the agent is gone.
     this.getOutstandingWork();
+    // [[EXT-178]] — and the recap's inputs, which the single-shot verbs read after this returns.
+    //
+    // The config is kept alongside them ONLY when a rung is actually configured. It carries the
+    // live model, and `cleanup` drops it on purpose; retaining it unconditionally to serve a
+    // feature that is off by default would hold a provider client open on every run for nobody.
+    this.captureRunRecapSource();
+    this.recapConfigSnapshot =
+      this.config && resolveRunRecapRung(this.config) !== 'off' ? this.config : null;
     if (this.agent && 'cleanup' in this.agent && typeof this.agent.cleanup === 'function') {
       await this.agent.cleanup();
     }

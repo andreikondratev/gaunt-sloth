@@ -13,6 +13,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionConfig } from '#src/modules/interactiveSessionModule.js';
 import { terminationReason } from '@gaunt-sloth/core/core/terminationReason.js';
 import { TERMINATION_NOTICE_TITLE_PREFIX } from '@gaunt-sloth/core/core/terminationNotice.js';
+import { OUTSTANDING_WORK_NOTICE_TITLE_PREFIX } from '@gaunt-sloth/core/core/outstandingWork.js';
+import { RUN_RECAP_TITLE_PREFIX } from '@gaunt-sloth/core/core/runRecap.js';
 
 let turnsAsked = 0;
 let scriptedTurns: string[] = ['hello there'];
@@ -80,6 +82,11 @@ const runnerInstanceMock = vi.hoisted(() => ({
   processMessages: vi.fn(),
   getRunStats: vi.fn(() => ({ tools: [] })),
   getTerminationReason: vi.fn(),
+  // [[EXT-158]]/[[EXT-178]] — the other two end-of-turn reads this surface makes. Present on the
+  // double so the reads reach real code: omitted, each one throws into the fail-soft catch and
+  // every cell here goes green with the whole end-of-turn report unwired.
+  getOutstandingWork: vi.fn(() => null),
+  requestRunRecap: vi.fn(async () => null),
   setApprovalOutcomeCallback: vi.fn(),
   setToolApprovalCallback: vi.fn(),
   setAttackHaltCallback: vi.fn(),
@@ -157,6 +164,8 @@ describe('[[EXT-159]] SURFACE — the readline session says why the turn ended',
     runnerInstanceMock.processMessages.mockResolvedValue('the answer');
     runnerInstanceMock.getRunStats.mockReturnValue({ tools: [] });
     runnerInstanceMock.getTerminationReason.mockReturnValue(null);
+    runnerInstanceMock.getOutstandingWork.mockReturnValue(null);
+    runnerInstanceMock.requestRunRecap.mockResolvedValue(null);
     runnerInstanceMock.cleanup.mockResolvedValue(undefined);
   });
 
@@ -219,5 +228,90 @@ describe('[[EXT-159]] SURFACE — the readline session says why the turn ended',
     });
 
     await expect(runOneTurn()).resolves.not.toThrow();
+  });
+});
+
+/**
+ * [[EXT-178]] SURFACE — **the plain / readline session draws the end-of-run recap.**
+ *
+ * This surface is where a user lands whenever the Ink TUI cannot run, and the cells above show it
+ * had nothing at all for a turn that simply finished. These prove the other half of that: when the
+ * user has switched the recap on, the clean turn stops being silent — and that exactly one of the
+ * two surfaces speaks about it.
+ *
+ * Unlike the TUI, this one **awaits** the recap before the prompt comes back. There is nothing on
+ * screen here but a cursor, so a paragraph arriving after the prompt would be typed over.
+ */
+describe('[[EXT-178]] SURFACE — the readline session recaps a clean turn', () => {
+  const outstanding = {
+    outstanding: 2,
+    completed: 3,
+    total: 5,
+    inProgress: 1,
+    signature: 'sig-a',
+    repeat: false,
+  };
+
+  const recap = {
+    goal: 'Thread the recap rung through',
+    happened: 'Edited the schema and rebuilt.',
+    outstanding: 'The docs page is still to write.',
+    complete: false,
+    work: outstanding,
+  };
+
+  beforeEach(() => {
+    turnsAsked = 0;
+    scriptedTurns = ['hello there'];
+    vi.clearAllMocks();
+    initConfigMock.mockResolvedValue({ streamSessionInferenceLog: false });
+    runnerInstanceMock.init.mockResolvedValue(undefined);
+    runnerInstanceMock.processMessages.mockResolvedValue('the answer');
+    runnerInstanceMock.getRunStats.mockReturnValue({ tools: [] });
+    runnerInstanceMock.getTerminationReason.mockReturnValue(
+      terminationReason('runner.completed', 'control', 'completed')
+    );
+    runnerInstanceMock.getOutstandingWork.mockReturnValue(null);
+    runnerInstanceMock.requestRunRecap.mockResolvedValue(null);
+    runnerInstanceMock.cleanup.mockResolvedValue(undefined);
+  });
+
+  it('breaks the silence on the one stop that had none', async () => {
+    runnerInstanceMock.requestRunRecap.mockResolvedValue(recap);
+
+    await runOneTurn();
+
+    expect(noticesShown()).toHaveLength(1);
+    expect(noticesShown()[0]).toContain(RUN_RECAP_TITLE_PREFIX);
+    expect(noticesShown()[0]).toContain('Thread the recap rung through');
+    expect(noticesShown()[0]).toContain('docs page is still to write');
+  });
+
+  it('draws the recap instead of the unfinished-checklist notice, and keeps its counts', async () => {
+    runnerInstanceMock.getOutstandingWork.mockReturnValue(outstanding);
+    runnerInstanceMock.requestRunRecap.mockResolvedValue(recap);
+
+    await runOneTurn();
+
+    expect(noticesShown()).toHaveLength(1);
+    expect(noticesShown()[0]).not.toContain(OUTSTANDING_WORK_NOTICE_TITLE_PREFIX);
+    expect(noticesShown()[0]).toContain('2 of 5 items not marked completed');
+  });
+
+  it('leaves the notice standing when the recap call fails', async () => {
+    runnerInstanceMock.getOutstandingWork.mockReturnValue(outstanding);
+    runnerInstanceMock.requestRunRecap.mockRejectedValue(new Error('provider down'));
+
+    await runOneTurn();
+
+    // The floor. A shared catch around both halves would leave this at zero.
+    expect(noticesShown()).toHaveLength(1);
+    expect(noticesShown()[0]).toContain(OUTSTANDING_WORK_NOTICE_TITLE_PREFIX);
+  });
+
+  it('keeps a clean turn silent when no recap was produced and nothing was outstanding', async () => {
+    await runOneTurn();
+
+    expect(noticesShown()).toEqual([]);
   });
 });

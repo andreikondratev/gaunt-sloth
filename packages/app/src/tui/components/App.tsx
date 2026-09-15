@@ -30,10 +30,7 @@ import type { ApprovalRung } from '@gaunt-sloth/core/config.js';
 import { buildRejectionMessage } from '@gaunt-sloth/core/core/shell/rejection.js';
 import { ApprovalStopError } from '@gaunt-sloth/core/core/shell/approvalStop.js';
 import { shouldAnnounceTermination } from '@gaunt-sloth/core/core/terminationNotice.js';
-import {
-  outstandingWorkNotice,
-  shouldAnnounceOutstandingWork,
-} from '@gaunt-sloth/core/core/outstandingWork.js';
+import { runEndReport } from '@gaunt-sloth/core/core/runRecap.js';
 import {
   attackBannerCopy,
   grantsRunAnyway,
@@ -557,11 +554,35 @@ export function App(props: TuiAppProps): React.ReactElement {
           // the classification rather than a rendered line; this fact has no such closed taxonomy
           // to preserve, and a new kind would buy a second row-count case and a second renderer for
           // a title and three lines the generic notice already draws.
+          //
+          // [[EXT-178]] — and its successor when the user has switched the recap on. The two speak
+          // for the same population, so exactly one of them is drawn: `runEndReport` decides, with
+          // the recap already resolved, and a recap that never arrived leaves the notice standing.
+          //
+          // **Detached from the turn's teardown, and that is the whole reason it is down here.**
+          // A recap is a model call made after the answer is already on screen; awaiting it in this
+          // `finally` would keep the spinner running and the prompt away for as long as a provider
+          // takes to reply, which is a worse thing to do to a finished turn than a late paragraph.
+          // The transcript is append-only and this lands at the bottom, where the reader is. With
+          // the default `off` rung nothing is contacted and the notice lands as it always did.
           const work = agent.getOutstandingWork?.() ?? null;
-          if (shouldAnnounceOutstandingWork(work, reason) && work) {
-            const notice = outstandingWorkNotice(work);
-            push({ kind: 'notice', title: notice.title, lines: notice.lines, tone: 'warn' });
-          }
+          const ending = reason;
+          void (async () => {
+            try {
+              const recap = (await agent.requestRunRecap?.(ending)) ?? null;
+              const report = runEndReport(recap, work, ending);
+              if (report.kind !== 'silent') {
+                push({
+                  kind: 'notice',
+                  title: report.notice.title,
+                  lines: report.notice.lines,
+                  tone: report.kind === 'recap' ? 'info' : 'warn',
+                });
+              }
+            } catch {
+              /* fail-soft: explaining a turn must never be what breaks the session */
+            }
+          })();
         } catch {
           /* fail-soft: explaining a turn must never be what breaks the session */
         }

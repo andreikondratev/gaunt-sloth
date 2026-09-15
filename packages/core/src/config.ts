@@ -55,6 +55,7 @@ export * from '#src/config/configDiscovery.js';
  * value it cannot type.
  *
  * - {@link GthOutputHeaderRung} — the type of {@link GthConfig}'s `output.header`.
+ * - {@link GthRunRecapRung} — the type of {@link GthConfig}'s `recap`.
  * - {@link GthAcpSessionMode} — the type of {@link GthConfig}'s `acp.mode`.
  * - {@link RawConfigValidationResult} — the interface {@link ConfigLayerValidationReport} extends.
  *
@@ -70,5 +71,6 @@ export * from '#src/config/configDiscovery.js';
 export type {
   GthAcpSessionMode,
   GthOutputHeaderRung,
+  GthRunRecapRung,
   RawConfigValidationResult,
 } from '#src/config/schema.js';

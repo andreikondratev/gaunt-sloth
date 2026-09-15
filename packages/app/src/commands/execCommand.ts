@@ -185,7 +185,11 @@ export function execCommand(
           resolveAgentFactory(execConfig, 'lean'),
           // [[EXT-158]] — the same reading as `ask`: a person is watching this verb. The notice
           // goes to stderr, so a script piping `exec`'s stdout sees byte-for-byte what it did.
-          { announceOutstandingWork: true }
+          //
+          // [[EXT-178]] — and eligible for the end-of-run recap, which shares that property: it is
+          // rendered on stderr and the answer on stdout is untouched. Whether one is produced is
+          // the user's `recap` rung, `off` by default.
+          { announceOutstandingWork: true, announceRunRecap: true }
         ));
       } catch (error) {
         displayError(error instanceof Error ? error.message : String(error));
