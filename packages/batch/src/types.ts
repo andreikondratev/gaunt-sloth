@@ -96,7 +96,7 @@ export interface CellRunOutcome {
 }
 
 /**
- * Injectable "run one prompt" function — the seam that lets {@link runBatchMatrix} be fully unit
+ * Injectable "run one prompt" function — the seam that lets {@link @gaunt-sloth/batch!"BatchRunner.js".runBatchMatrix | runBatchMatrix} be fully unit
  * tested without any real LLM call. The production wiring (`batchCommand.ts`) adapts
  * `runSingleShot` to this shape; tests inject a fake that resolves/rejects/throws as needed.
  */
@@ -115,7 +115,7 @@ export interface CellResult extends CellRunOutcome {
   retries: number;
 }
 
-/** Options for {@link runBatchMatrix}. */
+/** Options for {@link @gaunt-sloth/batch!"BatchRunner.js".runBatchMatrix | runBatchMatrix}. */
 export interface BatchRunnerOptions {
   /** Max in-flight cells. Must be >= 1; non-finite/invalid values fall back to the default. */
   concurrency?: number;

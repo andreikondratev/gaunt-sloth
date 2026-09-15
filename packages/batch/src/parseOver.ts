@@ -5,7 +5,7 @@ import type { MatrixRow } from '#src/types.js';
  * `.jsonl`/`.ndjson` → one JSON object per line; anything else (including `.csv`) → CSV.
  *
  * This is content binding only (BATCH-1 scope): every row becomes an object of string fields that
- * {@link bindCellContent} interpolates into the script. A glob-of-binary-files path binding is out
+ * {@link @gaunt-sloth/batch!"interpolate.js".bindCellContent | bindCellContent} interpolates into the script. A glob-of-binary-files path binding is out
  * of scope for this task.
  *
  * Throws a descriptive `Error` on malformed input — the harness-level failure the CLI surface doc

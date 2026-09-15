@@ -29,7 +29,7 @@ const consoleLevelState: ConsoleLevelState = {
  * 256-colour or 24-bit escape would pin us to one palette and clash with half of them.
  *
  * Exported so the surfaces that build their own pre-styled blocks (rather than passing a whole
- * message through {@link colorText}) still draw from this one table — see
+ * message through `colorText`) still draw from this one table — see
  * `core/launchBanner.ts`, which paints only the face half of each banner row.
  *
  * `as const` because `packages/core` publishes `"./*.js": "./dist/*.js"`, so this is PUBLIC API of a
@@ -190,7 +190,7 @@ export function display(message: string): void {
  * and session-log treatment as {@link displayInfo} — matching the stream discipline of the
  * existing tool notices — but WITHOUT the blanket dim wrap: the block styles each line itself
  * (diff colours, per-line dim), and an outer wrapper would be broken by the inner resets. The
- * session log gets the ANSI-stripped text via {@link writeToSessionLog}.
+ * session log gets the ANSI-stripped text via `writeToSessionLog`.
  *
  * [[TUI-C108]] — **`level` is the CALL'S OUTCOME, not this call site's loudness**, and that is the
  * whole point of the parameter. While the level was hardcoded here, every `consoleLevel` rung that
@@ -219,7 +219,7 @@ export function displayToolIndication(
  * TUI-C33 — print the interactive-launch banner (the pre-styled block built by
  * `core/launchBanner.ts`) on the plain surface. Same DISPLAY-level gate and stdout channel as
  * {@link display}, so a quieted console silences it too, but deliberately NOT routed through
- * {@link writeToSessionLog}: the session log is a transcript of the conversation, not a screenshot
+ * `writeToSessionLog`: the session log is a transcript of the conversation, not a screenshot
  * of the screen, and a five-row sloth at the top of it is noise. The block also styles itself (the
  * face half of each row carries the colour), so no outer wrap is applied.
  */

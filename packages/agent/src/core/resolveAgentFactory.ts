@@ -5,7 +5,7 @@ import { gthLeanAgentFactory } from '@gaunt-sloth/core/core/gthLeanAgentFactory.
 /**
  * Resolve the agent backend factory from config (B5).
  *
- * There is one backend — the lean {@link gthLeanAgentFactory} — so every call resolves to it, and
+ * There is one backend — the lean {@link @gaunt-sloth/core!core/gthLeanAgentFactory.gthLeanAgentFactory | gthLeanAgentFactory} — so every call resolves to it, and
  * `agent.backend` can only name it. The seam is kept rather than inlined at the ten call sites
  * because it is the single place a backend choice is made: reinstating a choice (EXT-46's ACP
  * rebuild, or any later runtime) is an edit here, not an edit spread across every command.

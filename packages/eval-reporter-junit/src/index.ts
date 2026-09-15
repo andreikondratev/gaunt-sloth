@@ -1,7 +1,7 @@
 /**
  * @packageDocumentation
  * `@gaunt-sloth/eval-reporter-junit` — a JUnit XML reporter for `gth eval`, the first member of the
- * `@gaunt-sloth/eval-reporter-*` plugin family. It implements the public {@link EvalReporter}
+ * `@gaunt-sloth/eval-reporter-*` plugin family. It implements the public {@link @gaunt-sloth/batch!"reporters/reporterTypes.js".EvalReporter | EvalReporter}
  * contract exported by `@gaunt-sloth/batch` and is registered by the CLI through the SAME `custom`
  * reporter seam a user's own reporter uses — so this package doubles as the reference proof that the
  * plug-in contract works from outside core.

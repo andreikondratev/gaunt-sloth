@@ -1,6 +1,6 @@
 /**
  * @packageDocumentation
- * Translates the agent runtime's typed {@link AgentStreamEvent} stream into ACP **v1**
+ * Translates the agent runtime's typed {@link @gaunt-sloth/core!core/types.AgentStreamEvent | AgentStreamEvent} stream into ACP **v1**
  * `session/update` payloads. (`acpUpdates.ts` is the v2 half.)
  *
  * ## Where v1 differs, and why the mapper could not be shared

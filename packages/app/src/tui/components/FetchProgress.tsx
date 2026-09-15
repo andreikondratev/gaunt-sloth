@@ -22,7 +22,7 @@ export function FetchProgress({ label }: { label: string }): React.ReactElement 
 
 /**
  * The subset of Ink's `render` that {@link runWithInkProgress} relies on. Declared as a seam
- * (mirroring {@link import('./SelectList.js').InkRenderFn}) so a unit test can inject a fake
+ * (mirroring {@link gaunt-sloth!tui/components/SelectList.InkRenderFn | InkRenderFn}) so a unit test can inject a fake
  * renderer and assert the indicator mounted / cleared without a live TTY — Ink's real render is
  * otherwise un-unit-testable (it needs a raw-mode-capable stdin).
  */

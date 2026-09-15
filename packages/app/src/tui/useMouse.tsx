@@ -60,7 +60,7 @@ export interface MouseProviderProps {
  * Wraps the live region and dispatches clicks against it.
  *
  * A region's claimed rectangle is an offset inside the frame, and the frame starts at screen row 0
- * (see {@link FRAME_ORIGIN_ROW}), so a claim maps to absolute screen cells with no arithmetic and
+ * (see `FRAME_ORIGIN_ROW`), so a claim maps to absolute screen cells with no arithmetic and
  * nothing to keep in step as the frame reflows.
  */
 export function MouseProvider({ subscribe, enabled, children }: MouseProviderProps) {

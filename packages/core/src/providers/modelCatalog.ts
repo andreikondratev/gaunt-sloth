@@ -308,7 +308,7 @@ export async function getProviderCatalog(
   }
 }
 
-/** A {@link ModelInfo}-shaped record decorated with optional catalog metadata. */
+/** A {@link @gaunt-sloth/core!providers/modelDiscovery.ModelInfo | ModelInfo}-shaped record decorated with optional catalog metadata. */
 export interface EnrichedModel {
   id: string;
   preferred: boolean;

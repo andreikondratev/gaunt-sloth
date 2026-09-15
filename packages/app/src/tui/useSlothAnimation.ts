@@ -20,7 +20,7 @@ import {
 } from '@gaunt-sloth/core/core/launchBanner.js';
 
 export interface SlothAnimationPlayback {
-  /** The face to draw right now — {@link RESTING_FACE} whenever nothing is playing. */
+  /** The face to draw right now — {@link @gaunt-sloth/core!core/launchBanner.RESTING_FACE | RESTING_FACE} whenever nothing is playing. */
   face: readonly string[];
   /** Start one animation. A call while one is already playing is ignored, never queued. */
   play: () => void;

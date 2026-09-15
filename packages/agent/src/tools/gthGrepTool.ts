@@ -33,13 +33,13 @@ export const GREP_TOOL_NAME = 'gth_grep';
 /**
  * GS2-51 — which corpus `gth_grep` scans, applied consistently to BOTH engines:
  * - `gitignore` (default): respect `.gitignore`/`.ignore` and skip hidden dot-files (rg's default);
- * - `all`: scan everything but the {@link IGNORED_DIRS} noise set (rg gets `--no-ignore --hidden`).
+ * - `all`: scan everything but the `IGNORED_DIRS` noise set (rg gets `--no-ignore --hidden`).
  */
 export type GrepFileSet = 'gitignore' | 'all';
 
 /**
  * Resolve the effective {@link GrepFileSet} from config. Reads the `gth_grep` entry of the SAME
- * `builtInTools` registry that {@link file://../builtInToolsConfig.ts} uses to decide enablement, so
+ * `builtInTools` registry that {@link @gaunt-sloth/agent!"builtInToolsConfig.js" | ../builtInToolsConfig.ts} uses to decide enablement, so
  * the corpus selection and the tool's presence resolve from one source. Defaults to `gitignore`
  * (the coordinator-set default, and already rg's native default — so rg-present machines see no
  * behaviour change; only the selection becomes explicit).
@@ -424,7 +424,7 @@ function runRipgrep(
 }
 
 /**
- * Recursively collect regular files under `dir`, skipping {@link IGNORED_DIRS}. Symlinked entries
+ * Recursively collect regular files under `dir`, skipping `IGNORED_DIRS`. Symlinked entries
  * (dirs and files) report `isDirectory()`/`isFile()` as false here, so the walk never follows them
  * out of the sandbox — only the explicit target path needs the realpath guard in {@link resolveTarget}.
  *

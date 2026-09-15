@@ -33,7 +33,7 @@ function cellLabel(result: EvalCaseResult): string {
  * and throw BEFORE creating the directory or writing anything (→ the eval command's catch → exit 2,
  * a suite-authoring signal) rather than emit a misleading, half-complete set of per-cell files.
  *
- * Pure I/O, deliberately separate from {@link ../evalRunner.js}'s `runEvalSuite`: the runner never
+ * Pure I/O, deliberately separate from {@link @gaunt-sloth/batch!"evalRunner.js" | ../evalRunner.js}'s `runEvalSuite`: the runner never
  * touches the filesystem, so unit tests can exercise grading logic without a tmp dir.
  */
 export function writeEvalOutput(outputDir: string, summary: EvalSuiteSummary): void {

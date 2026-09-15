@@ -65,7 +65,7 @@ export interface PrDiscoveryConfig {
    * `set_requirements` is always retained regardless, since it is how the discovery agent
    * records the requirements it found. When omitted, all resolved tools remain available; an
    * empty array keeps only `set_requirements`. The discovery agent never inherits the
-   * top-level {@link GthConfig.allowedTools}; this property is its only allow-list.
+   * top-level `GthConfig.allowedTools`; this property is its only allow-list.
    */
   allowedTools?: string[];
 }

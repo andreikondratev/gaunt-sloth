@@ -66,7 +66,7 @@ const RESERVED_ROWS = 4;
 /**
  * Derive how many option rows the scrolling window may show at once from the live terminal
  * height. Ink/Node leaves `rows` `undefined` when not attached to a TTY (and in tests), in
- * which case we fall back to {@link DEFAULT_WINDOW}. Always at least 1 so a tiny / mis-reported
+ * which case we fall back to `DEFAULT_WINDOW`. Always at least 1 so a tiny / mis-reported
  * terminal can never collapse the window to zero.
  */
 export function windowSize(rows: number | undefined): number {

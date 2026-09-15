@@ -177,7 +177,7 @@ interface ConvertMessageOptions {
  * (bracket / `<function=…>` / Harmony — the dialects small/local models produce) is promoted to a
  * native tool_call so a replayed history turn is a real tool call rather than inert prose. An empty
  * (or absent) allow-list promotes nothing — the prose-safe default. This runs alongside
- * {@link parseToolArguments} (which rescues malformed args on an ALREADY-native tool_call).
+ * `parseToolArguments` (which rescues malformed args on an ALREADY-native tool_call).
  *
  * EXT-43: `options.allowTextCallPromotion` (default `true`) lets a caller suppress promotion for a
  * single message; {@link convertMessages} uses it to leave a DANGLING history call as text.

@@ -102,7 +102,7 @@ export function isReporterFilePath(modulePath: string): boolean {
 }
 
 /**
- * Resolve a `reporters` config module STRING to an absolute file path {@link importExternalFile} can
+ * Resolve a `reporters` config module STRING to an absolute file path `importExternalFile` can
  * load (BATCH-22 — the third-party-reporter enabler):
  * - A **file path** ({@link isReporterFilePath}) keeps the original behavior: resolved against the
  *   PROJECT dir (the same base `readFileFromProjectDir` uses).
@@ -144,7 +144,7 @@ export function resolveReporterModule(modulePath: string): string {
  *
  * Each config reporter's module STRING is resolved by {@link resolveReporterModule} — a file path
  * against the PROJECT dir, or a bare package specifier by node resolution against the PROJECT dir's
- * `node_modules` — then imported via {@link importExternalFile} (which turns the absolute path into a
+ * `node_modules` — then imported via `importExternalFile` (which turns the absolute path into a
  * `file://` URL and supports `.ts` through jiti). Its DEFAULT export must be an `EvalReporterFactory`
  * (`() => EvalReporter`); an unresolvable specifier, a missing file, a failed import, or a
  * non-function default export THROWS — caught by the command's outer try/catch → exit 2 (harness

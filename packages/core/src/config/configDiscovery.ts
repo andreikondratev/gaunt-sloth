@@ -10,12 +10,12 @@
  * - a config that read fine but names no usable model — no `llm` block, no `llm.type`, an
  *   `llm.type` with no provider module, or a provider module that cannot build from a JSON spec;
  * - a provider instance that could not be constructed for a reason other than a missing API key
- *   (that one is {@link MissingProviderKeyError}, which carries the key details);
+ *   (that one is {@link @gaunt-sloth/core!config/providerKeys.MissingProviderKeyError | MissingProviderKeyError}, which carries the key details);
  * - no configuration file anywhere at all.
  *
  * Deliberately dependency-free (no imports beyond types) so the config barrel, the loader and
  * downstream consumers can all reach it without an import cycle — the same shape
- * `providerKeys.ts` uses for {@link MissingProviderKeyError}.
+ * `providerKeys.ts` uses for {@link @gaunt-sloth/core!config/providerKeys.MissingProviderKeyError | MissingProviderKeyError}.
  *
  * **Why this is an error object and not a process exit.** Loading configuration is a *library*
  * operation, and a library that terminates the process denies every caller the chance to classify

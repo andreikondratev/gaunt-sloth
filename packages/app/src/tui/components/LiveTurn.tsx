@@ -211,7 +211,7 @@ export const LIVE_REASONING_PREVIEW_ROWS = 2;
 
 /**
  * The `💭 Thinking` region: the model's reasoning/chain-of-thought, rendered as a distinct
- * *layer* from the answer. Collapsible like {@link ToolCallPanel} (shares the turn's Ctrl+T
+ * *layer* from the answer. Collapsible like `ToolCallPanel` (shares the turn's Ctrl+T
  * detail toggle) and collapsed by default, so ephemeral thinking never competes with the answer
  * — worst case a lone 👍 answer drowned by paragraphs of thought. When expanded, each line is
  * drawn behind a `│ ` gutter. The label + gutter are **cyan** (DL-8 "informational") rather than
@@ -312,8 +312,8 @@ export function checklistPanelRows(items: readonly ChecklistItemViewModel[]): nu
  * A `gth_checklist` tool call rendered as a live plan: a `📋 Checklist (done/total)` header and one
  * checkbox row per item, coloured by status. Shown expanded (unlike generic tool panels) because
  * the plan is meant to be seen — it is the lean agent's answer to deepagents' `write_todos`. The
- * caller only routes here once {@link parseChecklistArgs} yields rows; a still-streaming/partial
- * args buffer falls back to the generic {@link ToolCallPanel}.
+ * caller only routes here once {@link gaunt-sloth!tui/viewModel.parseChecklistArgs | parseChecklistArgs} yields rows; a still-streaming/partial
+ * args buffer falls back to the generic `ToolCallPanel`.
  *
  * Row text arrives already neutralised — the parser owns that, and `ChecklistItemViewModel.content`
  * states it — so it is painted verbatim here and needs no second treatment.

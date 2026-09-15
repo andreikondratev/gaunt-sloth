@@ -1,7 +1,7 @@
 /**
  * @packageDocumentation
  * `@gaunt-sloth/eval-reporter-teamcity` — a LIVE TeamCity reporter for `gth eval`, the second member
- * of the `@gaunt-sloth/eval-reporter-*` plugin family. It implements the public {@link EvalReporter}
+ * of the `@gaunt-sloth/eval-reporter-*` plugin family. It implements the public {@link @gaunt-sloth/batch!"reporters/reporterTypes.js".EvalReporter | EvalReporter}
  * contract exported by `@gaunt-sloth/batch` and is registered by the CLI through the SAME `custom`
  * reporter seam a user's own reporter uses.
  *

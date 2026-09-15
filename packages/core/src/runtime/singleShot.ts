@@ -158,7 +158,7 @@ export interface SingleShotOptions {
  * @param resolvers - Optional agent resolvers (tools/middleware)
  * @param command - The originating command (defaults to `ask`); selects the agent mode prompt
  * @param agentFactory - Optional backend factory (B5). When omitted the runner uses its built-in
- *   lean {@link GthLangChainAgent} default. The app layer passes `resolveAgentFactory(config,
+ *   lean {@link @gaunt-sloth/core!core/GthLangChainAgent.GthLangChainAgent | GthLangChainAgent} default. The app layer passes `resolveAgentFactory(config,
  *   'lean')`, which resolves to the same agent through the shared backend seam.
  * @param options - GS2-95: `displayCommand` names the run in the header when the caller's own name
  *   differs from the `command` it runs under (`gth eval` runs cases in `ask` mode). Header only —

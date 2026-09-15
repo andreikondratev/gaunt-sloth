@@ -6,7 +6,7 @@ import type { TranscriptItem } from '#src/tui/types.js';
 /**
  * Pure view-model layer for the Ink TUI.
  *
- * The TUI is a second consumer of {@link AgentStreamEvent} (the same typed event
+ * The TUI is a second consumer of {@link @gaunt-sloth/core!core/types.AgentStreamEvent | AgentStreamEvent} (the same typed event
  * contract the AG-UI SSE encoder renders); it must NOT be wired through `consoleUtils`.
  * `foldEvents` is the single source of truth for turning a stream of agent events into a
  * renderable shape, kept deliberately free of React/Ink so it is unit-testable in
@@ -361,7 +361,7 @@ function upsertTool(
 }
 
 /**
- * Reduce one {@link AgentStreamEvent} into the turn view-model. Pure and immutable:
+ * Reduce one {@link @gaunt-sloth/core!core/types.AgentStreamEvent | AgentStreamEvent} into the turn view-model. Pure and immutable:
  * always returns a new object on change so React can rely on reference equality.
  */
 export function foldEvents(state: TurnViewModel, event: AgentStreamEvent): TurnViewModel {
@@ -548,7 +548,7 @@ function upsertSubagent(
 }
 
 /**
- * Fold one {@link AgentStreamEvent} into the subagent tree. Only `task` tool calls
+ * Fold one {@link @gaunt-sloth/core!core/types.AgentStreamEvent | AgentStreamEvent} into the subagent tree. Only `task` tool calls
  * are tracked; every other event passes through untouched (so the same stream can
  * be folded into both the turn view-model and this tree independently). Because
  * `tool_args` for `task` are streamed as JSON deltas, we accumulate the raw text on
@@ -704,7 +704,7 @@ export interface ChecklistItemViewModel {
 
 /**
  * Best-effort parse of a (possibly partial) streamed `gth_checklist` args JSON into rows. Mirrors
- * {@link parseTaskArgs}: a half-streamed or malformed buffer never throws — it returns `null` so
+ * `parseTaskArgs`: a half-streamed or malformed buffer never throws — it returns `null` so
  * the renderer keeps showing the last good state (or falls back to the generic tool panel).
  *
  * **Every row's text is neutralised here**, with the same shared helper the tool-display and

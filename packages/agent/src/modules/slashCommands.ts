@@ -701,9 +701,9 @@ export function firstSentence(description: string): string {
 export interface ApprovalPostureChoice {
   /** The mode this row sets. */
   rung: ApprovalRung;
-  /** Display spelling ({@link APPROVAL_RUNG_LABELS}) — never the config identifier (§9.1). */
+  /** Display spelling (`APPROVAL_RUNG_LABELS`) — never the config identifier (§9.1). */
   label: string;
-  /** The mode's own one-line description, from {@link APPROVAL_RUNG_DESCRIPTIONS}. */
+  /** The mode's own one-line description, from `APPROVAL_RUNG_DESCRIPTIONS`. */
   description: string;
   /** Whether the session is on this mode right now. */
   current: boolean;
@@ -712,7 +712,7 @@ export interface ApprovalPostureChoice {
 /**
  * CFG-39 — **the picker's rows**: the four postures, in ladder order, each carrying its own copy.
  *
- * **The strings come from {@link APPROVAL_RUNG_DESCRIPTIONS}, never from the menu.** Six surfaces
+ * **The strings come from `APPROVAL_RUNG_DESCRIPTIONS`, never from the menu.** Six surfaces
  * describe these modes; a picker that authored its own text would become the seventh and the one
  * that contradicts the rest. Whoever owns that constant owns this copy too, with no second edit.
  *

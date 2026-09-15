@@ -148,7 +148,7 @@ export function isTypedText(input: string, key: ChordModifiers): boolean {
  * in every terminal measured and parses cleanly as `{name: 'g', ctrl: true}`, so it needs no
  * raw-byte handler and nothing else on this surface claims it. `Ctrl+/` is the more memorable name
  * and works on Linux, but it emits nothing at all on macOS — so it can only ever be a second door,
- * and it arrives as the bare byte with no modifier flag (see {@link CTRL_SLASH}).
+ * and it arrives as the bare byte with no modifier flag (see `CTRL_SLASH`).
  *
  * Two near neighbours are deliberately NOT here. `Alt+/` on macOS emits `0xc3 0xb7`, which is the
  * printable `÷` — ordinary Option composition, indistinguishable from the user typing that

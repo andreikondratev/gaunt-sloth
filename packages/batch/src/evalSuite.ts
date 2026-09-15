@@ -337,7 +337,7 @@ type RawAssertions = z.infer<typeof RawAssertionsSchema>;
  *
  * Rejects, with a clear message, at parse time (never silently no-ops or defers to run time):
  * - Malformed YAML.
- * - A suite shape that doesn't match {@link RawSuiteSchema} (missing/wrong-typed fields).
+ * - A suite shape that doesn't match `RawSuiteSchema` (missing/wrong-typed fields).
  * - `target.type` other than `"gth-agent"`, `"adk-agent"`, `"ag-ui"`, or `"rater"` — other pluggable
  *   CLI/HTTP targets are out of scope.
  * - `target.profile` set to anything other than `"default"`/absent — a single suite-wide profile

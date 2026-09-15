@@ -1659,7 +1659,7 @@ function resolvePrecedencePickedField(
  * stdout's TTY status. So it is deterministic for a given environment rather than a pure function
  * of its arguments — a test that pins a resolved config should declare the terminal and the colour
  * environment it expects in its setup. The ladder itself is a pure helper
- * ({@link resolveUseColour}) so it can be tested rung by rung without process globals.
+ * ({@link @gaunt-sloth/core!config/colour.resolveUseColour | resolveUseColour}) so it can be tested rung by rung without process globals.
  */
 export function resolveConfig(
   partialConfig: Omit<Partial<GthConfig>, 'consoleLevel'> & { consoleLevel?: ConsoleLevelInput },
@@ -1922,7 +1922,7 @@ async function loadGlobalRawConfigUnvalidated(
 
 /**
  * One config LAYER's validation outcome inside a {@link ConfigValidationReport}: the pure
- * read-side result ({@link validateRawGthConfig}) plus the source label so a consumer can name
+ * read-side result ({@link @gaunt-sloth/core!config/schema.validateRawGthConfig | validateRawGthConfig}) plus the source label so a consumer can name
  * WHICH file carried a warning/error (the project path, or `"<name> (global)"`).
  */
 export interface ConfigLayerValidationReport extends RawConfigValidationResult {
@@ -1962,15 +1962,16 @@ export interface ConfigValidationReport {
  * GS2-29 — validates the SAME layer set a real run does: the discovered PROJECT layer (if any)
  * AND the GLOBAL layer (if any), mirroring `initConfig`'s `validateRawConfigLayer(project)` +
  * `applyGlobalConfigBase` → `loadGlobalRawConfig(global)`. Each present layer is validated
- * independently ({@link validateRawGthConfig}) and its outcome recorded in {@link
+ * independently ({@link @gaunt-sloth/core!config/schema.validateRawGthConfig | validateRawGthConfig})
+ * and its outcome recorded in {@link
  * ConfigValidationReport.layers}, so a removed shape in EITHER file is reported (labelled with
  * its source) rather than under-reported.
  *
  * A PROJECT-layer JSONC/module parse failure is thrown to the caller (surfaced as a clear
  * "invalid config" error + non-zero exit). A GLOBAL-layer parse failure is treated as an absent
  * global (no layer added) but is surfaced with a `displayWarning` — exactly as a run does (it
- * warns the user while ignoring the broken global's value) — see {@link
- * loadGlobalRawConfigUnvalidated}.
+ * warns the user while ignoring the broken global's value) — see
+ * `loadGlobalRawConfigUnvalidated`.
  *
  * GS2-73 — for the PROJECT layer it also walks the GS2-41 profile `extends` chain (via the SAME
  * `composeExtends`/`resolveExtendsChain` the run path uses), so a cycle or a missing

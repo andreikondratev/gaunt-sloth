@@ -41,7 +41,7 @@ export function getGslothFilePath(filename: string): string {
 
 /**
  * Gets the path where gsloth should write configuration files based on .gsloth directory existence.
- * The main difference from {@link #getGslothConfigReadPath} is that this getGslothConfigWritePath
+ * The main difference from {@link @gaunt-sloth/core!utils/fileUtils.getGslothConfigReadPath | getGslothConfigReadPath} is that this getGslothConfigWritePath
  * method creates internal settings directory if it does not exist.
  *
  * If .gsloth dir exists returns `projectdir/.gsloth/.gsloth-settings`

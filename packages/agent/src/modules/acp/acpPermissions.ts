@@ -2,7 +2,7 @@
  * @packageDocumentation
  * Bridges the agent's tool-approval gate to ACP v2's `session/request_permission`.
  *
- * **This is the reason the ACP server drives {@link GthAgentRunner} rather than an agent
+ * **This is the reason the ACP server drives {@link @gaunt-sloth/core!core/GthAgentRunner.GthAgentRunner | GthAgentRunner} rather than an agent
  * directly.** The runner is what owns the gate — the bypass check, the allow-list, the AI rater,
  * the deny list, and finally the human callback — and a surface that skips it does not get a
  * quieter gate, it gets a gated tool that silently does nothing (the hole [[EXT-54]] records
@@ -186,7 +186,7 @@ export function permissionRequestFor(options: {
  *
  * `maintenance/ux-guidelines.md` (DL-4): a confirmation states what LANDED, and waits for it if it
  * has to. *Allow and remember* and *Reject and remember* both promise a project file, and the write
- * is attempted after the {@link ToolApprovalCallback} has returned — so the labels are an offer and
+ * is attempted after the {@link @gaunt-sloth/core!core/types.ToolApprovalCallback | ToolApprovalCallback} has returned — so the labels are an offer and
  * this is the only place either promise can be checked. The other two options record nothing, so
  * they earn no sentence and are not sent one.
  *

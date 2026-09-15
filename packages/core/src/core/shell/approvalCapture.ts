@@ -167,7 +167,7 @@ export interface ApprovalRuleMatchCapture {
  * The resolution taken for [[TUI-C27]] is that §8.1 governs **rung descriptions and promotional
  * copy** — text that invites a user to feel safe — and not a diagnostic archive a user opens about
  * their own session. "A floor matched" without saying which one leaves nobody able to act on it;
- * the refusal the *user* sees ({@link import('./hardline.js').buildHardlineRefusal}) is unchanged
+ * the refusal the *user* sees ({@link @gaunt-sloth/core!core/shell/hardline.buildHardlineRefusal | buildHardlineRefusal}) is unchanged
  * and still names only the description.
  */
 export interface HardlineFloorCapture {

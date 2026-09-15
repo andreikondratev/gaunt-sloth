@@ -221,7 +221,7 @@ export function parseToolArgsSafe(argsText: string | undefined): Record<string, 
 }
 
 /**
- * The live gth config, registered once per run so {@link getDefaultSecrets} can harvest INLINE
+ * The live gth config, registered once per run so `getDefaultSecrets` can harvest INLINE
  * config secrets (a pasted `apiKey`/`token` value) via the GS2-47 config walk — not only the
  * env-derived literals. `GthAgentRunner.init` sets this next to the crash-context hand-off, so
  * both render surfaces (the plain observer and the Ink TUI) see it. `undefined` (no config yet)
@@ -239,7 +239,7 @@ let displayCommand: GthCommand | undefined = undefined;
 /**
  * Register the live config for inline-secret collection (TUI-C32 residual a) and, since TUI-C105,
  * for the configurable preview depth ({@link buildToolPreviewLines}). Resets the secret cache so
- * the next {@link getDefaultSecrets} recomputes with the config's inline literals folded in.
+ * the next `getDefaultSecrets` recomputes with the config's inline literals folded in.
  * Idempotent; a later call with a fresh config supersedes the previous one.
  */
 export function setToolDisplayConfig(config: unknown, command?: GthCommand): void {
@@ -282,7 +282,7 @@ export function resetToolDisplaySecretsCacheForTests(): void {
  * nothing is configured. Reads the config registered by {@link setToolDisplayConfig}, which is the
  * seam TUI-C32 already put here; no new plumbing.
  *
- * Wrapped fail-safe for the same reason {@link getDefaultSecrets} is: `displayConfig` is typed
+ * Wrapped fail-safe for the same reason `getDefaultSecrets` is: `displayConfig` is typed
  * `unknown` because a JS/MJS config is arbitrary user code, this runs on EVERY rendered tool call,
  * and a render path is never allowed to throw into the run. Anything unexpected falls back to the
  * canonical cap, which is what an unconfigured session renders anyway.
@@ -587,7 +587,7 @@ export function getToolGlyph(name: string): string {
  * provider patterns). Unparsable (mid-stream/malformed) args render as `name(…)` — never a
  * raw JSON dump. `secrets` defaults to the env-derived literals; pass explicitly for tests.
  *
- * Redaction runs BEFORE every truncation step (per value in {@link formatParamValue}, and again
+ * Redaction runs BEFORE every truncation step (per value in `formatParamValue`, and again
  * before the whole-summary cap): truncating first would bisect a literal secret longer than a
  * cap so it no longer literal-matches, leaking its head into the rendered summary
  * (fix-cycle-1 finding). The final pass over the assembled string is defense in depth only —
@@ -631,7 +631,7 @@ export function summariseToolCall(
   const inner = truncate(redactText(parts.join(', '), secrets), TOOL_SUMMARY_MAX_CHARS);
   // [[TUI-C102]] — the values were neutralised one by one above (each needed it before its own
   // width budget could mean anything); this last pass covers the two strings that never went
-  // through {@link formatParamValue}: the tool NAME and the arg KEYS. Neither is ours — an MCP
+  // through `formatParamValue`: the tool NAME and the arg KEYS. Neither is ours — an MCP
   // server names its own tools, and an unregistered tool's keys are whatever the model streamed.
   // Idempotent over the values, whose escape alphabet (`\`, `x`, `u`, `{`, `}`, hex) holds nothing
   // for it to rewrite.
@@ -672,7 +672,7 @@ export function buildToolBodyLines(
   //
   //  1. REDACT the raw text. A secret literal that carries a control character stops matching the
   //     moment that character is rewritten to `\x0b`, so neutralising first would leave the secret
-  //     on the screen — the same argument {@link formatParamValue} makes about truncating first.
+  //     on the screen — the same argument `formatParamValue` makes about truncating first.
   //  2. NEUTRALISE what redaction returns, so nothing downstream ever holds an escape.
   //  3. CAP last ({@link capToolDisplayLines}, via {@link buildToolPreviewLines}). A neutralised
   //     line is WIDER than the raw one — `\x1b[2J` is 8 printable columns where the sequence was 0

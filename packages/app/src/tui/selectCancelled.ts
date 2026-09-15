@@ -1,5 +1,5 @@
 /**
- * CFG-20 — the abort signal shared by the {@link SelectFn} seam.
+ * CFG-20 — the abort signal shared by the {@link gaunt-sloth!commands/firstRunDialog.SelectFn | SelectFn} seam.
  *
  * The Ink `runInkSelect` host rejects its promise with this error when the user aborts a
  * selection (Ctrl+C at any time, or Esc with an empty filter), and `runFirstRunDialog`

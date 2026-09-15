@@ -55,7 +55,7 @@ export function validateProfileName(nameRaw: string): string {
 /**
  * The on-disk path a named profile's config is written to / discovered at:
  * `<projectDir>/.gsloth/.gsloth-settings/<name>/.gsloth.config.json`. Resolved against
- * {@link getProjectDir} so it matches the loader's read-side resolution.
+ * {@link @gaunt-sloth/core!utils/systemUtils.getProjectDir | getProjectDir} so it matches the loader's read-side resolution.
  */
 export function resolveProfileConfigPath(name: string): string {
   return resolve(getProjectDir(), GSLOTH_DIR, GSLOTH_SETTINGS_DIR, name, USER_PROJECT_CONFIG_JSON);

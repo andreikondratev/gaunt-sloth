@@ -8,7 +8,7 @@ import type { BatchSummary, CellResult } from '#src/types.js';
  * (pass/fail counts + a per-cell one-liner — a lightweight flake report) into `outputDir`.
  * Creates `outputDir` (and any missing parents) if it doesn't exist.
  *
- * Pure I/O, deliberately separate from {@link runBatchMatrix}: the runner never touches the
+ * Pure I/O, deliberately separate from {@link @gaunt-sloth/batch!"BatchRunner.js".runBatchMatrix | runBatchMatrix}: the runner never touches the
  * filesystem, so unit tests can exercise matrix/concurrency/retry logic without a tmp dir, and this
  * function can be tested in isolation with a fixed set of results.
  *

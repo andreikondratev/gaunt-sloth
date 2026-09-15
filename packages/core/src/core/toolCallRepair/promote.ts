@@ -91,7 +91,7 @@ export function textToNativeToolCalls(
 }
 
 /**
- * Repair one assistant {@link AIMessage}: if it has NO native tool_calls but its content is a
+ * Repair one assistant `AIMessage`: if it has NO native tool_calls but its content is a
  * standalone text-emitted call (allow-listed, within the payload cap), return a NEW AIMessage that
  * carries the promoted native tool_calls; otherwise return `undefined` (the caller keeps the
  * original, so the native happy path is untouched).

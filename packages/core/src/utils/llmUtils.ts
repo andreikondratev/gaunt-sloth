@@ -236,7 +236,7 @@ function composeScopedPromptSegment(segment: PromptSegmentName, config: PromptRe
 /**
  * GS2-43 — the single composition point for one prompt segment, honouring the segment's
  * `prompts.<segment>` config:
- * - no setting → the segment's default-named file ({@link PROMPT_SEGMENT_FILES}), falling back
+ * - no setting → the segment's default-named file (`PROMPT_SEGMENT_FILES`), falling back
  *   to the bundled default unless `noDefaultPrompts` — exactly the pre-GS2-43 behaviour;
  * - a `string` → shorthand for `{ path }`;
  * - `enabled: false` → the segment is dropped entirely (returns `''`), even its bundled default;

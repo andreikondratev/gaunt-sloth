@@ -276,7 +276,7 @@ export interface LaunchBannerInput {
   directory?: string;
   /** The user's home dir; when `directory` sits under it the prefix collapses to `~`. */
   homeDir?: string;
-  /** Live `stdout.columns`; `undefined` (non-TTY / tests) falls back to {@link DEFAULT_COLUMNS}. */
+  /** Live `stdout.columns`; `undefined` (non-TTY / tests) falls back to `DEFAULT_COLUMNS`. */
   columns?: number;
   /** Emit ANSI colour. Only {@link launchBannerText} reads this; Ink colours rows itself. */
   colour?: boolean;

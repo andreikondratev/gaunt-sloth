@@ -4,7 +4,7 @@
  * the providers that carry thinking INSIDE `content` rather than beside it.
  *
  * Most providers hand thinking over out-of-band, in `additional_kwargs.reasoning_content` (or
- * `reasoning`), which {@link pickReasoningDelta} in `GthAbstractAgent` reads. Google Gemini does not:
+ * `reasoning`), which `pickReasoningDelta` in `GthAbstractAgent` reads. Google Gemini does not:
  * a thought summary arrives as a content BLOCK marked `thought: true` and typed exactly like an
  * answer block (`type: 'text'`). Two consequences follow, and the second is the dangerous one:
  *

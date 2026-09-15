@@ -148,7 +148,7 @@ export abstract class AcpToolCallTracker {
    * **Where the exact match degrades, named rather than implied:** this side is JSON reassembled
    * from the model's streamed argument deltas, and a local model that ignores
    * `disable_parallel_tool_use` can merge sibling calls' buffers into invalid JSON (`{}{}`,
-   * `{"steps":3}{}` — see the AG-UI server's `parseToolArguments` note). {@link parseToolArgs}
+   * `{"steps":3}{}` — see the AG-UI server's `parseToolArguments` note). `parseToolArgs`
    * deliberately does not carry that path's recovery, so such a payload stays a raw string, matches
    * nothing, and falls back to position — on exactly the model class most likely to emit sloppy
    * parallel calls. The fallback is still the best remaining answer and the cost is which row a

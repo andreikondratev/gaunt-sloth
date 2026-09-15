@@ -43,7 +43,7 @@ interface CommandMenu {
    * `false` holds only between the chord opening the menu and the first input it takes, which is
    * what bounds the strip at one. An empty query is not the same question and cannot stand in for
    * it: the swallowed slash LEAVES the query empty, so a strip keyed on emptiness re-arms itself
-   * on every slash and is unbounded. See {@link extendCommandMenuQuery}.
+   * on every slash and is unbounded. See `extendCommandMenuQuery`.
    */
   readonly started: boolean;
 }
@@ -165,7 +165,7 @@ export type PromptDraftCarry = React.MutableRefObject<EditorState | null>;
  * The user prompt line. Mirrors the readline `  > ` prompt. Clears on submit; the parent
  * hides it while a turn is running so Ink owns stdin uncontended during streaming.
  *
- * The buffer and caret live here as an {@link import('#src/tui/lineEditor.js').EditorState} and are
+ * The buffer and caret live here as an {@link gaunt-sloth!tui/lineEditor.EditorState | EditorState} and are
  * rendered and driven by `<PromptEditor>` (TUI-C25), which owns the keyboard for everything that
  * edits text. This component owns what the buffer *means*: the slash menu it may open, the
  * submission it becomes — including what Enter means, which is decided against the authoritative
@@ -189,7 +189,7 @@ export type PromptDraftCarry = React.MutableRefObject<EditorState | null>;
  * TUI-C51 — **the same menu, reachable over an unfinished message: `Ctrl+G` (or `Ctrl+/`).** The
  * menu above filters on the prompt buffer itself, so with `please refactor the fo` typed there is no
  * way to reach it at all: the buffer neither starts with `/` nor is expendable. The chord opens the
- * menu in a mode whose query lives in its own state ({@link CommandMenu}), so the message is neither
+ * menu in a mode whose query lives in its own state (`CommandMenu`), so the message is neither
  * read nor written — it stays on screen, unchanged, caret where it was, while the user filters and
  * dispatches above it. `Esc` closes the menu and leaves it exactly as it was.
  *

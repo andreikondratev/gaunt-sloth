@@ -13,8 +13,8 @@ import { UNRECOGNIZED_LABEL } from '#src/classificationTypes.js';
  * per tag), every declared metric (overall and per tag), the corpus-wide coverage, and the list of
  * `gate: fail` metrics that were breached.
  *
- * Kept separate from both the extractor ({@link ./classification.js}) and the metric engine
- * ({@link ./metrics.js}) so neither imports the other, and so the whole aggregation is exercisable
+ * Kept separate from both the extractor ({@link @gaunt-sloth/batch!"classification.js" | ./classification.js}) and the metric engine
+ * ({@link @gaunt-sloth/batch!"metrics.js" | ./metrics.js}) so neither imports the other, and so the whole aggregation is exercisable
  * from a plain array of {@link ClassifiedCell}s with no runner, no I/O, and no model.
  */
 export function buildClassificationReport(

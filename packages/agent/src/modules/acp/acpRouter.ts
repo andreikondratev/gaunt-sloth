@@ -9,7 +9,7 @@
  * read a message it is not allowed to consume, and pushing it back onto a `ReadableStream` is the
  * part that is awkward to do correctly.
  *
- * `@agentclientprotocol/sdk` already does exactly this. {@link acp.agentProtocolRouter} takes the
+ * `@agentclientprotocol/sdk` already does exactly this. `acp.agentProtocolRouter` takes the
  * first wire item, requires it to be an `initialize`, selects the highest configured version that
  * does not exceed the client's requested one, and re-enqueues the request into a fresh readable in
  * front of the rest of the stream. Nothing later is touched. Using it means the sniff, the pushback

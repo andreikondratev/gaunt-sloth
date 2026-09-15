@@ -20,7 +20,7 @@ import { useTerminalSize } from '#src/tui/useTerminalSize.js';
  * detection handles NO_COLOR / dumb terminals, the counterpart of `getUseColour()` on the plain
  * surface) and the right half gets no colour at all.
  *
- * Like {@link import('#src/tui/components/Rule.js').Rule} it tracks the live terminal width and
+ * Like {@link gaunt-sloth!tui/components/Rule.Rule | Rule} it tracks the live terminal width and
  * re-renders on resize, because the truncation budgets are a function of it; callers may pass an
  * explicit `columns` instead (tests, or a caller that already measured).
  *

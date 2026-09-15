@@ -167,7 +167,7 @@ export const DEFAULT_FRAME_MAX_LINES = 20;
  *
  * Four, because that is enough for the ordinary case — a one-line command is one row, its JSON
  * entry two — while keeping an eighteen-line command from printing itself twice more underneath
- * its own frame and pushing the menu off the screen. See {@link clampRows} for the measurement.
+ * its own frame and pushing the menu off the screen. See `clampRows` for the measurement.
  */
 export const STICKY_PREVIEW_MAX_ROWS = 4;
 
@@ -731,7 +731,7 @@ function buildNotices(
  * The budget is floored at {@link MIN_CONTENT_WIDTH} here rather than taken on trust. The
  * over-wide-cluster branch below escapes a cluster it cannot draw and re-measures it, which
  * advances only if the budget can hold at least one escape character; at a budget of zero it
- * re-escapes its own backslashes forever and the row never terminates. {@link frame} does pass a
+ * re-escapes its own backslashes forever and the row never terminates. `frame` does pass a
  * floored width, but a loop that terminates because of what its only caller happens to do is one
  * the next caller silently breaks.
  *

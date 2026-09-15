@@ -302,7 +302,7 @@ export abstract class ApprovalStopError extends Error {
   /**
    * What ended the run, exactly as the agent proposed it: the command for a shell subject, and the
    * registered tool name for a gated tool or MCP call. The field name predates the gate widening
-   * past the shell; {@link subjectParts} is what decides the word the MESSAGE calls it.
+   * past the shell; `subjectParts` is what decides the word the MESSAGE calls it.
    */
   readonly command: string;
 

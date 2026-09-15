@@ -24,7 +24,7 @@ export interface EvalRunContext {
 
 /** A reporter renders an eval run. Every hook is optional — a reporter implements only what it needs
  * (the text reporter uses all three; a future file reporter may use only onSuiteEnd). Hooks are
- * driven in lifecycle order by {@link driveReporters}. A reporter MUST NOT be able to fail the run:
+ * driven in lifecycle order by {@link @gaunt-sloth/batch!"reporters/drive.js".driveReporters | driveReporters}. A reporter MUST NOT be able to fail the run:
  * the driver catches any hook error and surfaces it as a warning (see driveReporters). */
 export interface EvalReporter {
   onSuiteStart?(ctx: EvalRunContext): void | Promise<void>;
@@ -36,8 +36,8 @@ export interface EvalReporter {
  * stores factories, not instances. */
 export type EvalReporterFactory = () => EvalReporter;
 
-/** A resolved reporter paired with the name it was selected under. {@link resolveReporters} returns
- * these (not bare {@link EvalReporter}s) so {@link driveReporters} can name WHICH reporter's hook
+/** A resolved reporter paired with the name it was selected under. {@link @gaunt-sloth/batch!"reporters/registry.js".resolveReporters | resolveReporters} returns
+ * these (not bare {@link EvalReporter}s) so {@link @gaunt-sloth/batch!"reporters/drive.js".driveReporters | driveReporters} can name WHICH reporter's hook
  * failed in the contained-error warning — with multiple reporters real (A2: text + junit + custom),
  * a bare "onCellResult hook failed" is ambiguous. */
 export interface NamedReporter {

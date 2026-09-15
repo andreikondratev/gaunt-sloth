@@ -32,7 +32,8 @@ export const DEFAULT_CONFIG = {
    * Default source for both requirements and content is GitHub.
    * It needs GitHub CLI (gh).
    *
-   * `github` content source uses `gh pr diff NN` internally. {@link src/sources/ghPrDiffSource.ts!}
+   * `github` content source uses `gh pr diff NN` internally.
+   * {@link @gaunt-sloth/review!sources/ghPrDiffSource | src/sources/ghPrDiffSource.ts}
    *
    *
    * `github` requirement source uses `gh issue view NN` internally

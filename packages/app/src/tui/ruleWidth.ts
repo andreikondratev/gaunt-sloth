@@ -16,7 +16,7 @@ const MIN_WIDTH = 1;
 /**
  * Given the live `stdout.columns` (which Ink/Node leaves `undefined` when not attached to a
  * TTY), return the number of `─` glyphs to draw: the full column count, falling back to
- * {@link DEFAULT_COLUMNS} when unknown, and clamped to {@link MIN_WIDTH} so it can never
+ * `DEFAULT_COLUMNS` when unknown, and clamped to `MIN_WIDTH` so it can never
  * collapse to 0/negative.
  */
 export function ruleWidth(columns: number | undefined): number {

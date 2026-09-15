@@ -10,7 +10,7 @@ const BUILTIN_REPORTERS: Record<string, EvalReporterFactory> = { text: createTex
  * ONE path; a `custom` key colliding with a built-in name wins (config beats built-in). A name found
  * in neither throws with the available list (the command maps that to exit 2). Reporters are
  * instantiated per call (fresh state per run). Each is paired with the name it was selected under so
- * {@link driveReporters} can name a failing reporter in its contained-error warning. */
+ * {@link @gaunt-sloth/batch!"reporters/drive.js".driveReporters | driveReporters} can name a failing reporter in its contained-error warning. */
 export function resolveReporters(
   names: string[],
   custom: Record<string, EvalReporterFactory> = {}

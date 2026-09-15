@@ -14,7 +14,7 @@
  *
  * ## Shape
  *
- * v2's agent side is a fluent app builder: `acp.agent()` returns an {@link AgentApp} on which
+ * v2's agent side is a fluent app builder: `acp.agent()` returns an `AgentApp` on which
  * typed handlers are registered by ACP method name, and `connect()` serves a client — either over
  * a transport stream or, for tests, directly against a `ClientApp`. The SDK's v1 entry point offers
  * the same builder, which is why the two dialects read alike even though their handlers differ.
@@ -32,7 +32,7 @@
  *
  * ## Why a runner and not an agent
  *
- * Each session drives a {@link GthAgentRunner}, not a bare agent. The runner is where the
+ * Each session drives a {@link @gaunt-sloth/core!core/GthAgentRunner.GthAgentRunner | GthAgentRunner}, not a bare agent. The runner is where the
  * tool-approval gate lives, so this is also the surface where `session/request_permission` is
  * wired — see `acpPermissions.ts` for why that is not optional.
  *

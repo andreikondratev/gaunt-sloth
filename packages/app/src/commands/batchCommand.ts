@@ -97,7 +97,7 @@ export interface ProductionRunCellOptions {
 }
 
 /**
- * Build the injectable {@link RunCellFn} that adapts the shared single-shot runtime
+ * Build the injectable {@link @gaunt-sloth/batch!"types.js".RunCellFn | RunCellFn} that adapts the shared single-shot runtime
  * (`runSingleShot`) to one matrix cell. Isolated in its own function so each cell run gets a fresh
  * `createResolvers()` (its own MCP client instance) — matching batch's "N isolated model calls"
  * contract (docs/batch-mechanism-vs-judgment.md) rather than sharing one resolver/client across
@@ -178,7 +178,7 @@ export async function buildProductionRunCell(
 }
 
 /**
- * BATCH-12 Task 2 — build the injectable {@link RunConversationFn} that adapts core's MULTI-TURN
+ * BATCH-12 Task 2 — build the injectable {@link @gaunt-sloth/batch!"evalTypes.js".RunConversationFn | RunConversationFn} that adapts core's MULTI-TURN
  * `runConversation` to `gth eval`'s conversation seam. The multi-turn analogue of
  * {@link buildProductionRunCell}: same fresh-`createResolvers()` per conversation + cleanup-on-
  * every-path discipline, but it runs a whole scripted conversation (agent/tools built ONCE, messages

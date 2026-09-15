@@ -25,7 +25,7 @@ const SECRET_KEY_RE = /(api[-_]?key|secret|token|password|passwd|authorization|b
 const REDACTED = '***REDACTED***';
 
 /**
- * Produce a plain, printable, secret-free view of a fully-resolved {@link GthConfig}.
+ * Produce a plain, printable, secret-free view of a fully-resolved `GthConfig`.
  *
  * The resolved config carries live, non-serializable objects (the instantiated `llm`, tool
  * instances, middleware); those are replaced with short descriptors so the output is readable

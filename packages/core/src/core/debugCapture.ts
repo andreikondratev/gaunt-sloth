@@ -30,7 +30,7 @@ export interface DebugToolDef {
 
 /**
  * GS2-56 — the always-on snapshot of the LAST model request, kept on
- * {@link import('#src/core/GthAbstractAgent.js').GthAbstractAgent} independent of any
+ * {@link @gaunt-sloth/core!core/GthAbstractAgent.GthAbstractAgent | GthAbstractAgent} independent of any
  * {@link DebugCapture} sink. It is the SAME data the sink reports (the as-sent, post-summarization
  * `request.messages` plus the {@link DebugRequestExtras}), captured unconditionally at each model
  * call so `/debug-dump` can render the full model input even when the TUI `/debug` panel was never
@@ -49,7 +49,7 @@ export interface LastModelRequest {
  * Debug-capture sink for the TUI's `/debug` panel.
  *
  * A {@link DebugCapture} is an OPT-IN callback the TUI sets on a live agent after `init`
- * (on the shared {@link import('#src/core/GthAbstractAgent.js').GthAbstractAgent} base, so
+ * (on the shared {@link @gaunt-sloth/core!core/GthAbstractAgent.GthAbstractAgent | GthAbstractAgent} base, so
  * every backend supports it). When present, the agent's `wrapModelCall`
  * middleware reports, per model call:
  *

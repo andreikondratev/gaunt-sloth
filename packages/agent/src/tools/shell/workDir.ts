@@ -7,7 +7,7 @@
  *
  * It resolves to `getCurrentWorkDir()`, and it exists as a named seam rather than as a direct call
  * at each spawn site so that every subprocess the agent starts — `run_shell_command`
- * ({@link file://../GthDevToolkit.ts}) and custom tools ({@link file://../GthCustomToolkit.ts},
+ * (`../GthDevToolkit.ts`) and custom tools ({@link @gaunt-sloth/agent!"tools/GthCustomToolkit.js" | ../GthCustomToolkit.ts},
  * EXT-42) — resolves it the same way. A transport that re-roots the filesystem per session changes
  * this one function; two spawn sites reading the cwd directly would have to be found first.
  */

@@ -18,7 +18,7 @@
  * `generationConfig.thinkingConfig` from the budget/level fields on every call and does not read a
  * `thinkingConfig` passed to the constructor, so the ONLY way to add `includeThoughts` without also
  * pinning a budget is at the built params. Overriding the instance method (the shape
- * {@link applyGeminiToolSchemaSanitizer} already uses for `bindTools`) keeps working through
+ * {@link @gaunt-sloth/core!providers/geminiSchemaSanitizer.applyGeminiToolSchemaSanitizer | applyGeminiToolSchemaSanitizer} already uses for `bindTools`) keeps working through
  * `bindTools`, which returns a `RunnableBinding` around this same instance.
  *
  * Gemini returns a thought summary as a content BLOCK marked `thought: true`, not in

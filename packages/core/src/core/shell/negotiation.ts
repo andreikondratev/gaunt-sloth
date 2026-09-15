@@ -120,8 +120,8 @@ export interface NegotiationCounters {
 export const NEGOTIATION_USER_MESSAGE_RETENTION = 10;
 
 /**
- * The per-session state of §5's negotiation: one instance per {@link
- * import('../GthAgentRunner.js').GthAgentRunner}.
+ * The per-session state of §5's negotiation: one instance per
+ * {@link @gaunt-sloth/core!core/GthAgentRunner.GthAgentRunner | GthAgentRunner}.
  *
  * Every mutation is one of four events, and naming them is what keeps the two bounds from being
  * confused with each other:

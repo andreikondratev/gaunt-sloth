@@ -1,6 +1,6 @@
 /**
  * @packageDocumentation
- * Translates the agent runtime's typed {@link AgentStreamEvent} stream into ACP **v2**
+ * Translates the agent runtime's typed {@link @gaunt-sloth/core!core/types.AgentStreamEvent | AgentStreamEvent} stream into ACP **v2**
  * `session/update` payloads. (`acpUpdatesV1.ts` is the v1 half; both extend the tool-call tracker
  * in `acpToolCalls.ts`, which is where the parts that are not about the dialect live.)
  *

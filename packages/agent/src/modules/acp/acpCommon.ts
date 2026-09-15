@@ -112,7 +112,7 @@ export async function loadConfigForCwd(cwd: string): Promise<GthConfig> {
  * `code` is the same default the bare `gth` CLI already resolves to.
  *
  * **Why `acp.mode` naming an existing command, and not a `commands.acp` block.** `runner.init`
- * takes a {@link GthCommand}, and two pieces of tool gating branch on that union — `filterDevTools`
+ * takes a {@link @gaunt-sloth/core!core/types.GthCommand | GthCommand}, and two pieces of tool gating branch on that union — `filterDevTools`
  * (`command !== 'code' && command !== 'exec'`) and `GthDevToolkit`, which resolves the shell
  * default for the active mode. An `acp` command would have to join the union and every one of
  * those branches would have to learn the new member, with a silently wrong default wherever one was

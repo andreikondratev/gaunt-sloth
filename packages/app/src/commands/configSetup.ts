@@ -13,7 +13,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /**
- * Where {@link createProjectConfig} writes the scaffolded config. Mirrors {@link ConfigScope}
+ * Where {@link createProjectConfig} writes the scaffolded config. Mirrors {@link gaunt-sloth!commands/firstRunDialog.ConfigScope | ConfigScope}
  * (firstRunDialog.ts) but as a destination the scriptable `gth init <provider>` path is told
  * rather than a choice it asks for: `global: true` selects `~/.gsloth/` (or its named profile
  * dir); `global: false`/omitted keeps the existing project default.

@@ -55,7 +55,7 @@ type JsonSchemaObject = Record<string, unknown>;
  *
  * Note `anyOf` IS supported (unions / nullable) and MUST survive — only `allOf`/`oneOf`/`not` are
  * absent from the type and therefore dropped. `exclusiveMinimum`/`exclusiveMaximum` are NOT in the type
- * either; they are handled specially by rewriting them to `minimum`/`maximum` (see {@link sanitizeNode})
+ * either; they are handled specially by rewriting them to `minimum`/`maximum` (see `sanitizeNode`)
  * before the allowlist filter runs.
  */
 export const GEMINI_SUPPORTED_SCHEMA_KEYWORDS: ReadonlySet<string> = new Set([
@@ -191,7 +191,7 @@ function mergeAllOf(node: JsonSchemaObject): JsonSchemaObject | null {
 
 /**
  * Resolve the SAFE structural-composition keywords Gemini rejects into supported equivalents, BEFORE
- * {@link sanitizeNode}'s allowlist drops the rest. Its output feeds the same allowlist + `exclusive*`
+ * `sanitizeNode`'s allowlist drops the rest. Its output feeds the same allowlist + `exclusive*`
  * rewrite pass, so merged-in `properties`/`items`/`anyOf` are still recursed and a merged-in
  * `exclusiveMinimum` is still rewritten. A strict NO-OP (returns the input node) when the node carries
  * none of the handled keywords, so clean schemas pass through byte-identical.
@@ -304,9 +304,9 @@ function sanitizeNode(node: unknown): unknown {
  * Pure, recursive normaliser: returns a cleaned DEEP COPY of a JSON-Schema containing only keywords
  * Gemini's function-declaration `Schema` accepts, so its OpenAPI-3.0 subset accepts the tool. At each
  * node the SAFE composition keywords are first RESOLVED into supported equivalents
- * ({@link resolveComposition}: `const` → `enum`, clean `allOf` → shallow merge) and only then does the
+ * (`resolveComposition`: `const` → `enum`, clean `allOf` → shallow merge) and only then does the
  * allowlist drop the rest. Does not mutate the input. `anyOf` unions survive; `$ref`/`oneOf`/`not` are
- * dropped (see {@link resolveComposition} for why the last three are deferred, not resolved).
+ * dropped (see `resolveComposition` for why the last three are deferred, not resolved).
  */
 export function sanitizeGeminiToolSchema<T = unknown>(schema: T): T {
   return sanitizeNode(schema) as T;

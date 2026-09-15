@@ -134,7 +134,7 @@ const MCP_TAB_DESCRIPTION =
 /**
  * TUI-C20: gather the session-stable inputs the MCP debug tab needs — the configured MCP server
  * list and each server's captured discovery instructions. Instructions come from EXT-32's
- * {@link AgentResolvers.getMcpServerInstructions} accessor (captured once during tool resolution and
+ * `AgentResolvers.getMcpServerInstructions` accessor (captured once during tool resolution and
  * reused here, NOT re-queried), so the tab shows exactly the same instruction text the system prompt
  * was composed with. React-free + defensive (missing config / accessor → empty) so it is unit
  * testable and can never blank or crash the panel. The per-server tool grouping is left to
@@ -162,7 +162,7 @@ export function collectMcpOverview(
  * contributed tools by their server-prefixed name (`mcp__<server>__<tool>`) with a one-line
  * description. Tool SCHEMAS are deliberately NOT rendered here — the intro points at the Tools tab
  * for those. `servers` is the full configured server list; `extras.tools` is the live per-turn tool
- * catalogue, regrouped by the shared {@link MCP_TOOL_NAME_PREFIX} prefix so the grouping can't drift
+ * catalogue, regrouped by the shared {@link @gaunt-sloth/core!constants.MCP_TOOL_NAME_PREFIX | MCP_TOOL_NAME_PREFIX} prefix so the grouping can't drift
  * from how the resolver named them. No servers → a neutral empty state (never a throw).
  */
 export function renderMcpDetails(

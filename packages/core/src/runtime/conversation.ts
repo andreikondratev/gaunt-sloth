@@ -28,7 +28,7 @@ import type { GthTerminationReason } from '#src/core/terminationReason.js';
  * turn's run stats (GS2-16 {@link GthRunStats} — token usage + invoked tools), captured PER TURN (a
  * per-invoke delta, not the cumulative conversation total). `ok` is `false` when that turn's agent
  * invocation failed (`error` set, `answer` empty). Extends `GthRunStats` rather than restating its
- * fields — same shape {@link ../runtime/singleShot.js SingleShotResult} uses.
+ * fields — same shape {@link @gaunt-sloth/core!runtime/singleShot.SingleShotResult | SingleShotResult} uses.
  */
 export interface ConversationTurnResult extends GthRunStats {
   /** `true` when this turn completed without error, `false` when it failed. */
@@ -61,7 +61,7 @@ export interface ConversationTurnResult extends GthRunStats {
 /**
  * Run a scripted MULTI-TURN conversation and return one {@link ConversationTurnResult} per turn.
  *
- * This is the **conversational** counterpart to {@link ../runtime/singleShot.js runSingleShot}
+ * This is the **conversational** counterpart to {@link @gaunt-sloth/core!runtime/singleShot.runSingleShot | runSingleShot}
  * (which is stateless — a fresh agent per call). It builds the agent + resolves tools ONCE, then
  * runs each turn against the ACCUMULATED message history so cross-turn "memory" / identity behaviour
  * is real, and cleans up ONCE at the end (reusing runSingleShot's cleanup discipline — the resolvers

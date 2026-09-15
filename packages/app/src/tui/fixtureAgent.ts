@@ -65,10 +65,10 @@ function messagesOfTurn(userInput: string, events: readonly AgentStreamEvent[]):
 }
 
 /**
- * Test-only deterministic agent. Replays recorded {@link AgentStreamEvent}s from a JSON
+ * Test-only deterministic agent. Replays recorded {@link @gaunt-sloth/core!core/types.AgentStreamEvent | AgentStreamEvent}s from a JSON
  * fixture instead of calling a model, so the PTY e2e (Stage D) drives the *real* TUI — the
  * `<App>` component, the `foldEvents` reducer, and Ink's renderer — with hermetic, key-free,
- * fully reproducible output. Selected by {@link import('#src/tui/tuiSessionModule.js')}'s
+ * fully reproducible output. Selected by {@link gaunt-sloth!tui/tuiSessionModule | tuiSessionModule}'s
  * `createTuiSession` only when `GTH_TUI_E2E_FIXTURE` points at a fixture file; the production
  * path never loads this module.
  *

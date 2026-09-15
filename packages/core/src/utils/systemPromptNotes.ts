@@ -149,7 +149,7 @@ export interface CommitCoAuthor {
  * an angle-bracket placeholder copied literally is itself a shell input redirect. The `<email>` of
  * the trailer line is the exception the RFC form requires, and is scoped out of the scan.
  *
- * The identity is config-driven (`commit.coAuthor` in {@link import('#src/config/types.js').GthConfig}).
+ * The identity is config-driven (`commit.coAuthor` in `GthConfig`).
  * Each field falls back INDEPENDENTLY to the Gaunt Sloth account
  * ({@link DEFAULT_COMMIT_CO_AUTHOR_NAME} / {@link DEFAULT_COMMIT_CO_AUTHOR_EMAIL}) — so a partial
  * override (name only, or a config that bypassed the loader) still yields a complete trailer, and a

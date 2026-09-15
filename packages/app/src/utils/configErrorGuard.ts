@@ -60,7 +60,7 @@ export function handleConfigDiscoveryError(error: unknown): error is ConfigDisco
 /**
  * Wrap a commander program so an unusable configuration terminates the CLI cleanly.
  *
- * Presented as a {@link ProgramLike} because that is the seam `readStdin` already parses through:
+ * Presented as a {@link @gaunt-sloth/core!utils/systemUtils.ProgramLike | ProgramLike} because that is the seam `readStdin` already parses through:
  * argument parsing is where every command action runs, so wrapping it catches the failure wherever
  * in the CLI it was raised, without each command growing its own try/catch. Any other rejection is
  * re-thrown unchanged, leaving it in exactly the position it occupied before.

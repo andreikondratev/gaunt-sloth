@@ -34,7 +34,7 @@ const LINE_BREAK_RUN = /\s*\n\s*/g;
  * every character at which the shell stops one command and starts the next: `;`, `&` (hence
  * `&&`), `|` (hence `||`), and a LINE BREAK. Both consumers of the normalized form build their
  * patterns from it — the allow-list classifier's fail-closed check
- * ({@link import('./arity.js').classifyCommand}) and the hardline blocklist's pattern
+ * ({@link @gaunt-sloth/core!core/shell/arity.classifyCommand | classifyCommand}) and the hardline blocklist's pattern
  * terminators (`core/shell/hardline`) — so the two layers can never again
  * disagree about what a separator is.
  *

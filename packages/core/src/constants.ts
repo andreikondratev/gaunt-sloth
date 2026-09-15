@@ -5,7 +5,7 @@ export const USER_PROJECT_CONFIG_JS = '.gsloth.config.js';
 export const USER_PROJECT_CONFIG_JSON = '.gsloth.config.json';
 /**
  * GS2-69 — the `.jsonc` filename variant. Both JSON names are parsed by the same lenient
- * {@link import('#src/config/jsonc.js').parseJsonc}; this one just carries the conventional
+ * {@link @gaunt-sloth/core!config/jsonc.parseJsonc | parseJsonc}; this one just carries the conventional
  * extension so editors/review tools expect the comments. `.json` wins when both exist.
  */
 export const USER_PROJECT_CONFIG_JSONC = '.gsloth.config.jsonc';
@@ -72,7 +72,7 @@ export const MCP_TOOL_NAME_PREFIX = 'mcp';
  * trailer is built from, not the whole emitted value: the resolved active model decorates it as
  * `Gaunt Sloth (provider:model)` (EXT-83). Config (`commit.coAuthor`) overrides
  * this; single-sourced so the config default and the prompt-guidance fallback
- * ({@link import('#src/utils/systemPromptNotes.js').appendCommitCoAuthorNote}) can never drift.
+ * ({@link @gaunt-sloth/core!utils/systemPromptNotes.appendCommitCoAuthorNote | appendCommitCoAuthorNote}) can never drift.
  */
 export const DEFAULT_COMMIT_CO_AUTHOR_NAME = 'Gaunt Sloth';
 export const DEFAULT_COMMIT_CO_AUTHOR_EMAIL = 'code@gauntsloth.app';

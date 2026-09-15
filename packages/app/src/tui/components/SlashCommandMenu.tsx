@@ -8,7 +8,7 @@ import { windowWithinRows } from '#src/tui/listWindow.js';
  * that match what the user has typed so far (`/`, `/mo`, …), rendered just above the prompt line so
  * a beginner can *discover* commands instead of having to already know their names (DL-9).
  *
- * It deliberately owns **no** keyboard state: unlike {@link SelectList} (a self-contained blocking
+ * It deliberately owns **no** keyboard state: unlike {@link gaunt-sloth!tui/components/SelectList.SelectList | SelectList} (a self-contained blocking
  * dialog), this menu coexists with the live `<TextInput>` — the user keeps typing to filter — so
  * `<PromptInput>` owns the arrow/Tab/Enter/Esc handling and just tells this component which row is
  * highlighted. That keeps the selection logic in one place and this render trivially testable.

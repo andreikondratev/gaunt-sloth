@@ -28,7 +28,7 @@ interface OAuthStorageData {
 }
 
 /**
- * Please note most of these "unused" methods are part of {@link OAuthClientProvider}
+ * Please note most of these "unused" methods are part of `OAuthClientProvider`
  */
 export class OAuthClientProviderImpl implements OAuthClientProvider {
   private config: OAuthClientProviderConfig;

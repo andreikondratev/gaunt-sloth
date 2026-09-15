@@ -619,8 +619,9 @@ function matchArgv(argv: readonly string[]): string[] {
  * {@link classifyCommand} cannot resolve is safe there.
  *
  * §4.6's user-provenance carve-out asks a second question of the same answer: *"were **all** the
- * counterparties in this command named by the user?"* ({@link
- * import('./provenance.js').carvedOpenWorldHosts}). A miss there costs an **unprompted fetch**: a
+ * counterparties in this command named by the user?"*
+ * ({@link @gaunt-sloth/core!core/shell/provenance.carvedOpenWorldHosts | carvedOpenWorldHosts}).
+ * A miss there costs an **unprompted fetch**: a
  * host this function declines to report is a host the carve-out never has to find in the user's own
  * words. So a change that makes this decline more — a new abstention, a narrower head gate, a
  * position quietly dropped — is no longer automatically safe, and "this layer can only raise" is

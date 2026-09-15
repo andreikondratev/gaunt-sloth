@@ -277,7 +277,7 @@ export function tokenize(command: string): string[] | null {
 
 /**
  * Look up the arity (number of leading meaningful tokens) for an argv, using the
- * longest-matching-prefix rule against {@link ARITY}. Flag tokens (starting with `-`) are
+ * longest-matching-prefix rule against `ARITY`. Flag tokens (starting with `-`) are
  * dropped when forming the candidate prefixes so boolean flags like `git --no-pager
  * checkout` still resolve `git checkout`. Unknown binaries default to arity 0 → just the
  * binary.

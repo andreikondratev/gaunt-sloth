@@ -1,6 +1,6 @@
 /**
  * @packageDocumentation
- * GS2-7 (B20) — the bridge from a finished run to the {@link HistoryStore}.
+ * GS2-7 (B20) — the bridge from a finished run to the {@link @gaunt-sloth/core!history/historyStore.HistoryStore | HistoryStore}.
  *
  * {@link recordSessionSafe} is the ONE entry point the run path calls. It writes unless
  * `history.enabled` is `false`, and it swallows every error, so:

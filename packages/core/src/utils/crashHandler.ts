@@ -117,7 +117,7 @@ function writeStderr(line: string): void {
  *
  * @param error the thrown value / rejection reason
  * @param origin `'uncaughtException'` | `'unhandledRejection'`
- * @param exit terminator (default {@link process.exit}); injectable so tests capture the code
+ * @param exit terminator (default `process.exit`); injectable so tests capture the code
  * @param getContext source of the snapshot context (default the module context)
  */
 export function handleCrash(
@@ -161,7 +161,7 @@ export function handleCrash(
 
 /** Options for {@link installCrashHandler}. */
 export interface InstallCrashHandlerOptions {
-  /** Terminator (default {@link process.exit}). Injectable for tests. */
+  /** Terminator (default `process.exit`). Injectable for tests. */
   exit?: (code: number) => void;
   /** Snapshot-context source (default the module crash context). */
   getContext?: () => CrashContext;

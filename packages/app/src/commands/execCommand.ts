@@ -37,7 +37,7 @@ interface ExecCommandOptions {
  * `-w/--write-output-to-file` is a PROGRAM-level option, so commander puts it on the program and
  * never on this subcommand's own `options` — it reaches a command as
  * `commandLineConfigOverrides.writeOutputToFile`, which is why it is a parameter here rather than
- * a field of {@link ExecCommandOptions}. That override object is also the only thing that can tell
+ * a field of `ExecCommandOptions`. That override object is also the only thing that can tell
  * an explicit `-w` apart from a project config's `writeOutputToFile`: the merged `config` carries
  * both, and exec must keep piping cleanly under a config that turns reports on generally, so a
  * config-level value stays off and only the flag switches it on.

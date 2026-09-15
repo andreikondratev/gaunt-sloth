@@ -49,7 +49,7 @@ import { sessionConfigFor } from '#src/modules/sessionConfigs.js';
  * The first three are READ-ONLY and fail-soft: they open the store with `create: false`, so a
  * missing DB (nothing recorded yet, or history turned off) simply reports "no history yet" instead
  * of materialising an empty file.
- * (Opening still migrates a pre-GS2-19 DB in place — see {@link HistoryStore} migrate.) The DB
+ * (Opening still migrates a pre-GS2-19 DB in place — see {@link @gaunt-sloth/core!history/historyStore.HistoryStore | HistoryStore} migrate.) The DB
  * defaults to the global `~/.gsloth/history.db`; `--db <path>` overrides it. Local only — nothing
  * here touches the network.
  *
