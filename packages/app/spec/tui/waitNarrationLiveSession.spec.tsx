@@ -269,9 +269,22 @@ describe('[[EXT-92]] SURFACE — the Ink TUI', () => {
       await vi.waitFor(() => expect(dumpDebugSession).toHaveBeenCalled());
 
       const input = dumpDebugSession.mock.calls[0][0] as { transcript: TranscriptItem[] };
+
+      // **Identified by the field under test, not by position.** This fixture's agent throws
+      // directly, so the App's catch pushes the only `system`/`error` item there is — but the real
+      // runtime commits a second one *first*, from core's own `LLM invocation failed` status
+      // update, which has no `raw` because a status subscription receives a string and never the
+      // error object. Picking "the first errored system item" would therefore quietly assert
+      // against the wrong item the day this spec is given a realistic agent. Asking instead whether
+      // ANY item carries the original payload is the claim the acceptance actually makes: the
+      // archive can still show it.
+      expect(
+        input.transcript.some((item) => item.kind === 'system' && item.raw === error.message)
+      ).toBe(true);
+
       const errored = input.transcript.find(
         (item): item is Extract<TranscriptItem, { kind: 'system' }> =>
-          item.kind === 'system' && item.level === 'error'
+          item.kind === 'system' && item.level === 'error' && item.raw !== undefined
       );
       expect(errored).toBeDefined();
 
