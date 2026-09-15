@@ -16,6 +16,7 @@ import {
   createRunStatsAccumulator,
   finalizeRunStats,
 } from '#src/core/runStats.js';
+import { PROVIDER_ERROR_METADATA_SEPARATOR } from '#src/core/providerErrorNotice.js';
 
 const systemUtilsMock = {
   getCurrentWorkDir: vi.fn(),
@@ -2318,6 +2319,71 @@ describe('GthLangChainAgent', () => {
         expect.stringContaining('LLM invocation failed: Test error')
       );
       expect(ProgressIndicatorInstanceMock.stop).toHaveBeenCalled();
+    });
+
+    /**
+     * [[EXT-92]] scope (b) — **on every surface that is not the Ink TUI, this line is the whole
+     * report**, so the blob has to leave it here rather than at one renderer downstream.
+     *
+     * The cell above is the control and stays as it was: an ordinary `Error('Test error')` carries
+     * no provider payload and no serialized tail, so it must keep the exact wording it always had.
+     * This one rejects with the flattened shape the reporter of #433 actually received — the
+     * upstream joins its structured metadata onto the message with a separator and keeps the object
+     * on the error beside it — and asserts the emitted status line is the provider's own sentence
+     * and remedy, with nothing serialized left in it.
+     *
+     * Asserted on the exact string handed to `statusUpdate`, which is what a readline or
+     * single-shot surface prints verbatim. No renderer sits between the two, so an absence
+     * assertion here means what it says — unlike the same assertion against an Ink frame, where a
+     * wrapped line can make a needle go missing for a reason that has nothing to do with the
+     * product.
+     */
+    it('renders a provider refusal as prose, with no serialized payload in the status line', async () => {
+      const agent = new GthLangChainAgent(statusUpdateCallback);
+
+      const metadata = {
+        raw: 'google/gemini-3.6-flash is temporarily rate-limited upstream. Please retry shortly.',
+        provider_name: 'Google',
+        provider_error_code: '429',
+        limit_source: 'upstream_provider_shared_pool',
+        remedy_hint: 'Retry shortly, or add your own provider key',
+        previous_errors: [{ code: 429 }],
+      };
+      const providerError = new Error(
+        `Provider returned error${PROVIDER_ERROR_METADATA_SEPARATOR}${JSON.stringify(metadata)}`
+      ) as Error & { metadata?: unknown; statusCode?: number };
+      providerError.metadata = metadata;
+      providerError.statusCode = 429;
+      agentMock.invoke.mockRejectedValue(providerError);
+
+      const fakeListChatModel = new FakeListChatModel({ responses: [] });
+      fakeListChatModel.bindTools = vi.fn().mockReturnValue(fakeListChatModel);
+
+      await agent.init(undefined, { ...mockConfig, llm: fakeListChatModel });
+
+      await expect(
+        agent.invoke([new HumanMessage('test message')], {
+          recursionLimit: 1000,
+          configurable: { thread_id: 'test-thread-id' },
+        })
+      ).rejects.toThrow(providerError);
+
+      const errorCalls = (statusUpdateCallback as Mock).mock.calls.filter(
+        ([level]) => level === StatusLevel.ERROR
+      );
+      expect(errorCalls).toHaveLength(1);
+      const line = errorCalls[0][1] as string;
+
+      expect(line).toContain(metadata.raw);
+      expect(line).toContain(metadata.remedy_hint);
+      expect(line).toContain('Google');
+      // What the node filed: none of this may reach the user's line.
+      expect(line).not.toContain(PROVIDER_ERROR_METADATA_SEPARATOR);
+      expect(line).not.toContain('previous_errors');
+      expect(line).not.toContain('limit_source');
+      expect(line).not.toContain('"remedy_hint"');
+      // The error itself is unchanged, so the archive and the debug log still hold the original.
+      expect(providerError.message).toContain(PROVIDER_ERROR_METADATA_SEPARATOR);
     });
 
     it('should invoke agent in non-streaming mode only', async () => {

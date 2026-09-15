@@ -24,8 +24,11 @@ import React from 'react';
 import { render } from 'ink-testing-library';
 import type { AgentStreamEvent } from '@gaunt-sloth/core/core/types.js';
 import { waitNarrationMessage } from '@gaunt-sloth/core/core/waitNarration.js';
-import { providerErrorNotice } from '@gaunt-sloth/core/core/providerErrorNotice.js';
-import type { TuiAgent } from '#src/tui/types.js';
+import {
+  PROVIDER_ERROR_METADATA_SEPARATOR,
+  providerErrorNotice,
+} from '@gaunt-sloth/core/core/providerErrorNotice.js';
+import type { TranscriptItem, TuiAgent } from '#src/tui/types.js';
 import { App } from '#src/tui/components/App.js';
 import { RUNNING_LABEL_DEFAULT } from '#src/tui/components/StatusBar.js';
 import { TURN_ENDED_IN_ERROR_MARK } from '#src/tui/viewModel.js';
@@ -221,6 +224,65 @@ describe('[[EXT-92]] SURFACE — the Ink TUI', () => {
       expect(dense).not.toContain('previous_errors');
       expect(dense).not.toContain('"remedy_hint"');
       expect(dense).not.toContain('limit_source');
+
+      unmount();
+    });
+
+    /**
+     * **The other half of the acceptance, which no screen assertion can reach.**
+     *
+     * Scope (b) is two claims, not one: the serialized payload leaves the user's line, *and* it
+     * stays reachable in the dump. Every cell above asserts the first by reading frames — and the
+     * field that carries the second is one the renderer never prints, so all of them stay green
+     * when it is deleted (measured: dropping the `raw` spread from `App.tsx` left this file at 8/8).
+     * An assertion on `providerErrorNotice(...).raw` would not close it either: that proves the
+     * builder produced a value, not that the item the App pushed kept it.
+     *
+     * So this drives the real `/debug-dump` through the real App and reads the transcript the
+     * archive writer is actually handed. The two assertions are a differential on one item: the
+     * text the user saw has no serialized payload in it, and the `raw` beside it still does.
+     */
+    it('keeps the original payload on the transcript item that /debug-dump archives', async () => {
+      const error = rateLimitError();
+      const agent = throwingAgent([{ type: 'text', delta: 'working' }], error);
+      const dumpDebugSession = vi.fn().mockReturnValue({ archiveDir: '/tmp/ext-92-dump' });
+
+      const { stdin, lastFrame, unmount } = render(
+        <App
+          {...baseProps}
+          agent={agent}
+          initialMessage="go"
+          resolvedConfig={{ modelDisplayName: 'test-model' }}
+          dumpDebugSession={dumpDebugSession}
+        />
+      );
+
+      await vi.waitFor(() => {
+        expect(lastFrame()).toContain('Retry shortly, or add your own provider key');
+      });
+
+      await vi.waitFor(() => expect(lastFrame()).toContain('>'));
+      stdin.write('/debug-dump');
+      await vi.waitFor(() => expect(lastFrame()).toContain('/debug-dump'));
+      stdin.write('\r');
+
+      await vi.waitFor(() => expect(dumpDebugSession).toHaveBeenCalled());
+
+      const input = dumpDebugSession.mock.calls[0][0] as { transcript: TranscriptItem[] };
+      const errored = input.transcript.find(
+        (item): item is Extract<TranscriptItem, { kind: 'system' }> =>
+          item.kind === 'system' && item.level === 'error'
+      );
+      expect(errored).toBeDefined();
+
+      // What the user read: prose, and nothing serialized.
+      expect(errored?.text).toContain(METADATA.raw);
+      expect(errored?.text).not.toContain(PROVIDER_ERROR_METADATA_SEPARATOR);
+      expect(errored?.text).not.toContain('previous_errors');
+      // What the archive still holds: the provider's original message, untouched.
+      expect(errored?.raw).toBe(error.message);
+      expect(errored?.raw).toContain(PROVIDER_ERROR_METADATA_SEPARATOR);
+      expect(errored?.raw).toContain('previous_errors');
 
       unmount();
     });

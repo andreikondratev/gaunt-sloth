@@ -30,6 +30,7 @@ import type { DeclaredToolAnnotations } from '#src/core/approvals/annotations.js
 import { collectDeclaredMcpToolAnnotations } from '#src/core/approvals/toolAnnotationSources.js';
 import type { DebugCapture, DebugRequestExtras, LastModelRequest } from '#src/core/debugCapture.js';
 import { modelProviderLabel } from '#src/core/modelLabel.js';
+import { providerErrorNotice } from '#src/core/providerErrorNotice.js';
 import { replaceGraphMessages } from '#src/core/compaction.js';
 import type { AutocompactController } from '#src/core/compactionThreshold.js';
 import {
@@ -1011,7 +1012,26 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
           throw e; // Re-throw ToolException to be handled by outer catch
         }
         const message = e instanceof Error ? e.message : String(e);
-        this.statusUpdate(StatusLevel.ERROR, `LLM invocation failed: ${message}`);
+        // [[EXT-92]] scope (b) — **this is the line every surface shows**, and it is where the
+        // serialized blob actually reached the reporter.
+        //
+        // The Ink TUI renders a thrown turn twice: once from here, because an ERROR status update
+        // is committed to the transcript, and once from its own catch. Fixing only the catch left
+        // the blob on screen in the TUI anyway, and left it untouched on readline, single-shot,
+        // conversation and every server surface — which are the surfaces with no turn box, where
+        // this line IS the whole report. So the rendering belongs at the emitting site, not at one
+        // consumer of it.
+        //
+        // `providerErrorNotice` answers `null` for an error with no provider payload and no blob to
+        // strip, so the ordinary runtime failure keeps the exact wording it has always had; only an
+        // error that carries something better to say is re-rendered. The prose goes on its own
+        // lines rather than after the colon because it is several sentences, and the raw text stays
+        // in the thrown error, which is what `/debug-dump` and `debugLogError` above both archive.
+        const notice = providerErrorNotice(e);
+        this.statusUpdate(
+          StatusLevel.ERROR,
+          notice ? `LLM invocation failed:\n${notice.text}` : `LLM invocation failed: ${message}`
+        );
         throw e;
       } finally {
         progress.stop();
