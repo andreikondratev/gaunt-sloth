@@ -250,6 +250,6 @@ account of where that line falls and what does hold.
 The pages above cover each area in depth. For the exhaustive, type-checked surface — every key and
 its default — see the generated reference:
 
-- [`GthConfig` interface](https://gauntsloth.app/docs/interfaces/config.GthConfig.html)
-- [`DEFAULT_CONFIG` values](https://gauntsloth.app/docs/variables/config.DEFAULT_CONFIG.html)
+- [`GthConfig` interface](https://gauntsloth.app/docs/api/gaunt-sloth/core/config/types/interfaces/gthconfig/)
+- [`DEFAULT_CONFIG` values](https://gauntsloth.app/docs/api/gaunt-sloth/core/config/defaults/variables/default_config/)
 - Source of truth: [`packages/core/src/config/schema.ts`](https://github.com/pukeko-robotics/gaunt-sloth/blob/main/packages/core/src/config/schema.ts)
