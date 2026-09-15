@@ -412,15 +412,24 @@ cases:
 # column then reads as a strict rater rather than as an unanswered one — the EXT-66 finding, and the
 # reason to raise it here rather than to read the cell as measured.
 #
-# The value is the smallest one measured to be enough: at 120s every call of this corpus returned a
-# real verdict, and the slowest took 115s (recorded in the README's EXT-66 note). Under it, a cell
-# that declines still spends the budget TWICE — once on the rating call and once on the alignment
-# check behind it — because that is core's contract (`raterTimeoutMs` is the budget for ONE model
-# call, and there is deliberately no second timeout) and what a session does: the runner hands the
-# same resolved value to both. A shared budget was the alternative and is rejected on those grounds —
-# it would describe a gate production does not have, and it would silently halve whichever call ran
-# second. The cost is wall-clock on one local cell; the thing bought is that the cell measures the
-# rater instead of the clock.
+# **120s is a measured improvement here, NOT a measured sufficiency** — it does not make this cell
+# green, and the value is carried over from the EXT-66 note, which measured a DIFFERENT case set.
+# Measured on THIS corpus, same machine, warmed model, one run each: at the 30s default 20 of the 23
+# rated cells never answered; at 120s, 8 of 23 still do not, and the slowest rating that DID answer
+# took 116s — close enough to the ceiling that a longer budget would recover more. Read the gemma
+# column as measured-not-green and check it against the per-case rationale; the README's 2026-09-16
+# section has the composition.
+#
+# Under this budget a cell that declines spends it TWICE — once on the rating call and once on the
+# alignment check behind it — because that is core's contract (`raterTimeoutMs` is the budget for ONE
+# model call, and there is deliberately no second timeout) and what a session does: the runner hands
+# the same resolved value to both. **That second call is measured on the HOSTED cells, not on this
+# one** — on gemma no cell in this corpus has ever reached the checker, because every `destructive`
+# it produced came from a rating that failed closed, and since EXT-171 that escalates without
+# negotiating. A shared budget was the alternative and is rejected on those grounds — it would
+# describe a gate production does not have, and it would silently halve whichever call ran second.
+# The cost is wall-clock on one local cell; the thing bought is that the cell measures the rater
+# instead of the clock.
 #
 # The hosted cells are left on the default deliberately: raising a budget they do not need would hide
 # a provider that had started answering slowly.
