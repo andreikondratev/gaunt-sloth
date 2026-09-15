@@ -108,4 +108,38 @@ describe('judgeEvalCase', () => {
 
     expect(outcome).toEqual({ attempted: true, ok: false, error: 'Judge timed out after 5ms.' });
   });
+
+  /**
+   * [[EXT-179]] — the fourth of the four sites that raced a timer and abandoned the call.
+   *
+   * The two assertions are the same pair every site's cell makes, and each catches one way the fix
+   * could be hollow: a signal that is never passed to `invoke`, and a signal that is passed but
+   * never aborted. Both read the object `invoke` actually received, so neither can pass by
+   * construction. That the provider HONOURS the signal is not claimed here — a fake cannot show it;
+   * `packages/core/spec/abortDrainsProcess.spec.ts` proves that end-to-end against a real socket.
+   */
+  it('[[EXT-179]] aborts the judge call when the budget fires, rather than abandoning it', async () => {
+    const { judgeEvalCase } = await import('#src/judge.js');
+    let seen: { signal?: AbortSignal } | undefined;
+    const structuredInvoke = vi.fn((_messages: unknown, opts?: { signal?: AbortSignal }) => {
+      seen = opts;
+      return new Promise<never>(() => {}); // a provider that never answers
+    });
+    const model = {
+      withStructuredOutput: vi.fn(() => ({ invoke: structuredInvoke })),
+    } as unknown as BaseChatModel;
+
+    const outcome = await judgeEvalCase('answer', 'rubric', model, { timeoutMs: 25 });
+
+    expect(outcome.ok).toBe(false);
+    expect(seen, 'invoke was called without any options object').toBeDefined();
+    expect(
+      seen?.signal,
+      'invoke received no `signal` — the signal never reached the provider call'
+    ).toBeInstanceOf(AbortSignal);
+    expect(
+      seen?.signal?.aborted,
+      'the signal reached the call but was never aborted when the budget fired'
+    ).toBe(true);
+  });
 });

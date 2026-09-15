@@ -7,9 +7,14 @@
  * `@gaunt-sloth/batch`'s `judge.ts` — and its in-core sibling {@link rateShellCommand}, the
  * approvals AI rater in `core/shell/rater.ts`):
  * `model.withStructuredOutput(schema)` for a single structured call, `.invoke([SystemMessage,
- * HumanMessage])` raced against a wall-clock timeout via `Promise.race`, a defensive `safeParse`
- * re-validation, `clearTimeout` in `finally`, and — crucially — it **never throws**, returning a
- * failure object instead.
+ * HumanMessage])` raced against a wall-clock budget, a defensive `safeParse` re-validation, and —
+ * crucially — it **never throws**, returning a failure object instead.
+ *
+ * [[EXT-179]] — the race, the abort on expiry and the timer's disposal are all
+ * {@link withCallDeadline}'s now, shared with those same two siblings and with the alignment
+ * checker. They each grew their own copy of the race, and every copy abandoned the call rather than
+ * aborting it; see `runtime/abortableCall.ts` for why the mechanism is shared and the meaning is
+ * not, and for what is actually proven about the signal reaching each provider.
  *
  * Differences from those two: this one is **generic** over the Zod schema and takes the
  * system/user strings from the caller (they hard-code a schema and build a rubric/safety
@@ -22,6 +27,7 @@ import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import * as z from 'zod';
 
 import type { GthConfig } from '#src/config.js';
+import { CALL_TIMED_OUT, withCallDeadline } from '#src/runtime/abortableCall.js';
 import { structuredOutputBoundary } from '#src/runtime/structuredOutput.js';
 
 /**
@@ -190,22 +196,22 @@ export async function askStructured<T>(
     return { ok: false, error: 'No usable model configured.' };
   }
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     // EXT-88 — caller schemas are arbitrary, so this is the call site with the widest exposure to
     // the optional-field problem the boundary exists for; it also does the defensive re-validation
     // below, against the caller's own schema, so `<T>` is exactly what the caller declared.
     const boundary = structuredOutputBoundary(schema);
     const structured = model.withStructuredOutput(boundary.wireSchema);
-    const invokePromise = structured.invoke([new SystemMessage(system), new HumanMessage(user)]);
 
-    const TIMEOUT = Symbol('ask-structured-timeout');
-    const timeoutPromise = new Promise<typeof TIMEOUT>((resolve) => {
-      timer = setTimeout(() => resolve(TIMEOUT), timeoutMs);
-    });
-
-    const raced = await Promise.race([invokePromise, timeoutPromise]);
-    if (raced === TIMEOUT) {
+    // [[EXT-179]] — the budget now ABORTS the call instead of walking away from it. Returning on
+    // the timer while the request stayed in flight held the socket open, and since the CLI ends by
+    // draining the event loop (`setExitCode` sets `process.exitCode`; nothing calls `process.exit`)
+    // a stalled provider kept `gth` alive long after the answer had printed. The failure text below
+    // is unchanged, so every caller classifying on it reads exactly as before.
+    const raced = await withCallDeadline(timeoutMs, (signal) =>
+      structured.invoke([new SystemMessage(system), new HumanMessage(user)], { signal })
+    );
+    if (raced === CALL_TIMED_OUT) {
       return { ok: false, error: structuredCallTimedOutError(timeoutMs) };
     }
 
@@ -216,7 +222,5 @@ export async function askStructured<T>(
     return { ok: true, value: parsed.data };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
-  } finally {
-    if (timer) clearTimeout(timer);
   }
 }

@@ -110,6 +110,7 @@ import {
 } from '#src/core/shell/rater.js';
 import type { RaterCallFailure } from '#src/core/shell/rater.js';
 import type { RaterOutcome } from '#src/core/shell/raterVocabulary.js';
+import { CALL_TIMED_OUT, raceCallDeadline, startCallDeadline } from '#src/runtime/abortableCall.js';
 import { debugLog, debugLogError } from '#src/utils/debugUtils.js';
 import { collectSecretValues } from '#src/utils/redactSecrets.js';
 import { env } from '#src/utils/systemUtils.js';
@@ -1040,18 +1041,26 @@ export async function runAlignmentCheck(
   const bound = model.bindTools(toolSet.tools);
   const conversation = [...messages];
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const TIMEOUT = Symbol('alignment-timeout');
-  const deadline = new Promise<typeof TIMEOUT>((resolve) => {
-    timer = setTimeout(() => resolve(TIMEOUT), timeoutMs);
-  });
+  // [[EXT-179]] — ONE deadline for the whole check, started here and shared by every turn below.
+  // That is the same wall-clock rule the loop already had, now also carrying the abort: when the
+  // budget expires it aborts whichever turn is in flight, instead of leaving that request open
+  // while the caller walks away with a fail-closed decision. Starting a deadline per turn would
+  // abort correctly but silently multiply the budget by the turn count, which is the mistake the
+  // comment below has always been guarding against.
+  //
+  // The budget bounds the MODEL calls. It does not bound the `target.invoke(...)` tool calls
+  // between turns — those are our own local tools and are not raced here, so a tool that blocks
+  // forever is outside what this budget can promise.
+  const deadline = startCallDeadline(timeoutMs);
   try {
     // The budget is a WALL-CLOCK budget for the whole check, not per turn: `raterTimeoutMs` is one
     // budget for one gate decision, and a per-turn budget would silently multiply it by the turn
     // count on exactly the local models it exists to accommodate.
     for (let turn = 0; turn < ALIGNMENT_MAX_TURNS; turn += 1) {
-      const raced = await Promise.race([bound.invoke(conversation), deadline]);
-      if (raced === TIMEOUT) {
+      const raced = await raceCallDeadline(deadline, (signal) =>
+        bound.invoke(conversation, { signal })
+      );
+      if (raced === CALL_TIMED_OUT) {
         debugLog(`runAlignmentCheck: timed out after ${timeoutMs}ms; failing closed.`);
         return settle(alignmentFailClosed('timeout', { timeoutMs }), 'timeout');
       }
@@ -1115,6 +1124,6 @@ export async function runAlignmentCheck(
     if (capture && failure) capture.providerError = failure;
     return settle(alignmentFailClosed('threw', { failure }), 'threw');
   } finally {
-    if (timer) clearTimeout(timer);
+    deadline.dispose();
   }
 }
