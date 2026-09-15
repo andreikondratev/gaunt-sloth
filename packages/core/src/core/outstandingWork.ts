@@ -243,7 +243,7 @@ function endedWithoutToolCalls(messages: readonly BaseMessage[] | undefined): bo
 
 /** The structural identity of a checklist state — every status and content, in order. */
 function signatureOf(items: readonly ChecklistSnapshotItem[]): string {
-  return items.map((item) => `${item.status} ${item.content}`).join('');
+  return JSON.stringify(items.map((item) => [item.status, item.content]));
 }
 
 /**

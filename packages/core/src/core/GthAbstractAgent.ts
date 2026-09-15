@@ -620,9 +620,9 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
   /**
    * [[EXT-158]] — forget the previous turn's outstanding-work fact.
    *
-   * Only the FACT. {@link lastAnnouncedOutstandingSignature} survives, because the question it
-   * answers — "have we already said this about this same unchanged checklist?" — is about the
-   * session and not about the turn.
+   * Only the FACT. The session's record of what has already been announced survives, because the
+   * question it answers — "have we already said this about this same unchanged checklist?" — is
+   * about the session and not about the turn.
    */
   resetOutstandingWork(): void {
     this.outstandingWork = null;
