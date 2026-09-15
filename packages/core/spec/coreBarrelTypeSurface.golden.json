@@ -132,6 +132,11 @@
       "arity": 0
     },
     {
+      "name": "ChecklistItemStatus",
+      "file": "core/outstandingWork.d.ts",
+      "arity": 0
+    },
+    {
       "name": "CheckpointStoreStats",
       "file": "history/checkpointRetention.d.ts",
       "arity": 0
@@ -334,6 +339,11 @@
     {
       "name": "GthOutputHeaderRung",
       "file": "config/schema.d.ts",
+      "arity": 0
+    },
+    {
+      "name": "GthOutstandingWork",
+      "file": "core/outstandingWork.d.ts",
       "arity": 0
     },
     {

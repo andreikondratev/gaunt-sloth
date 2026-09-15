@@ -26,6 +26,11 @@ import {
   terminationNotice,
 } from '@gaunt-sloth/core/core/terminationNotice.js';
 import {
+  outstandingWorkNotice,
+  shouldAnnounceOutstandingWork,
+  type GthOutstandingWork,
+} from '@gaunt-sloth/core/core/outstandingWork.js';
+import {
   terminationReasonOf,
   type GthTerminationReason,
 } from '@gaunt-sloth/core/core/terminationReason.js';
@@ -334,6 +339,22 @@ function createConfiguredAgent(_cfg: GthConfig): GthAbstractAgent {
 function terminationOf(agent: GthAbstractAgent | null | undefined): GthTerminationReason | null {
   try {
     return agent?.getTerminationReason?.() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * [[EXT-158]] — the checklist work the run that just ended left outstanding, or `null`.
+ *
+ * Read off the agent for exactly the reason {@link terminationOf} is, and it is why the recording
+ * site for the typed-event path lives inside `GthAbstractAgent.streamWithEvents` rather than in
+ * `GthAgentRunner`: this server drives that method directly, so a fact recorded only by the runner
+ * would be absent on the one surface with no runner in it. Fail-soft for the same reason too.
+ */
+function outstandingOf(agent: GthAbstractAgent | null | undefined): GthOutstandingWork | null {
+  try {
+    return agent?.getOutstandingWork?.() ?? null;
   } catch {
     return null;
   }
@@ -1001,15 +1022,31 @@ export async function startAgUiServer(
       // itself PLUS the rendered notice: a client can act on the classification without parsing our
       // prose, and can show the sentence without inventing its own wording for twenty categories.
       const ended = terminationOf(activeAgent);
+      // [[EXT-158]] — and the other thing a client cannot see for itself: the run ended cleanly
+      // with its own checklist still carrying work. Read off the agent for the reason the
+      // termination is — this surface has no runner — and carried the same way, as the fact PLUS
+      // the rendered notice, so a client can act on the counts without parsing our prose.
+      //
+      // Built as ONE `result` object rather than two conditional spreads of the same key. The two
+      // facts are mutually exclusive today by construction (`shouldAnnounceTermination` declines
+      // exactly the `completed` ending `shouldAnnounceOutstandingWork` requires), and a pair of
+      // spreads would work only for as long as that holds — silently dropping the first the day it
+      // stops, which is the kind of change nobody makes deliberately.
+      const outstanding = outstandingOf(activeAgent);
+      const result: Record<string, unknown> = {};
+      if (ended && shouldAnnounceTermination(ended)) {
+        result.termination = terminationNotice(ended);
+      }
+      if (outstanding && shouldAnnounceOutstandingWork(outstanding, ended)) {
+        result.outstandingWork = outstandingWorkNotice(outstanding);
+      }
       // RUN_FINISHED
       res.write(
         encoder.encode({
           type: EventType.RUN_FINISHED,
           threadId: effectiveThreadId,
           runId: effectiveRunId,
-          ...(ended && shouldAnnounceTermination(ended)
-            ? { result: { termination: terminationNotice(ended) } }
-            : {}),
+          ...(Object.keys(result).length > 0 ? { result } : {}),
         })
       );
 

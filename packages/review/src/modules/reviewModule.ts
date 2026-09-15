@@ -32,6 +32,7 @@ import { deleteArtifact, getArtifact } from '@gaunt-sloth/core/state/artifactSto
 import { setExitCode, stdout } from '@gaunt-sloth/core/utils/systemUtils.js';
 import { ApprovalStopError, approvalStopRows } from '@gaunt-sloth/core/core/shell/approvalStop.js';
 import { displayTermination } from '@gaunt-sloth/core/core/terminationNotice.js';
+import { displayOutstandingWork } from '@gaunt-sloth/core/core/outstandingWork.js';
 import type { AgentResolvers } from '@gaunt-sloth/core/core/types.js';
 import { get as getGhReadFileTool, GTH_GH_READ_FILE_TOOL_NAME } from '#src/tools/ghReadFileTool.js';
 
@@ -211,7 +212,12 @@ export async function review(
     // snapshots at cleanup: the agent is gone by here, and its own sites are the innermost ones.
     // A run that produced a review says nothing — an ordinary completion is not news.
     try {
-      displayTermination(runner.getTerminationReason());
+      const reason = runner.getTerminationReason();
+      displayTermination(reason);
+      // [[EXT-158]] — and whether the run finished its own checklist. `review` and `pr` are
+      // long multi-step runs with no prompt to come back to, so a review that stopped halfway
+      // through its plan and wrote a partial report is exactly the silent ending this fills.
+      displayOutstandingWork(runner.getOutstandingWork(), reason);
     } catch {
       /* fail-soft: explaining a run must never be what breaks it */
     }

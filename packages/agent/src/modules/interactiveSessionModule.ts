@@ -37,6 +37,7 @@ import {
 } from '@gaunt-sloth/core/core/approvals/approvalRequest.js';
 import { ApprovalStopError, approvalStopRows } from '@gaunt-sloth/core/core/shell/approvalStop.js';
 import { displayTermination } from '@gaunt-sloth/core/core/terminationNotice.js';
+import { displayOutstandingWork } from '@gaunt-sloth/core/core/outstandingWork.js';
 import { readTermination, writeDebugDump } from '@gaunt-sloth/core/utils/debugDump.js';
 import { appendToFile, getCommandOutputFilePath } from '@gaunt-sloth/core/utils/fileUtils.js';
 import {
@@ -683,7 +684,13 @@ export async function createInteractiveSession(
       // because the endings this exists for — a cancellation, an exhausted approval drain, an empty
       // turn — are the ones that return normally with nothing to infer from.
       try {
-        displayTermination(runner.getTerminationReason());
+        const reason = runner.getTerminationReason();
+        displayTermination(reason);
+        // [[EXT-158]] — and, on a turn that ended cleanly, whether it left checklist work
+        // outstanding. AFTER the termination notice, so on the one turn that could carry both the
+        // reader gets the ending first and the detail second — though in practice they are
+        // mutually exclusive, since this speaks only for `completed` and that one never does.
+        displayOutstandingWork(runner.getOutstandingWork(), reason);
       } catch {
         /* fail-soft: explaining a turn must never be what ends the session */
       }

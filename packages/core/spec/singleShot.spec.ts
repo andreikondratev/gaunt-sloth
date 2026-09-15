@@ -7,6 +7,11 @@ const gthAgentRunnerInstanceMock = vi.hoisted(() => ({
   init: vi.fn(),
   processMessages: vi.fn(),
   cleanup: vi.fn(),
+  // [[EXT-159]]/[[EXT-158]] — the two facts this runtime reads off the runner once the turn is
+  // over. Present on the double so the reads exercise the real code rather than being swallowed by
+  // the fail-soft catch that a missing method would trigger.
+  getTerminationReason: vi.fn(() => null),
+  getOutstandingWork: vi.fn(() => null),
 }));
 const gthAgentRunnerMock = vi.hoisted(() =>
   vi.fn(function GthAgentRunnerMock() {
@@ -49,6 +54,8 @@ const consoleUtilsMock = {
   display: vi.fn(),
   displaySuccess: vi.fn(),
   displayError: vi.fn(),
+  // The channel both end-of-run notices are written through.
+  displayNotice: vi.fn(),
   defaultStatusCallback: vi.fn(),
   initSessionLogging: vi.fn(),
   flushSessionLog: vi.fn(),
@@ -313,5 +320,67 @@ describe('singleShot', () => {
 
     expect(gthAgentRunnerMock).toHaveBeenCalledTimes(1);
     expect(gthAgentRunnerMock.mock.calls[0][2]).toBeUndefined();
+  });
+
+  /**
+   * [[EXT-158]] scope (d) — **the recorded decision, as a test rather than as a paragraph.**
+   *
+   * This runtime is shared by `gth ask`/`gth exec`, where a person reads what comes back, and by
+   * `gth batch`/`gth eval`/`gth workflow`, which drive it hundreds of cells at a time and fold each
+   * run into a report. The notice fires on the `completed` ending, so a default-on flag would have
+   * added a line to every PASSING cell of every harness whose author never heard of this node.
+   *
+   * Default-off inverts that failure: a surface that should announce and does not is a missing
+   * sentence someone can add, where a harness whose output shape changed under it is a broken
+   * contract nobody asked for. The two cells below are what stop either half being flipped by
+   * accident.
+   */
+  describe('[[EXT-158]] announcing an unfinished checklist is opt-in', () => {
+    const outstanding = {
+      outstanding: 2,
+      completed: 1,
+      total: 3,
+      inProgress: 1,
+      signature: 'sig',
+      repeat: false,
+    };
+
+    beforeEach(async () => {
+      const { terminationReason } = await import('#src/core/terminationReason.js');
+      gthAgentRunnerInstanceMock.getTerminationReason.mockReturnValue(
+        terminationReason('runner.completed', 'control', 'completed') as never
+      );
+      gthAgentRunnerInstanceMock.getOutstandingWork.mockReturnValue(outstanding as never);
+    });
+
+    it('says nothing by default — the harness callers keep the output shape they have', async () => {
+      const { runSingleShot } = await import('#src/runtime/singleShot.js');
+
+      await runSingleShot('test-source', 'test-preamble', 'test-content', {
+        ...mockConfig,
+      } as GthConfig);
+
+      expect(consoleUtilsMock.displayNotice).not.toHaveBeenCalled();
+    });
+
+    it('says it when the caller asked — `ask` and `exec` do', async () => {
+      const { runSingleShot } = await import('#src/runtime/singleShot.js');
+
+      await runSingleShot(
+        'test-source',
+        'test-preamble',
+        'test-content',
+        { ...mockConfig } as GthConfig,
+        undefined,
+        'ask',
+        undefined,
+        { announceOutstandingWork: true }
+      );
+
+      expect(consoleUtilsMock.displayNotice).toHaveBeenCalledTimes(1);
+      const [title, lines] = consoleUtilsMock.displayNotice.mock.calls[0];
+      expect(title).toContain('2 of 3');
+      expect((lines as string[]).join('\n').toLowerCase()).toContain('automated');
+    });
   });
 });

@@ -61,6 +61,11 @@ import {
   shouldAnnounceTermination,
   terminationNotice,
 } from '@gaunt-sloth/core/core/terminationNotice.js';
+import {
+  outstandingWorkNotice,
+  shouldAnnounceOutstandingWork,
+  type GthOutstandingWork,
+} from '@gaunt-sloth/core/core/outstandingWork.js';
 import { acpStopReasonFor, acpTerminationMeta } from '#src/modules/acp/acpStopReason.js';
 import { permissionRequestForV1 } from '#src/modules/acp/acpPermissionsV1.js';
 import {
@@ -207,6 +212,19 @@ export function createAcpV1AgentApp(options: AcpAgentAppOptions = {}): acp.Agent
   };
 
   /**
+   * [[EXT-158]] — the checklist work this turn left outstanding, or `null`.
+   *
+   * Fail-soft and read at the point of use, for exactly the reasons {@link terminationOf} is.
+   */
+  const outstandingOf = (session: AcpV1Session): GthOutstandingWork | null => {
+    try {
+      return session.runner.getOutstandingWork?.() ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  /**
    * Runs one prompt turn to completion and reports how it ended.
    *
    * Never rejects: the caller needs to answer the still-open `session/prompt` request, and it has
@@ -307,6 +325,19 @@ export function createAcpV1AgentApp(options: AcpAgentAppOptions = {}): acp.Agent
       // response, because that is what a client can act on. Nothing is said for an ordinary end.
       if (ended && shouldAnnounceTermination(ended)) {
         const notice = terminationNotice(ended);
+        await sendUpdate(session, {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: randomUUID(),
+          content: { type: 'text', text: [notice.title, ...notice.lines].join('\n') },
+        } as acp.SessionUpdate).catch(() => undefined);
+      }
+      // [[EXT-158]] — the ending the stop-reason union cannot express: `end_turn` is what an editor
+      // is told both when the agent finished and when it stopped halfway through its own checklist.
+      // The conversation channel only, deliberately — `_meta` carries the termination TAXONOMY,
+      // which is a closed vocabulary a client can switch on, and this is a different kind of fact.
+      const outstanding = outstandingOf(session);
+      if (outstanding && shouldAnnounceOutstandingWork(outstanding, ended)) {
+        const notice = outstandingWorkNotice(outstanding);
         await sendUpdate(session, {
           sessionUpdate: 'agent_message_chunk',
           messageId: randomUUID(),

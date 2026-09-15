@@ -60,10 +60,5 @@
     "typedoc": "^0.28.20",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "^4.1.11"
-  },
-  "overrides": {
-    "rimraf": "^6.1.0",
-    "minimatch": "^10.2.4",
-    "uuid": ">=11.1.1"
   }
 }

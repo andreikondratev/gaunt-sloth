@@ -928,6 +928,11 @@ async function runTuiSession(
       getTerminationReason() {
         return runner.getTerminationReason();
       },
+      // [[EXT-158]] — and whether that turn left checklist work outstanding, read at the same
+      // moment and for the same reason: after the stream is done, as a value rather than an event.
+      getOutstandingWork() {
+        return runner.getOutstandingWork();
+      },
       // `/clear` rotates the runner's thread_id so the model context truly matches the
       // cleared transcript (the checkpointer otherwise replays the whole prior conversation).
       resetThread() {

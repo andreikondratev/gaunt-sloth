@@ -122,6 +122,10 @@ describe('execCommand', () => {
     expect(content).toContain('SCRIPT BODY');
     expect(content).toContain('prompt-executable script');
     expect(systemUtilsMock.setExitCode).not.toHaveBeenCalled();
+    // [[EXT-158]] scope (d) — `exec` is a person running a verb, so it opts in to the
+    // unfinished-checklist notice. The harness callers of the same runtime deliberately do not, and
+    // the default is off; `singleShot.spec.ts` pins both halves of that decision.
+    expect(runSingleShot.mock.calls[0][7]).toEqual({ announceOutstandingWork: true });
     // B5: exec defaults to the lean backend; the resolved factory is threaded through.
     expect(resolveAgentFactoryMock.resolveAgentFactory).toHaveBeenCalledWith(
       expect.anything(),

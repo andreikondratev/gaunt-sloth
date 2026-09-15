@@ -68,6 +68,11 @@ import {
   terminationNotice,
 } from '@gaunt-sloth/core/core/terminationNotice.js';
 import {
+  outstandingWorkNotice,
+  shouldAnnounceOutstandingWork,
+  type GthOutstandingWork,
+} from '@gaunt-sloth/core/core/outstandingWork.js';
+import {
   ACP_ERROR_STOP_REASON,
   acpStopReasonFor,
   acpTerminationMeta,
@@ -194,6 +199,19 @@ export function createAcpAgentApp(options: AcpAgentAppOptions = {}): acp.AgentAp
   const terminationOf = (session: AcpSession): GthTerminationReason | null => {
     try {
       return session.runner.getTerminationReason?.() ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * [[EXT-158]] — the checklist work this turn left outstanding, or `null`.
+   *
+   * Fail-soft and read at the point of use, for exactly the reasons {@link terminationOf} is.
+   */
+  const outstandingOf = (session: AcpSession): GthOutstandingWork | null => {
+    try {
+      return session.runner.getOutstandingWork?.() ?? null;
     } catch {
       return null;
     }
@@ -372,6 +390,22 @@ export function createAcpAgentApp(options: AcpAgentAppOptions = {}): acp.AgentAp
       const reason = terminationOf(session);
       if (reason && shouldAnnounceTermination(reason)) {
         const notice = terminationNotice(reason);
+        await sendUpdate(session, {
+          sessionUpdate: 'agent_message',
+          messageId: randomUUID(),
+          content: [{ type: 'text', text: [notice.title, ...notice.lines].join('\n') }],
+        }).catch(() => {
+          /* the connection is already gone; the idle state below is still attempted */
+        });
+      }
+      // [[EXT-158]] — the ending ACP cannot express at all: `end_turn`, which is what an editor is
+      // told both when the agent finished and when it stopped halfway through its own checklist.
+      // Sent into the same `agent_message` channel as the termination notice above, and its text
+      // says in words that it is the runtime speaking — this channel is where the agent talks about
+      // the session, and nothing here may read as the user's own words.
+      const outstanding = outstandingOf(session);
+      if (outstanding && shouldAnnounceOutstandingWork(outstanding, reason)) {
+        const notice = outstandingWorkNotice(outstanding);
         await sendUpdate(session, {
           sessionUpdate: 'agent_message',
           messageId: randomUUID(),

@@ -17,6 +17,10 @@ import type {
   GthFinishReasonObservation,
   GthTerminationReason,
 } from '#src/core/terminationReason.js';
+import {
+  OUTSTANDING_WORK_AUTOMATED_MARKER,
+  type GthOutstandingWork,
+} from '#src/core/outstandingWork.js';
 
 /**
  * GS2-46/GS2-47 — `/debug-dump`: a live-session diagnostic archive. GS2-46 shipped it raw; GS2-47
@@ -111,12 +115,35 @@ export interface DebugDumpTermination {
    * model message was observed at all.
    */
   finishReasons: readonly GthFinishReasonObservation[];
+  /**
+   * [[EXT-158]] §(3) — the checklist work the last turn left outstanding, or `null` when it left
+   * none (or there was no checklist, which is ordinary).
+   *
+   * **Recorded as automated, in the field name and in the value.** The one reliable marker for
+   * finding this failure in a transcript is a human typing *"continue"*, so whoever reads this dump
+   * must be able to see at a glance that the counts here are the runtime's own observation and not
+   * something a person or the model wrote. {@link outstandingWorkSource} says so in words, because
+   * a field name is a convention and a sentence is not.
+   */
+  outstandingWork: GthOutstandingWork | null;
+  /**
+   * What produced {@link outstandingWork}, in words a reader cannot mistake for anything else.
+   * Always present when the section is, whether or not there was anything outstanding.
+   */
+  outstandingWorkSource: string;
 }
 
 /** The read surface {@link readTermination} needs — satisfied by `GthAgentRunner`. */
 export interface TerminationReadable {
   getTerminationReason(): GthTerminationReason | null;
   getFinishReasonObservations(): readonly GthFinishReasonObservation[];
+  /**
+   * [[EXT-158]] — optional, so a runner predating it (an embedder's own, a test double) still
+   * yields a termination section rather than none at all. The dump then records `null`, which is
+   * the same answer as "nothing was outstanding" — an acceptable conflation here, because unlike
+   * the reason above this fact carries no defect signal in its absence.
+   */
+  getOutstandingWork?(): GthOutstandingWork | null;
 }
 
 /**
@@ -137,6 +164,8 @@ export function readTermination(runner: TerminationReadable): DebugDumpTerminati
     return {
       reason: runner.getTerminationReason(),
       finishReasons: runner.getFinishReasonObservations(),
+      outstandingWork: runner.getOutstandingWork?.() ?? null,
+      outstandingWorkSource: OUTSTANDING_WORK_AUTOMATED_MARKER,
     };
   } catch {
     return undefined;

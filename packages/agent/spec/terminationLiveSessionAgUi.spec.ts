@@ -17,6 +17,10 @@ import {
   attachTerminationReason,
   terminationReason,
 } from '@gaunt-sloth/core/core/terminationReason.js';
+import {
+  outstandingWorkNotice,
+  type GthOutstandingWork,
+} from '@gaunt-sloth/core/core/outstandingWork.js';
 
 vi.mock('#src/utils/consoleUtils.js', () => ({
   display: vi.fn(),
@@ -39,12 +43,14 @@ vi.mock('@langchain/langgraph', () => ({ MemorySaver: vi.fn() }));
 const initMock = vi.hoisted(() => vi.fn());
 const streamWithEventsMock = vi.hoisted(() => vi.fn());
 const getTerminationReasonMock = vi.hoisted(() => vi.fn());
+const getOutstandingWorkMock = vi.hoisted(() => vi.fn());
 vi.mock('@gaunt-sloth/core/core/GthLangChainAgent.js', () => {
   const GthLangChainAgent = vi.fn(function () {});
   GthLangChainAgent.prototype.init = initMock;
   GthLangChainAgent.prototype.streamWithEvents = streamWithEventsMock;
   GthLangChainAgent.prototype.streamWithEventsResume = vi.fn();
   GthLangChainAgent.prototype.getTerminationReason = getTerminationReasonMock;
+  GthLangChainAgent.prototype.getOutstandingWork = getOutstandingWorkMock;
   return { GthLangChainAgent };
 });
 
@@ -151,6 +157,7 @@ describe('[[EXT-159]] SURFACE — AG-UI carries the reason to the browser', () =
     initMock.mockResolvedValue(undefined);
     streamWithEventsMock.mockReturnValue((async function* () {})());
     getTerminationReasonMock.mockReturnValue(null);
+    getOutstandingWorkMock.mockReturnValue(null);
   });
 
   it('puts the reason on RUN_FINISHED for a turn that ended without throwing', async () => {
@@ -216,5 +223,70 @@ describe('[[EXT-159]] SURFACE — AG-UI carries the reason to the browser', () =
     await runHandler();
 
     expect(eventOfType('RUN_ERROR')).not.toHaveProperty('code');
+  });
+
+  /**
+   * [[EXT-158]] — **the other silence on this surface**, and the one the cell directly above shows
+   * the shape of: a turn that simply finished leaves `RUN_FINISHED` alone, which is right when the
+   * work is done and is exactly the flattening when it is not.
+   *
+   * AG-UI holds no `GthAgentRunner`, so the fact is read straight off the agent here. The whole
+   * point is the browser client getting a structured field it can render rather than a sentence it
+   * would have to parse, so these cells read `result.outstandingWork` and not any prose.
+   */
+  describe('[[EXT-158]] the run says when it left its own checklist unfinished', () => {
+    const stall = (over: Partial<GthOutstandingWork> = {}): GthOutstandingWork => ({
+      outstanding: 2,
+      completed: 3,
+      total: 5,
+      inProgress: 1,
+      signature: 'sig-a',
+      repeat: false,
+      ...over,
+    });
+
+    it('puts the outstanding work on RUN_FINISHED when a clean stop left some', async () => {
+      const work = stall();
+      getTerminationReasonMock.mockReturnValue(
+        terminationReason('runner.events-completed', 'control', 'completed')
+      );
+      getOutstandingWorkMock.mockReturnValue(work);
+
+      await runHandler();
+
+      // Derived from the work value, so DIFFERENT counts sent by the surface fail here.
+      expect(eventOfType('RUN_FINISHED')).toMatchObject({
+        result: { outstandingWork: { title: outstandingWorkNotice(work).title } },
+      });
+    });
+
+    /**
+     * The gate's reason for being. A suspended run is parked on a tool-approval interrupt with its
+     * checklist outstanding *by construction*, so a gate written as the complement of
+     * `shouldAnnounceTermination` — which also declines `suspended` — would have fired on every
+     * gated tool call in the session.
+     */
+    it('leaves RUN_FINISHED alone when the run is merely suspended', async () => {
+      getTerminationReasonMock.mockReturnValue(
+        terminationReason('agent.events-ended', 'control', 'suspended')
+      );
+      getOutstandingWorkMock.mockReturnValue(stall());
+
+      await runHandler();
+
+      expect(eventOfType('RUN_FINISHED')).not.toHaveProperty('result');
+    });
+
+    /** Already reported once; the budget is what stops this becoming the field nobody reads. */
+    it('leaves RUN_FINISHED alone for a stall it has already reported', async () => {
+      getTerminationReasonMock.mockReturnValue(
+        terminationReason('runner.events-completed', 'control', 'completed')
+      );
+      getOutstandingWorkMock.mockReturnValue(stall({ repeat: true }));
+
+      await runHandler();
+
+      expect(eventOfType('RUN_FINISHED')).not.toHaveProperty('result');
+    });
   });
 });

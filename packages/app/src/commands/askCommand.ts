@@ -117,7 +117,11 @@ export function askCommand(
           createResolvers(),
           'ask',
           // ask asks for the lean backend, the only one shipped; config.agent.backend names no other.
-          resolveAgentFactory(config, 'lean')
+          resolveAgentFactory(config, 'lean'),
+          // [[EXT-158]] — a person typed this verb and is reading what comes back, so a run that
+          // stopped with its own checklist unfinished says so. The harness callers of this same
+          // runtime (`batch`, `eval`, `workflow`) deliberately do not set it.
+          { announceOutstandingWork: true }
         ));
       } catch (error) {
         displayError(error instanceof Error ? error.message : String(error));

@@ -77,6 +77,7 @@ import {
   type GthFinishReasonObservation,
 } from '#src/core/terminationReason.js';
 import { terminationLogLine } from '#src/core/terminationNotice.js';
+import type { GthOutstandingWork } from '#src/core/outstandingWork.js';
 import {
   applyDestructiveFloor,
   effectivePreflightFloorFinding,
@@ -429,6 +430,13 @@ export class GthAgentRunner {
    * after {@link cleanup} has already dropped the agent.
    */
   private agentFinishReasons: readonly GthFinishReasonObservation[] = [];
+
+  /**
+   * [[EXT-158]] — snapshot of the agent's outstanding-work fact, kept for the same reason
+   * {@link agentTerminationReason} is: `reviewModule` and `prDiscovery` both read the ending only
+   * after {@link cleanup} has dropped the agent.
+   */
+  private agentOutstandingWork: GthOutstandingWork | null = null;
 
   /**
    * GS2-23 — how many turns are being driven right now, through either driver. Read by
@@ -1273,7 +1281,17 @@ export class GthAgentRunner {
     debugLog('Processing messages...');
     debugLogObject('Input Messages', messages);
 
-    return this.runTurn(messages, 0);
+    const answer = await this.runTurn(messages, 0);
+    // [[EXT-158]] — the STRING path's end-of-turn read. The typed-event path records this inside
+    // the agent (`streamWithEvents`), because the AG-UI server drives that method with no runner at
+    // all; this path has no such site, since `agent.stream()` returns a stream the RUNNER drains
+    // and the agent never learns when the drain finished.
+    //
+    // After `runTurn` rather than inside it, so the [[EXT-160]] compact-and-retry pair is one turn
+    // here as it is everywhere else: the retry's state is the state that matters, and a fact
+    // recorded on the attempt that overflowed would describe a turn that was never shown.
+    await this.agent.noteOutstandingWork?.(this.runConfig);
+    return answer;
   }
 
   /**
@@ -3531,6 +3549,9 @@ export class GthAgentRunner {
     this.terminationReason = null;
     this.agentTerminationReason = null;
     this.agentFinishReasons = [];
+    // [[EXT-158]] — the FACT goes with the turn. The agent's last-announced signature does not:
+    // recognising a repeat is the whole mechanism, and it needs a value that outlives the turn.
+    this.agentOutstandingWork = null;
     try {
       this.agent?.resetTerminationReason?.();
     } catch {
@@ -3616,6 +3637,23 @@ export class GthAgentRunner {
    */
   public getTerminationReason(): GthTerminationReason | null {
     return this.captureAgentTerminationReason() ?? this.terminationReason;
+  }
+
+  /**
+   * [[EXT-158]] — the checklist work this turn left outstanding, or `null` when it left none.
+   *
+   * Read live from the agent while one is present and falling back to the {@link cleanup} snapshot
+   * afterwards, exactly as {@link getFinishReasonObservations} does and for the same reason: the
+   * non-interactive verbs ask once the agent has been dropped. Never throws.
+   */
+  public getOutstandingWork(): GthOutstandingWork | null {
+    try {
+      const work = this.agent?.getOutstandingWork?.();
+      if (work) this.agentOutstandingWork = work;
+    } catch {
+      /* fail-soft */
+    }
+    return this.agentOutstandingWork;
   }
 
   /** [[EXT-159]] — read the live agent's reason into the snapshot (fail-soft). */
@@ -3898,6 +3936,9 @@ export class GthAgentRunner {
     // [[EXT-159]] — likewise the provider's per-message finish reasons, which `/debug-dump` and the
     // non-interactive verbs read post-cleanup.
     this.captureFinishReasonObservations();
+    // [[EXT-158]] — and whether the turn left checklist work outstanding, which `reviewModule` and
+    // the single-shot verbs also read after the agent is gone.
+    this.getOutstandingWork();
     if (this.agent && 'cleanup' in this.agent && typeof this.agent.cleanup === 'function') {
       await this.agent.cleanup();
     }

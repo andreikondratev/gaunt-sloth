@@ -143,7 +143,8 @@ describe('askCommand', () => {
       mockConfig,
       expect.any(Object),
       'ask',
-      resolvedFactory
+      resolvedFactory,
+      { announceOutstandingWork: true }
     );
     // ask asks for the lean backend, the only one shipped; agent.backend names no other.
     expect(resolveAgentFactoryMock.resolveAgentFactory).toHaveBeenCalledWith(mockConfig, 'lean');
@@ -184,7 +185,8 @@ describe('askCommand', () => {
       mockConfig,
       expect.any(Object),
       'ask',
-      resolvedFactory
+      resolvedFactory,
+      { announceOutstandingWork: true }
     );
   });
 
@@ -207,7 +209,8 @@ describe('askCommand', () => {
       mockConfig,
       expect.any(Object),
       'ask',
-      resolvedFactory
+      resolvedFactory,
+      { announceOutstandingWork: true }
     );
   });
 
@@ -231,7 +234,8 @@ describe('askCommand', () => {
       mockConfig,
       expect.any(Object),
       'ask',
-      resolvedFactory
+      resolvedFactory,
+      { announceOutstandingWork: true }
     );
   });
 
@@ -251,7 +255,8 @@ describe('askCommand', () => {
       mockConfig,
       expect.any(Object),
       'ask',
-      resolvedFactory
+      resolvedFactory,
+      { announceOutstandingWork: true }
     );
   });
 
@@ -291,7 +296,8 @@ describe('askCommand', () => {
       configWithWriteOutputDisabled,
       expect.any(Object),
       'ask',
-      resolvedFactory
+      resolvedFactory,
+      { announceOutstandingWork: true }
     );
 
     // Specifically verify the writeOutputToFile parameter was passed through

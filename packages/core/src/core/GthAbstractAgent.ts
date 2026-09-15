@@ -66,6 +66,12 @@ import {
 } from '#src/core/terminationReason.js';
 import { terminationLogLine } from '#src/core/terminationNotice.js';
 import {
+  detectOutstandingWork,
+  outstandingWorkLogLine,
+  OUTSTANDING_WORK_NOTICE_MAX_PER_SIGNATURE,
+  type GthOutstandingWork,
+} from '#src/core/outstandingWork.js';
+import {
   answerTextOf,
   segmentAssistantContent,
   stripReasoningBlocks,
@@ -366,6 +372,36 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
   private finishReasonObservations: GthFinishReasonObservation[] = [];
 
   /**
+   * [[EXT-158]] — the checklist state at the end of the current turn, when that turn ended with no
+   * tool calls and the newest `gth_checklist` call still carried a non-completed item.
+   *
+   * Reset with {@link terminationReason} at each turn boundary and read by `GthAgentRunner` and by
+   * the AG-UI server, which drives this agent with no runner at all.
+   */
+  private outstandingWork: GthOutstandingWork | null = null;
+
+  /**
+   * [[EXT-158]] — the stall episode currently in progress: the structural signature of the
+   * checklist state, and how many times it has been announced.
+   *
+   * Session-lived rather than turn-lived, and that is the whole mechanism: a stuck model re-emits
+   * an identical checklist turn after turn, and only a value that outlives the turn can tell that
+   * apart from progress. Deliberately NOT cleared by {@link resetOutstandingWork}, which runs at
+   * every turn boundary and would therefore make every repeat look new.
+   *
+   * **A COUNT rather than a seen-before flag, so the named budget means what it says.** A flag
+   * would make the constant a two-state switch — off at zero, on at anything else — and a reviewer
+   * raising it from one to two would get no change and no warning. Counting per episode is also
+   * [[EXT-36]]'s own definition of progress reused rather than reinvented: a different signature is
+   * progress and resets the count, and another identical `gth_checklist` call is not.
+   *
+   * ONE episode is kept rather than a map of every signature ever seen. A stall is consecutive by
+   * construction, and an unbounded map would grow for the whole life of a long session to answer a
+   * question only the current state can ask.
+   */
+  private outstandingEpisode: { signature: string; announced: number } | null = null;
+
+  /**
    * EXT-58 — the names of the tools registered with the graph at the last {@link init}, recorded by
    * {@link registerApprovalsAwareTools} and read back through {@link getRegisteredToolNames}.
    *
@@ -589,6 +625,74 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
   resetTerminationReason(): void {
     this.terminationReason = null;
     this.finishReasonObservations = [];
+    this.resetOutstandingWork();
+  }
+
+  /**
+   * [[EXT-158]] — forget the previous turn's outstanding-work fact.
+   *
+   * Only the FACT. The session's record of what has already been announced survives, because the
+   * question it answers — "have we already said this about this same unchanged checklist?" — is
+   * about the session and not about the turn.
+   */
+  resetOutstandingWork(): void {
+    this.outstandingWork = null;
+  }
+
+  /**
+   * [[EXT-158]] — record whether this turn ended with checklist work outstanding.
+   *
+   * **Reads the graph's own `state.messages`, which is the only authoritative answer.** The
+   * checklist tool keeps its list in a closure private to each `get()` result — one list per agent
+   * init, so concurrent AG-UI sessions never share one — so there is no tool state to read from
+   * outside it, and the newest `gth_checklist` **tool-call args** in the history are the record.
+   * Reconstructing it from the streamed chunks instead would mean aggregating a whole turn's
+   * messages a second time and getting a different answer on the resume path, where the drain that
+   * saw the call and the drain that saw the end are two different streams.
+   *
+   * Called at the end of a turn on every path, so a surface reading {@link getOutstandingWork} gets
+   * this turn's answer whether it drove the agent through `GthAgentRunner` or, as the AG-UI server
+   * does, straight through {@link streamWithEvents}.
+   *
+   * Fail-soft throughout. `getConversationMessages` throws by design on an agent whose graph
+   * exposes no state, and a fact nobody could read is "no fact" — never a reason to fail a turn
+   * that had otherwise succeeded.
+   */
+  async noteOutstandingWork(runConfig: RunnableConfig): Promise<void> {
+    try {
+      const messages = await this.getConversationMessages(runConfig);
+      const work = detectOutstandingWork(messages);
+      if (!work) {
+        this.outstandingWork = null;
+        return;
+      }
+      // The repeat decision is taken HERE, once, rather than at each of the six surfaces that may
+      // render it — so they cannot come to disagree about what "again" means, and so a surface
+      // that renders nothing still moves the session's idea of what has been said.
+      //
+      // A changed signature starts a NEW episode at zero, which is what makes a checklist state
+      // change count as progress and another identical call not.
+      const episode =
+        this.outstandingEpisode?.signature === work.signature
+          ? this.outstandingEpisode
+          : { signature: work.signature, announced: 0 };
+      const repeat = episode.announced >= OUTSTANDING_WORK_NOTICE_MAX_PER_SIGNATURE;
+      if (!repeat) episode.announced += 1;
+      this.outstandingEpisode = episode;
+      this.outstandingWork = { ...work, repeat };
+      debugLog(outstandingWorkLogLine(this.outstandingWork));
+    } catch {
+      /* fail-soft: noticing an unfinished checklist must never be what ends a finished turn */
+      this.outstandingWork = null;
+    }
+  }
+
+  /**
+   * [[EXT-158]] — the checklist work this turn left outstanding, or `null` when it left none (or
+   * when there was no checklist at all, which is the ordinary case and not a defect).
+   */
+  getOutstandingWork(): GthOutstandingWork | null {
+    return this.outstandingWork;
   }
 
   /** [[EXT-159]] — why this turn ended, or `null` when no site inside this agent classified it. */
@@ -1192,6 +1296,12 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
         { ...runConfig, streamMode: 'messages', signal }
       );
       yield* this.processEventStream(stream);
+      // [[EXT-158]] — the typed-event turn drained to its end, so the graph's state now holds the
+      // whole turn and can be asked whether the checklist still has work on it. Here rather than in
+      // a `finally`: a turn that ended on a suspend or an abort is parked or stopped, not finished,
+      // and those endings have their own categories and their own notices. This is also the ONLY
+      // site the AG-UI server reaches — it drives this method directly, with no runner to ask.
+      await this.noteOutstandingWork(runConfig);
     } catch (e) {
       if (
         e instanceof GraphInterrupt ||
@@ -1247,6 +1357,12 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
         signal,
       });
       yield* this.processEventStream(stream);
+      // [[EXT-158]] — the typed-event turn drained to its end, so the graph's state now holds the
+      // whole turn and can be asked whether the checklist still has work on it. Here rather than in
+      // a `finally`: a turn that ended on a suspend or an abort is parked or stopped, not finished,
+      // and those endings have their own categories and their own notices. This is also the ONLY
+      // site the AG-UI server reaches — it drives this method directly, with no runner to ask.
+      await this.noteOutstandingWork(runConfig);
     } catch (e) {
       if (
         e instanceof GraphInterrupt ||
