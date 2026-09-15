@@ -309,7 +309,16 @@ export interface RaterClassifierOptions {
   /** `$HOME`, for the prompt's home-path folding. Defaults to the process environment's, exactly as
    * production does. */
   home?: string;
-  /** Rating-call timeout; defaults to core's `RATER_DEFAULT_TIMEOUT_MS`. */
+  /**
+   * Timeout for ONE model call of the gate — the rating call, and the alignment check behind it.
+   * Absent, each falls back to the run's `approvals.raterTimeoutMs` and then to core's
+   * `RATER_DEFAULT_TIMEOUT_MS`.
+   *
+   * It is one budget PER CALL and not one shared across both, because that is core's contract
+   * (`AlignmentCheckOptions.timeoutMs`) and production's behaviour: `GthAgentRunner` hands the same
+   * resolved value to each. A declined command at a negotiating rung therefore costs up to twice
+   * this in wall-clock, which is what the rationale's two fail-closed sentences let a reader see.
+   */
   timeoutMs?: number;
 }
 
@@ -416,11 +425,26 @@ function buildRationale(
   // rationale for the same reason the rater's own sentence does: after the split the gate speaks
   // with two voices, and a report carrying only the classifier's would attribute an action the
   // checker took to a component that did not take it. Named, so a reader can tell the two apart.
+  //
+  // **A check that FAILED CLOSED is reported too, and deliberately not under the same marker.** It
+  // exercised no authority — the classifier's action stands — so a line reading
+  // `alignment check (escalate)` would describe a ruling nobody made, and an assertion pinning that
+  // marker would be satisfied by a checker that never answered. Core's own fail-closed sentence is
+  // already self-identifying (it opens with `ALIGNMENT_COULD_NOT_CHECK_PREFIX`) and already names
+  // the cause and the budget, so it is passed through as written. That sentence is the ONLY thing a
+  // reader has to reconcile a cell's wall-clock against: an `auto` cell that declined spends a
+  // rating call AND a check, each against its own `approvals.raterTimeoutMs` budget, and without
+  // this line the second one's time is spent invisibly.
+  //
+  // The discriminator is core's exported predicate, never a reading of the prose — the same
+  // derivation rule the rest of this file keeps.
   if (alignment !== undefined) {
     parts.push(
-      alignment.reason.trim()
-        ? `alignment check (${alignment.kind}): ${alignment.reason.trim()}`
-        : `alignment check (${alignment.kind})`
+      isAlignmentFailClosed(alignment)
+        ? alignment.reason.trim()
+        : alignment.reason.trim()
+          ? `alignment check (${alignment.kind}): ${alignment.reason.trim()}`
+          : `alignment check (${alignment.kind})`
     );
   }
   // BATCH-34 — last, because it is the only part that describes the ACTION rather than the rating:
@@ -754,6 +778,11 @@ async function classifyOneRound(
   // an `auto` suite whose `modelCalls` said 1 while spending 2 would understate the cost of the very
   // feature it was measuring.
   let alignment: AlignmentDecision | undefined;
+  // EXT-66's budget, for the OTHER call. `rateShellCommand` resolves this itself from the run's
+  // config; `runAlignmentCheck` takes it only as an option, so the resolution has to happen here
+  // for the two halves of one gate decision to be held to the same number.
+  const alignmentTimeoutMs =
+    options?.timeoutMs ?? resolveApprovals(config, undefined).raterTimeoutMs;
   const alignmentReachable =
     !deterministicOnly &&
     isNegotiatingRung(rung) &&
@@ -775,7 +804,15 @@ async function classifyOneRound(
         userMessages: negotiation.retainedUserMessages(),
         priorRounds: negotiation.alignmentRounds(),
         ...((options?.home ?? env?.HOME) ? { home: options?.home ?? env?.HOME } : {}),
-        ...(options?.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+        // **The checker's budget, resolved exactly as the rating call's is.** `runAlignmentCheck`
+        // reads no config of its own, so a run that declares `approvals.raterTimeoutMs` moved only
+        // the rating call and left the check on core's hosted-model default — and `GthAgentRunner`
+        // passes the resolved value to both. Without this a suite measuring a local rater could
+        // raise the budget the classifier needs and still lose every check it drove to a 30s
+        // ceiling it never set, which is exactly the half of the gate this target exists to
+        // describe. Precedence mirrors `rateShellCommand`'s: an explicit option wins, then the
+        // run's config, then core's default (left absent so core applies it).
+        ...(alignmentTimeoutMs !== undefined ? { timeoutMs: alignmentTimeoutMs } : {}),
       }
     );
     // A check that never happened changes nothing — the classifier's action stands, exactly as it
@@ -786,23 +823,24 @@ async function classifyOneRound(
     // no action and no judgement, so counting it would report a rating that nobody made. A check
     // that DID happen is counted, because an `auto` suite spending two calls per declined command
     // must not report one.
-    if (isAlignmentFailClosed(alignment)) {
-      alignment = undefined;
-    } else {
+    if (!isAlignmentFailClosed(alignment)) {
       modelCalls += 1;
     }
   }
-  if (alignment !== undefined) {
+  // **What the check RULED, which is nothing when it failed closed.** Authority and disclosure are
+  // two different questions about the same event, and collapsing them is what made a check the gate
+  // could not obtain vanish from the report entirely: the action was rightly left alone, and the
+  // reader was left with a cell that had spent a second call's worth of wall-clock with no sentence
+  // anywhere accounting for it. `ruling` carries the authority; `alignment` above is carried into
+  // the rationale either way.
+  const ruling = isAlignmentFailClosed(alignment) ? undefined : alignment;
+  if (ruling !== undefined) {
     decision.action =
-      alignment.kind === 'approve'
-        ? 'approve'
-        : alignment.kind === 'suggest'
-          ? 'reject'
-          : 'escalate';
+      ruling.kind === 'approve' ? 'approve' : ruling.kind === 'suggest' ? 'reject' : 'escalate';
   }
   // BATCH-34 — record the decision with §5's state and take the action production would take. This
   // is the only step between the mapping and the reported action; see `advanceNegotiation`.
-  const negotiated = advanceNegotiation(negotiation, trimmed, justification, decision, alignment);
+  const negotiated = advanceNegotiation(negotiation, trimmed, justification, decision, ruling);
   return {
     ok: true,
     // Opaque both ways: whatever the gate decided, reported verbatim. Omitted on the model-free

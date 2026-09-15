@@ -4,6 +4,12 @@ Suites here point `gth eval` at Gaunt Sloth's own behaviour rather than at a use
 run by hand at the moment (they cost real model calls and one of them needs a local GPU), not from
 CI.
 
+**Run them locally. Do not dispatch one through `.github/workflows/evals.yml`.** That workflow
+excludes `ollama-*` from every CI suite on purpose — a GitHub runner has no GPU and no ollama daemon
+— and the exclusion is keyed on a suite's `identities:` list, which a suite that names its models
+through a `sweep:` axis does not have. So a dispatch runs the local-model cells anyway, on a runner
+that cannot serve them, and reds whatever the ratings say.
+
 ## `approvals-anchoring.eval.yaml` — EXT-62
 
 Asks whether the rater actually covers what anchoring the §8 floor gives up.
@@ -123,20 +129,40 @@ rejection is addressed to the *agent* and must name what would make the command 
 eval's rater target now sends it, as a session does; the runs recorded above were made without it,
 against a system prompt no session produces. Re-run before comparing a new column against them.
 
-### Reading a `reject` cell
+### Reading an action column
 
-`reject` is what a `destructive` verdict maps to at `auto`, and nothing else produces it —
-`catastrophic` escalates, `attack` halts, `safe` approves. The metrics cannot tell it from an
-`escalate`: `wrapper_uncovered`, `mention_interrupts` and `mention_halts` compare the action
-literally against `approve` or `halt`, and `reject` and `escalate` are neither. The confusion matrix
-is where the difference shows.
+**No action in this column has one source.** Three mechanisms produce them and they overlap:
 
-**A `destructive` verdict has two sources and the action column cannot separate them:** a rater that
-judged the command, and the gate failing closed because it could not obtain a rating at all
-(timeout, throw, unparseable output). Both are live causes and neither is the default, so a `reject`
-turning up in the `mention` or `anchor-miss` families is not automatically a regression and not
-automatically a timeout either — `isFailClosed` on the per-case rationale is what tells the two
-apart, and it has to be read rather than assumed. The gemma caveat above is the fail-closed kind
-reaching the report as a `destructive` verdict.
+- the classifier's own mapping — at `auto`, `safe`→approve, `destructive`→reject,
+  `catastrophic`→escalate, `attack`→halt;
+- the **alignment checker**, which runs on the `destructive` decline and replaces that action with
+  approve, reject or escalate on its own question — *did the user ask for this?* An eval case
+  declares no user request unless it carries `user_messages:`, so the honest answer in a harness is
+  usually to escalate;
+- the gate **failing closed** because it never obtained a rating (timeout, throw, unparseable),
+  which escalates rather than opening a negotiation.
+
+So an `escalate` may be a rater calling a command unnegotiable, a checker finding no mandate for it,
+or nobody having answered at all; a `reject` may be the classifier's decline or the checker's
+suggestion. The metrics cannot tell any of them apart — `wrapper_uncovered`, `mention_interrupts`
+and `mention_halts` compare the action literally against `approve` or `halt` — so a cell that is
+neither is scored the same whichever mechanism produced it.
+
+**Where they separate is the per-case JSON, and there are two fields to read, neither of them a
+predicate you run yourself:**
+
+- **`modelLabel`** — present wherever a model actually rendered a verdict, absent where the gate
+  defaulted. `label` carries `destructive` either way, so the pair is what tells a judged command
+  from an unanswered one. It is recorded per cell in `results.json`.
+- **the rationale** (the cell's `answer`) — the classifier's sentence, the checker's under an
+  `alignment check (…)` marker, and either gate failure under its own sentence: the rating call's
+  names the rater and its budget, the check's opens *"The alignment check could not be completed"*
+  and names the cause and its budget. A check that failed closed appears there but **not** under the
+  `alignment check (…)` marker, because it ruled nothing.
+
+Do not reach for core's `isFailClosed` here. It is not emitted in `gth eval` output, and it answers
+a question about the reason TEXT: the rating prompt tells a rater to answer `destructive` and say it
+could not assess a command it is unsure of, so the predicate calls that obedient judgement a gate
+failure. `modelLabel` is derived from the call itself and is the honest signal.
 
 [EXT-66]: https://github.com/pukeko-robotics/takahe/blob/main/docs/GRAPH.md

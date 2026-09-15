@@ -12,6 +12,10 @@ import {
   RATER_OUTCOMES,
   mapVerdictToAction,
 } from '@gaunt-sloth/core/core/shell/rater.js';
+import {
+  ALIGNMENT_COULD_NOT_CHECK_PREFIX,
+  ALIGNMENT_TOOL_ESCALATE,
+} from '@gaunt-sloth/core/core/shell/alignment.js';
 import type { ShellSafetyVerdict } from '@gaunt-sloth/core/core/shell/rater.js';
 import { checkHardline } from '@gaunt-sloth/core/core/shell/hardline.js';
 import type { GthConfig } from '@gaunt-sloth/core/config.js';
@@ -2369,6 +2373,156 @@ describe('buildRaterClassifier (BATCH-25 Half B — the `rater` target)', () => 
       );
       expect(outcome.action, 'a model answered, so the agent may still argue').toBe('reject');
       expect(outcome.modelLabel, 'and the label it rendered is reported').toBe(answered.outcome);
+    });
+  });
+
+  /**
+   * BATCH-42 — **the second call of one gate decision, and the two things nothing was telling it.**
+   *
+   * At a negotiating rung a declined command costs a rating call AND an alignment check. Core gives
+   * the check its budget as an OPTION and reads no config of its own, so a run declaring
+   * `approvals.raterTimeoutMs` moved the rating call and left the check on the hosted-model default
+   * — and a check that then failed closed was dropped from the report entirely, because the one
+   * variable carried both "what it ruled" and "whether it happened". A cell could therefore spend a
+   * second call's worth of wall-clock with no sentence anywhere accounting for it, which is
+   * unreconcilable for a reader and is what sends them hunting a bug that is not there.
+   *
+   * The two tests below drive the gate into that state for real; the third is the control that
+   * tells a check which RULED from one which never answered, since both end in an escalation.
+   */
+  describe('BATCH-42 — the alignment check is budgeted from the run, and reported when it never happened', () => {
+    /** No floor match and no preflight finding, so `auto` rates it, declines it, and checks it. */
+    const NEGOTIABLE = 'rm -rf ./build';
+
+    /**
+     * The outcome `auto` declines to a negotiation — derived from the real mapping rather than
+     * spelled, like everything else in this file. It is also the one the check is reachable behind,
+     * so a vocabulary that stopped producing it would red these tests loudly instead of quietly
+     * skipping the check.
+     */
+    const declined = RATER_OUTCOMES.find(
+      (outcome) =>
+        mapVerdictToAction(NEGOTIABLE, { outcome, reason: 'derived' }, { rung: 'auto' }).action ===
+        'reject'
+    );
+
+    /** The budget the run declares. Small, and two orders below the checker's delay, so which of
+     * the two wins is settled by arithmetic rather than by machine load. */
+    const BUDGET_MS = 20;
+    /** How long the checker takes to answer. It DOES answer, so a target that ignored the budget
+     * finishes this test in under a second with the wrong rationale, rather than hanging. */
+    const CHECKER_DELAY_MS = 500;
+
+    /**
+     * The rating half answers at once; the checker half answers late. One object, because
+     * `buildRaterClassifier` resolves both models from the same override.
+     */
+    const fakeModelWithSlowChecker = (verdict: ShellSafetyVerdict) => {
+      const { model, invoke } = fakeModel([verdict]);
+      const checkerInvoke = vi.fn(
+        async () =>
+          await new Promise<AIMessage>((resolve) => {
+            setTimeout(
+              () =>
+                resolve(
+                  new AIMessage({
+                    content: '',
+                    tool_calls: [
+                      { name: ALIGNMENT_TOOL_ESCALATE, args: { reason: 'late' }, id: 'late-1' },
+                    ],
+                  })
+                ),
+              CHECKER_DELAY_MS
+            );
+          })
+      );
+      (model as unknown as { bindTools: unknown }).bindTools = vi.fn(() => ({
+        invoke: checkerInvoke,
+      }));
+      return { model, invoke, checkerInvoke };
+    };
+
+    const runWithBudget = async (model: BaseChatModel) => {
+      const { buildRaterClassifier } = await import('#src/raterTarget.js');
+      const classify = await buildRaterClassifier(
+        { type: 'rater', rung: 'auto' },
+        configOf({ approvals: { mode: 'auto', raterTimeoutMs: BUDGET_MS } } as Partial<GthConfig>),
+        { model }
+      );
+      const [outcome] = await classify(requestOf({ rounds: [NEGOTIABLE] }));
+      return outcome;
+    };
+
+    it("holds the checker to the run's own raterTimeoutMs, not core's hosted default", async () => {
+      expect(declined, 'the mapping still declines something at auto').toBeDefined();
+      const { model } = fakeModelWithSlowChecker({
+        outcome: declined as ShellSafetyVerdict['outcome'],
+        reason: 'the rater answered',
+      });
+
+      const outcome = await runWithBudget(model);
+
+      // The budget the RUN declared is the one the check was given. Asserted through the sentence
+      // core writes with it, because that number is also the only thing a report reader has.
+      expect(outcome.rationale).toContain(ALIGNMENT_COULD_NOT_CHECK_PREFIX);
+      expect(outcome.rationale, "the run's budget, not the 30s default").toContain(
+        `within ${BUDGET_MS}ms`
+      );
+    });
+
+    it('reports a check that failed closed without letting it touch the action or the call count', async () => {
+      const { model } = fakeModelWithSlowChecker({
+        outcome: declined as ShellSafetyVerdict['outcome'],
+        reason: 'the rater answered',
+      });
+
+      const outcome = await runWithBudget(model);
+
+      // Authority: none. The classifier's own action stands, which is core's caller contract.
+      expect(outcome.action, "the classifier's decision stands").toBe(
+        mapVerdictToAction(
+          NEGOTIABLE,
+          { outcome: declined as ShellSafetyVerdict['outcome'], reason: 'the rater answered' },
+          { rung: 'auto' }
+        ).action
+      );
+      // Cost: one call, because a check nobody obtained rendered no judgement to charge for.
+      expect(outcome.modelCalls, 'a check that never answered is not a call').toBe(1);
+      // Disclosure: present, and NOT under the marker a ruling carries — an assertion pinning that
+      // marker must not be satisfied by a checker that never answered.
+      expect(outcome.rationale).toContain(ALIGNMENT_COULD_NOT_CHECK_PREFIX);
+      expect(outcome.rationale, 'no ruling was made, so none is claimed').not.toContain(
+        'alignment check ('
+      );
+    });
+
+    /**
+     * **The control.** Both a fail-closed check and a real `escalateToUser` end in an escalation, so
+     * without this the two tests above would pass against a target that reported every check as
+     * unavailable. Same command, same budget, a checker that answers in time.
+     */
+    it('CONTROL: a check that DID rule is reported as a ruling, changes the action, and is counted', async () => {
+      const { buildRaterClassifier } = await import('#src/raterTarget.js');
+      const { model } = fakeModelWithChecker(
+        [{ outcome: declined as ShellSafetyVerdict['outcome'], reason: 'the rater answered' }],
+        { name: ALIGNMENT_TOOL_ESCALATE, args: { reason: 'the user never asked for this' } }
+      );
+      const classify = await buildRaterClassifier(
+        { type: 'rater', rung: 'auto' },
+        configOf({ approvals: { mode: 'auto', raterTimeoutMs: BUDGET_MS } } as Partial<GthConfig>),
+        { model }
+      );
+
+      const [outcome] = await classify(requestOf({ rounds: [NEGOTIABLE] }));
+
+      expect(outcome.action, "the checker's ruling replaces the classifier's action").toBe(
+        'escalate'
+      );
+      expect(outcome.modelCalls, 'two calls, and the suite is told so').toBe(2);
+      expect(outcome.rationale).toContain('alignment check (escalate)');
+      expect(outcome.rationale, 'a ruling is not a failure to reach one').not.toContain(
+        ALIGNMENT_COULD_NOT_CHECK_PREFIX
+      );
     });
   });
 });
