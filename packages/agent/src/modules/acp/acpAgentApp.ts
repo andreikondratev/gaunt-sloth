@@ -404,8 +404,8 @@ export function createAcpAgentApp(options: AcpAgentAppOptions = {}): acp.AgentAp
       // says in words that it is the runtime speaking — this channel is where the agent talks about
       // the session, and nothing here may read as the user's own words.
       const outstanding = outstandingOf(session);
-      if (shouldAnnounceOutstandingWork(outstanding, reason)) {
-        const notice = outstandingWorkNotice(outstanding!);
+      if (outstanding && shouldAnnounceOutstandingWork(outstanding, reason)) {
+        const notice = outstandingWorkNotice(outstanding);
         await sendUpdate(session, {
           sessionUpdate: 'agent_message',
           messageId: randomUUID(),

@@ -1037,8 +1037,8 @@ export async function startAgUiServer(
       if (ended && shouldAnnounceTermination(ended)) {
         result.termination = terminationNotice(ended);
       }
-      if (shouldAnnounceOutstandingWork(outstanding, ended)) {
-        result.outstandingWork = outstandingWorkNotice(outstanding!);
+      if (outstanding && shouldAnnounceOutstandingWork(outstanding, ended)) {
+        result.outstandingWork = outstandingWorkNotice(outstanding);
       }
       // RUN_FINISHED
       res.write(

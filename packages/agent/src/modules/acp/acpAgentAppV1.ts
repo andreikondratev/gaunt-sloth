@@ -336,8 +336,8 @@ export function createAcpV1AgentApp(options: AcpAgentAppOptions = {}): acp.Agent
       // The conversation channel only, deliberately — `_meta` carries the termination TAXONOMY,
       // which is a closed vocabulary a client can switch on, and this is a different kind of fact.
       const outstanding = outstandingOf(session);
-      if (shouldAnnounceOutstandingWork(outstanding, ended)) {
-        const notice = outstandingWorkNotice(outstanding!);
+      if (outstanding && shouldAnnounceOutstandingWork(outstanding, ended)) {
+        const notice = outstandingWorkNotice(outstanding);
         await sendUpdate(session, {
           sessionUpdate: 'agent_message_chunk',
           messageId: randomUUID(),
