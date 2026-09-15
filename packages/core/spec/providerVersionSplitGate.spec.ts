@@ -172,6 +172,17 @@ function workspaceCopiesOf(provider: string): Record<string, string> {
  * Windows failure is an exact-equality comparison of path strings; one segment carries all the
  * discriminating power with no sensitivity to drive-letter case, `\\?\` prefixes or junction
  * spelling.
+ *
+ * **Truncation does not blunt it.** pnpm replaces the tail of a long snapshot name with a hash of
+ * the full peer set, and it already does so here: both `@langchain/openai` copies are truncated at
+ * 120 characters and their hashes still differ. Windows truncates sooner, so more names arrive
+ * hashed — which is the same mechanism, not a weaker one.
+ *
+ * The fallback matters in one layout only. Under `node-linker=hoisted` there is no `.pnpm` segment
+ * and every package owns a real directory, so this would compare paths that legitimately differ.
+ * This repo ships no `.npmrc` and pnpm defaults to the isolated linker, so that layout does not
+ * occur; the failure message below names it anyway, because a gate whose red cannot be read is a
+ * gate that gets deleted.
  */
 export function physicalCopyId(realPath: string): string {
   const match = /[\\/]\.pnpm[\\/]([^\\/]+)/.exec(realPath);
@@ -248,7 +259,10 @@ describe('OPS-121 each LLM provider resolves to exactly one version across the w
       'two workspace packages resolve the same provider to different physical copies. Even at ' +
         'one version this breaks identity across the package boundary: a class from one copy is ' +
         'not `instanceof` the class from the other. Reinstall; if it survives that, the two ' +
-        'packages are pulling different peer sets and the ranges need reconciling.'
+        'packages are pulling different peer sets and the ranges need reconciling. ' +
+        'If the copies below are full paths rather than .pnpm snapshot directories, this is ' +
+        'instead a hoisted node-linker, where a copy per package is normal and this check does ' +
+        'not apply as written — read it before treating it as a defect.'
     ).toEqual([]);
   });
 
