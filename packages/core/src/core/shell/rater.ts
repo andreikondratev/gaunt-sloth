@@ -67,6 +67,7 @@ import type {
   RaterAction,
   RaterOutcome,
 } from '#src/core/shell/raterVocabulary.js';
+import { CALL_TIMED_OUT, withCallDeadline } from '#src/runtime/abortableCall.js';
 import { structuredOutputBoundary } from '#src/runtime/structuredOutput.js';
 import { debugLog, debugLogError } from '#src/utils/debugUtils.js';
 // [[EXT-82]] — the ONE redaction policy, used here as a DETECTOR rather than as a substitution:
@@ -1462,7 +1463,6 @@ export async function rateShellCommand(
     return verdict;
   };
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     if (!model || typeof model.withStructuredOutput !== 'function') {
       debugLog('rateShellCommand: no usable model for the auto-rater; failing closed.');
@@ -1473,15 +1473,21 @@ export async function rateShellCommand(
     // strict `json_schema` provider's required-and-nullable rewrite land on a value we accept.
     const boundary = structuredOutputBoundary(ShellSafetyVerdictSchema);
     const structured = model.withStructuredOutput(boundary.wireSchema);
-    const raterPromise = structured.invoke([new SystemMessage(system), new HumanMessage(user)]);
 
-    const TIMEOUT = Symbol('rater-timeout');
-    const timeoutPromise = new Promise<typeof TIMEOUT>((resolve) => {
-      timer = setTimeout(() => resolve(TIMEOUT), timeoutMs);
-    });
-
-    const raced = await Promise.race([raterPromise, timeoutPromise]);
-    if (raced === TIMEOUT) {
+    // [[EXT-179]] — the budget ABORTS the rating call now; it used to return on the timer and leave
+    // the request in flight, holding a socket open on the critical path of every gated command.
+    //
+    // **The gate decision is deliberately unchanged, and that is the point.** The abort fires only
+    // once the race has already settled on {@link CALL_TIMED_OUT} (`startCallDeadline` resolves the
+    // sentinel before it aborts, precisely so this stays true), so an aborted rating still lands on
+    // the `timeout` arm below with the `FailClosedCause` `'timeout'` — the path [[EXT-171]] already
+    // ruled on, where a rating the gate never obtained escalates to the human. No second path is
+    // invented for aborts, and none should be: an abort here IS the timeout, observed from the
+    // other side. The `catch` arm below stays reserved for failures the provider itself produced.
+    const raced = await withCallDeadline(timeoutMs, (signal) =>
+      structured.invoke([new SystemMessage(system), new HumanMessage(user)], { signal })
+    );
+    if (raced === CALL_TIMED_OUT) {
       debugLog(`rateShellCommand: rater timed out after ${timeoutMs}ms; failing closed.`);
       return settle(failClosedVerdict('timeout', timeoutMs), 'timeout');
     }
@@ -1530,8 +1536,6 @@ export async function rateShellCommand(
     }
     if (capture && failure) capture.providerError = failure;
     return settle(failClosedVerdict('threw', undefined, failure), 'threw');
-  } finally {
-    if (timer) clearTimeout(timer);
   }
 }
 

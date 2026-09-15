@@ -22,6 +22,7 @@
 
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { CALL_TIMED_OUT, withCallDeadline } from '@gaunt-sloth/core/runtime/abortableCall.js';
 import { structuredOutputBoundary } from '@gaunt-sloth/core/runtime/structuredOutput.js';
 import * as z from 'zod';
 
@@ -106,22 +107,22 @@ export async function judgeEvalCase(
   }
 
   const { system, user } = buildJudgeMessages(answer, rubric);
-  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     // EXT-88 — routed through the shared boundary like every other structured-output call. The
     // rubric verdict has no optional field today, so the boundary hands back this very schema by
     // identity; going through it is what stops a later optional field re-introducing the defect.
     const boundary = structuredOutputBoundary(EvalVerdictSchema);
     const structured = model.withStructuredOutput(boundary.wireSchema);
-    const judgePromise = structured.invoke([new SystemMessage(system), new HumanMessage(user)]);
 
-    const TIMEOUT = Symbol('eval-judge-timeout');
-    const timeoutPromise = new Promise<typeof TIMEOUT>((resolve) => {
-      timer = setTimeout(() => resolve(TIMEOUT), timeoutMs);
-    });
-
-    const raced = await Promise.race([judgePromise, timeoutPromise]);
-    if (raced === TIMEOUT) {
+    // [[EXT-179]] — the budget aborts the judge call rather than abandoning it. This matters most
+    // in a SWEEP: a suite grades many cases, and every stalled judge used to leave its own request
+    // in flight, so the leaked sockets accumulated across the run and kept the process alive after
+    // the report had been written. The timeout text is unchanged and the case still fails as a
+    // case — an aborted judgement is a judgement not obtained, never an auto-pass.
+    const raced = await withCallDeadline(timeoutMs, (signal) =>
+      structured.invoke([new SystemMessage(system), new HumanMessage(user)], { signal })
+    );
+    if (raced === CALL_TIMED_OUT) {
       return { attempted: true, ok: false, error: `Judge timed out after ${timeoutMs}ms.` };
     }
 
@@ -138,7 +139,5 @@ export async function judgeEvalCase(
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     };
-  } finally {
-    if (timer) clearTimeout(timer);
   }
 }
