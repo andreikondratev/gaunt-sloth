@@ -410,8 +410,15 @@ export const WRITE_ONLY_THREADS_SQL = `SELECT DISTINCT w.thread_id AS thread_id
  * tasks (read from LangGraph's loop, where the checkpoint `put` is chained and `putWrites` is not —
  * so their order at the database is not guaranteed; not measured here). Taking those rows costs
  * that conversation a re-run of one super-step's tasks on a later resume, which is what
- * `durability: "exit"` does by design — and it cannot happen at all in the process doing the
- * writing, whose own thread ids arrive here through `excludeThreadIds`.
+ * `durability: "exit"` does by design.
+ *
+ * Nothing here closes that window, and no reader should believe otherwise. `excludeThreadIds` does
+ * not. It mirrors the option {@link findUnaddressableThreads} takes, which the saver makes real by
+ * unioning its in-process `writtenThreads` into it — but this function has no such caller: its only
+ * production call sites are the readout and `gth history prune`, and a prune process writes no
+ * checkpoints of its own, so it holds no live thread to exclude. The parameter is here so an
+ * in-process caller could supply that protection, not because one does. What keeps the window
+ * narrow today is that a person runs the command deliberately and is shown what it will take.
  */
 export function findWriteOnlyThreads(
   db: DatabaseSync,
