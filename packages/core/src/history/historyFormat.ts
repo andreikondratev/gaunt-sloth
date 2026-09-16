@@ -119,19 +119,52 @@ export function formatBytes(bytes: number): string {
   return `${value.toFixed(1)} ${units[unit]}`;
 }
 
+/** `1 thread` / `3 threads` — a count and its noun, so no clause has to inline the plural. */
+function counted(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`;
+}
+
 /**
  * GS2-107 — the one line that makes the conversation store's volume visible where a person already
  * looks (`gth history list`), naming both the detail and the remedy so neither has to be discovered.
  *
  * The file size and the checkpoint share are separate numbers because the same file also holds the
- * transcripts and the search index; one figure labelled as checkpoints would overstate them.
+ * transcripts and the search index; one figure labelled as checkpoints would overstate them. That
+ * split stands.
+ *
+ * What the byte figure is attributed to does not (DL-4 transparency). `checkpointBytes` is the
+ * checkpoint tables' whole share — checkpoint and metadata blobs **plus every pending write**,
+ * attached or orphaned — while `checkpointCount` and `threadCount` count checkpoint rows alone. A
+ * sentence reading "`X` is `N` checkpoints across `T` threads" therefore charged the pending-write
+ * bytes to a population that does not contain them: those `N` checkpoints do not weigh `X`. So the
+ * bytes are named for the population they actually cover, and each count is a clause saying what is
+ * inside that total rather than a thing claiming to weigh it.
+ *
+ * Every clause is true on its own fields and is dropped when its count is zero, so no store renders
+ * `0 checkpoints across 0 threads` — which is what lets `historyCommand` show this line for a store
+ * holding nothing but pending writes whose checkpoints never landed. `writeOnlyBytes` is a subset of
+ * the total by construction (a write-only thread has no checkpoint row to contribute anything else),
+ * so its clause says "of that": those bytes are part of the figure, never additional to it.
  */
 export function formatStoreSizeLine(stats: CheckpointStoreStats): string {
-  const threads = `${stats.threadCount} ${stats.threadCount === 1 ? 'thread' : 'threads'}`;
+  const parts: string[] = [];
+  if (stats.checkpointCount > 0) {
+    parts.push(
+      `${counted(stats.checkpointCount, 'checkpoint')} across ${counted(stats.threadCount, 'thread')}`
+    );
+  }
+  if (stats.writeCount > 0) parts.push(counted(stats.writeCount, 'pending write'));
+  if (stats.writeOnlyThreadCount > 0) {
+    parts.push(
+      `${formatBytes(stats.writeOnlyBytes)} of that on ` +
+        `${counted(stats.writeOnlyThreadCount, 'thread')} with no checkpoint`
+    );
+  }
+  const detail = parts.length > 0 ? `: ${parts.join(', ')}` : '';
   return (
     `Conversation store: ${formatBytes(stats.fileBytes)} on disk, of which ` +
-    `${formatBytes(stats.checkpointBytes)} is ${stats.checkpointCount} checkpoints across ` +
-    `${threads}. \`gth insights\` breaks it down; \`gth history prune\` reclaims it.`
+    `${formatBytes(stats.checkpointBytes)} is conversation state${detail}. ` +
+    '`gth insights` breaks it down; `gth history prune` reclaims it.'
   );
 }
 
