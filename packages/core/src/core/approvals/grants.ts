@@ -321,20 +321,61 @@ export function toolGrantEntry(
 }
 
 /**
- * §4.7.4 — **the three moves that weaken an effective annotation set**, and the whole of what
- * invalidates a grant. Each names the hint and the transition, so the notice a human reads can say
- * which one moved.
- *
- * They are exactly the moves that make a tool a more dangerous proposition than the one that was
- * approved. The mirror images — a tool becoming read-only, closing to the open world, or ceasing to
- * destroy — are strengthenings and change nothing: a grant is a permission, and a tool that has
- * become safer is still covered by it.
+ * §4.7.4 — one hint's **weakening move**: the value it held when the grant was made, and the value
+ * that makes the tool a more dangerous proposition than the one the human approved.
  */
-const WEAKENING_MOVES: readonly { hint: ToolAnnotationHint; from: boolean; to: boolean }[] = [
-  { hint: 'readOnlyHint', from: true, to: false },
-  { hint: 'openWorldHint', from: false, to: true },
-  { hint: 'destructiveHint', from: false, to: true },
-];
+interface WeakeningMove {
+  from: boolean;
+  to: boolean;
+}
+
+/**
+ * §4.7.4 — the answer for a hint along which **no** move makes a tool more dangerous: written as a
+ * value, so it is something a maintainer gives rather than something they leave out. A hint holding
+ * this invalidates nothing, at any value, in either direction.
+ */
+const NO_WEAKENING_MOVE = null;
+
+/**
+ * §4.7.4 — **what invalidates a grant, answered for every hint in the vocabulary.** The key is the
+ * hint and the value is its transition, so the notice a human reads can say which one moved.
+ *
+ * The three moves that weaken are exactly the moves that make a tool a more dangerous proposition
+ * than the one that was approved. The mirror images — a tool becoming read-only, closing to the
+ * open world, or ceasing to destroy — are strengthenings and change nothing: a grant is a
+ * permission, and a tool that has become safer is still covered by it. `idempotentHint` holds
+ * `NO_WEAKENING_MOVE`: it says whether repeating a call lands the same state, not whether the call
+ * is a safe one to make, and §4.7.2 gives it no built-in consumer, so no value it takes and no move
+ * it makes puts the human in front of a more dangerous tool. **That is a decision and this is where
+ * it is recorded** — it used to be readable only as an absence, which is the one thing a reader
+ * cannot tell apart from an oversight.
+ *
+ * **Total by type, and that is the point.** `TOOL_ANNOTATION_HINTS` is the MCP specification's
+ * vocabulary rather than ours, so it can gain a member. A `Record` over it makes the release that
+ * adds one fail to compile *here*, until somebody answers for the new hint: **can a move along this
+ * make a tool more dangerous, and in which direction?** A list of rows compiles whatever it omits,
+ * and an omitted hint reads as "this can never weaken a grant" — an answer nobody gave. It also
+ * fails **open**: the grant goes on covering a tool that has since become more dangerous along the
+ * new dimension, and nothing is logged because nothing detected anything.
+ *
+ * **The seam one layer down does not cover this one, which is why this one exists.** Indexing
+ * `MCP_FAIL_CLOSED_ANNOTATIONS` by the hint (see {@link readGrant}'s snapshot reader) already
+ * refuses a vocabulary that outgrew its defaults — but every edit it forces is about what a hint
+ * *means*: the declared and effective annotation shapes, the fail-closed constant, the authored
+ * built-in sets. Make exactly those and the build goes green with this table untouched. That was
+ * measured, and `approvalWeakeningTableTotality.spec.ts` pins it: it widens the vocabulary,
+ * satisfies every other seam, and requires this one to fail anyway.
+ *
+ * **Key order is emission order.** {@link annotationWeakenings} walks these entries in the order
+ * they are written and {@link describeWeakenedGrant} renders that order into the sentence a human
+ * reads when a grant is withdrawn, so reordering these keys rewrites that sentence.
+ */
+const WEAKENING_MOVES: Readonly<Record<ToolAnnotationHint, WeakeningMove | null>> = {
+  readOnlyHint: { from: true, to: false },
+  openWorldHint: { from: false, to: true },
+  destructiveHint: { from: false, to: true },
+  idempotentHint: NO_WEAKENING_MOVE,
+};
 
 /**
  * §4.7.4 — which hints moved in the weakening direction between the set a grant was made under and
@@ -355,9 +396,17 @@ export function annotationWeakenings(
   snapshot: EffectiveToolAnnotations,
   current: EffectiveToolAnnotations
 ): ToolAnnotationHint[] {
-  return WEAKENING_MOVES.filter(
-    ({ hint, from, to }) => snapshot[hint] === from && current[hint] === to
-  ).map(({ hint }) => hint);
+  // `Object.entries` widens the key back to `string`; the table is a `Record` over the vocabulary,
+  // so its keys are exactly that vocabulary's members and the assertion restates what its type
+  // already guarantees. Walking the entries rather than `TOOL_ANNOTATION_HINTS` is what keeps the
+  // emitted order the table's own declaration order.
+  const decided = Object.entries(WEAKENING_MOVES) as [ToolAnnotationHint, WeakeningMove | null][];
+  return decided
+    .filter(
+      ([hint, move]) =>
+        move !== NO_WEAKENING_MOVE && snapshot[hint] === move.from && current[hint] === move.to
+    )
+    .map(([hint]) => hint);
 }
 
 /**
@@ -368,8 +417,8 @@ export function annotationWeakenings(
  * whether the move (not-the-default → the default) is one of `WEAKENING_MOVES`. Three of the
  * four hints answer yes — `readOnlyHint`, `openWorldHint` and `destructiveHint`, whose fail-closed
  * default is `true`, so a server whose `destructiveHint: false` was believed becomes destructive
- * again the moment it is not. `idempotentHint` is the only one that answers no, because no
- * weakening move names it.
+ * again the moment it is not. `idempotentHint` is the only one that answers no, because its entry
+ * in the table is `NO_WEAKENING_MOVE`.
  *
  * **It asks {@link annotationWeakenings} rather than restating the table.** A second statement of
  * which moves weaken is how a warning comes to describe a rule the gate no longer has — which

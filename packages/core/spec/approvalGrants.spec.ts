@@ -267,6 +267,42 @@ describe('annotationWeakenings — what invalidates a grant (§4.7.4)', () => {
   });
 
   /**
+   * The ORDER they come back in, which nothing else here can see — the cell above sorts both sides.
+   * It is observable: {@link describeWeakenedGrant} joins this list into one sentence a human reads
+   * when their approval is withdrawn, so the list's order is that sentence's word order. It is the
+   * weakening table's own key order, which is why the table says so at its declaration; this is
+   * what would catch a future edit reordering those keys, which no type can.
+   */
+  it('names the moved hints in the order the withdrawal notice reads them', () => {
+    const before: EffectiveToolAnnotations = {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    };
+    const after: EffectiveToolAnnotations = {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    };
+    expect(annotationWeakenings(before, after)).toEqual([
+      'readOnlyHint',
+      'openWorldHint',
+      'destructiveHint',
+    ]);
+
+    const notice = describeWeakenedGrant(
+      toolGrantEntry(mcpSubject('jira', 'search'))!,
+      annotationWeakenings(before, after),
+      before,
+      after
+    );
+    expect(notice.indexOf('readOnlyHint')).toBeLessThan(notice.indexOf('openWorldHint'));
+    expect(notice.indexOf('openWorldHint')).toBeLessThan(notice.indexOf('destructiveHint'));
+  });
+
+  /**
    * §4.7.4 — the notice names the tool, the server and **the hint that moved**.
    *
    * The absence half is what makes the presence half mean anything. A notice built from the four
