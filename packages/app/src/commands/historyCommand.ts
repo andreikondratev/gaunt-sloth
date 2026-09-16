@@ -124,7 +124,13 @@ export function historyCommand(
       if (!maintenance) return;
       try {
         const stats = maintenance.stats(dbPath);
-        if (stats.checkpointCount > 0) display(formatStoreSizeLine(stats));
+        // GS2-111 — checkpoints are not the whole store. A dropped `put` leaves a thread holding
+        // pending writes and no checkpoint: real bytes on disk that only `gth history prune` takes
+        // back. A guard on the checkpoint count alone made the one screen that reports the store's
+        // size silent about them (DL-1), so this is the pair GS2-108 settled on for `gth insights`.
+        if (stats.checkpointCount > 0 || stats.writeOnlyThreadCount > 0) {
+          display(formatStoreSizeLine(stats));
+        }
       } finally {
         maintenance.close();
       }
