@@ -22,6 +22,7 @@ import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { GthConfig } from '#src/config.js';
 import { APPROVAL_RUNGS, RUNG_TOOL_DESCRIPTION_SUFFIXES, SHELL_TOOL_NAME } from '#src/config.js';
 import type { StatusUpdateCallback } from '#src/core/types.js';
+import { MemorySaver } from '@langchain/langgraph';
 
 vi.mock('#src/utils/consoleUtils.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('#src/utils/consoleUtils.js')>();
@@ -108,7 +109,11 @@ describe('EXT-80 — the lean backend wires the interrupt on the whole gated set
 
   const initAt = async (rung: string, command: 'code' | 'chat' | 'api' = 'code'): Promise<void> => {
     const agent = new GthLangChainAgent(statusUpdate, resolvers as never);
-    await agent.init(command, { ...baseConfig(), approvals: rung } as unknown as GthConfig);
+    await agent.init(
+      command,
+      { ...baseConfig(), approvals: rung } as unknown as GthConfig,
+      new MemorySaver()
+    );
   };
 
   beforeEach(async () => {

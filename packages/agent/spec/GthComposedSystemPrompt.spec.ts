@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GthConfig } from '#src/config.js';
+import { MemorySaver } from '@langchain/langgraph';
 
 /**
  * GS2-27 — what the agent's composed code-mode system prompt actually carries.
@@ -55,7 +56,7 @@ async function codeSystemPrompt(cwd: string, over: Partial<GthConfig> = {}): Pro
   createAgentMock.mockReturnValue({ invoke: vi.fn(), stream: vi.fn() });
   const { GthLangChainAgent } = await import('@gaunt-sloth/core/core/GthLangChainAgent.js');
   const agent = new GthLangChainAgent(vi.fn(), { resolveTools: vi.fn().mockResolvedValue([]) });
-  await agent.init('code', makeConfig(over));
+  await agent.init('code', makeConfig(over), new MemorySaver());
   return createAgentMock.mock.calls.at(-1)?.[0].systemPrompt as string;
 }
 
@@ -111,7 +112,7 @@ describe('composed system prompt (GS2-27)', () => {
       const agent = new GthLangChainAgent(vi.fn(), {
         resolveTools: vi.fn().mockResolvedValue([]),
       });
-      await agent.init(command, makeConfig());
+      await agent.init(command, makeConfig(), new MemorySaver());
 
       // The shared reader is consulted exactly once, with the command the agent was initialised
       // for — so selection cannot be running off anything other than that command.
@@ -212,7 +213,7 @@ describe('composed system prompt (GS2-27)', () => {
     createAgentMock.mockReturnValue({ invoke: vi.fn(), stream: vi.fn() });
     const { GthLangChainAgent } = await import('@gaunt-sloth/core/core/GthLangChainAgent.js');
     const agent = new GthLangChainAgent(vi.fn(), { resolveTools: vi.fn().mockResolvedValue([]) });
-    await agent.init(mode, makeConfig(over));
+    await agent.init(mode, makeConfig(over), new MemorySaver());
     return createAgentMock.mock.calls.at(-1)?.[0].systemPrompt as string | undefined;
   }
   // A config whose live model resolves an identity: provider from _llmType(), model from

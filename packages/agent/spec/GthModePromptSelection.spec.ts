@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GthConfig } from '#src/config.js';
 import type { GthCommand } from '@gaunt-sloth/core/core/types.js';
+import { MemorySaver } from '@langchain/langgraph';
 
 /**
  * GS2-79 — WHICH mode prompt each command composes.
@@ -50,7 +51,7 @@ async function systemPromptFor(command: GthCommand, config: GthConfig): Promise<
   createAgentMock.mockReturnValue({ invoke: vi.fn(), stream: vi.fn() });
   const { GthLangChainAgent } = await import('@gaunt-sloth/core/core/GthLangChainAgent.js');
   const agent = new GthLangChainAgent(vi.fn(), { resolveTools: vi.fn().mockResolvedValue([]) });
-  await agent.init(command, config);
+  await agent.init(command, config, new MemorySaver());
   return createAgentMock.mock.calls.at(-1)?.[0].systemPrompt as string;
 }
 

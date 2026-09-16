@@ -250,7 +250,7 @@ describe('GthLangChainAgent', () => {
         },
       };
 
-      await agent.init('code', configWithCommands);
+      await agent.init('code', configWithCommands, new MemorySaver());
 
       expect(agent['config']?.filesystem).toEqual(['read_file', 'write_file']);
     });
@@ -275,7 +275,7 @@ describe('GthLangChainAgent', () => {
 
       mcpClientInstanceMock.getTools.mockResolvedValue([]);
 
-      await agent.init(undefined, configWithTools);
+      await agent.init(undefined, configWithTools, new MemorySaver());
 
       expect(statusUpdateCallback).toHaveBeenCalledWith(
         StatusLevel.INFO,
@@ -332,7 +332,7 @@ describe('GthLangChainAgent', () => {
         const agent = new GthLangChainAgent(statusUpdateCallback);
         mcpClientInstanceMock.getTools.mockResolvedValue([]);
 
-        await agent.init('ask', headerConfig({ header: 'debug' }));
+        await agent.init('ask', headerConfig({ header: 'debug' }), new MemorySaver());
 
         expect(infoLines()).toEqual(DEBUG_PREAMBLE);
       });
@@ -353,7 +353,7 @@ describe('GthLangChainAgent', () => {
         mcpClientInstanceMock.getTools.mockResolvedValue([]);
 
         const { modelProviderType: _dropped, ...noProvider } = headerConfig({ header: 'debug' });
-        await agent.init('ask', noProvider as unknown as GthConfig);
+        await agent.init('ask', noProvider as unknown as GthConfig, new MemorySaver());
 
         expect(infoLines()).toContain('Model: test-model');
         // The failure modes this pair exists to catch, named rather than implied.
@@ -383,7 +383,7 @@ describe('GthLangChainAgent', () => {
         const agent = new GthLangChainAgent(statusUpdateCallback);
         mcpClientInstanceMock.getTools.mockResolvedValue([]);
 
-        await agent.init('ask', headerConfig({ header: 'debug' }));
+        await agent.init('ask', headerConfig({ header: 'debug' }), new MemorySaver());
 
         const modelLine = infoLines().find((line) => line.startsWith('Model:'));
         expect(modelLine).toBe(`Model: ${SHARED_LABEL_SENTINEL}:test-model/google-genai`);
@@ -402,7 +402,7 @@ describe('GthLangChainAgent', () => {
         const agent = new GthLangChainAgent(statusUpdateCallback);
         mcpClientInstanceMock.getTools.mockResolvedValue([]);
 
-        await agent.init('ask', headerConfig());
+        await agent.init('ask', headerConfig(), new MemorySaver());
 
         expect(infoLines()).toEqual(['Gaunt Sloth · ask · test-model (google-genai)']);
       });
@@ -411,7 +411,7 @@ describe('GthLangChainAgent', () => {
         const agent = new GthLangChainAgent(statusUpdateCallback);
         mcpClientInstanceMock.getTools.mockResolvedValue([]);
 
-        await agent.init('ask', headerConfig({}));
+        await agent.init('ask', headerConfig({}), new MemorySaver());
 
         expect(infoLines()).toEqual(['Gaunt Sloth · ask · test-model (google-genai)']);
       });
@@ -431,7 +431,7 @@ describe('GthLangChainAgent', () => {
           const agent = new GthLangChainAgent(statusUpdateCallback);
           mcpClientInstanceMock.getTools.mockResolvedValue([]);
 
-          await agent.init(command, headerConfig({ header: 'compact' }));
+          await agent.init(command, headerConfig({ header: 'compact' }), new MemorySaver());
 
           expect(infoLines()).toEqual([expected]);
         }
@@ -456,7 +456,7 @@ describe('GthLangChainAgent', () => {
           const agent = new GthLangChainAgent(statusUpdateCallback);
           mcpClientInstanceMock.getTools.mockResolvedValue([]);
 
-          await agent.init(command, headerConfig({ header: 'compact' }), undefined, {
+          await agent.init(command, headerConfig({ header: 'compact' }), new MemorySaver(), {
             displayCommand,
           });
 
@@ -488,7 +488,7 @@ describe('GthLangChainAgent', () => {
         const agent = new GthLangChainAgent(statusUpdateCallback);
         mcpClientInstanceMock.getTools.mockResolvedValue([]);
 
-        await agent.init('code', headerConfig({ header: 'compact' }));
+        await agent.init('code', headerConfig({ header: 'compact' }), new MemorySaver());
 
         expect(infoLines()).toEqual([
           'Gaunt Sloth · code · test-model (google-genai)',
@@ -500,7 +500,7 @@ describe('GthLangChainAgent', () => {
         const agent = new GthLangChainAgent(statusUpdateCallback);
         mcpClientInstanceMock.getTools.mockResolvedValue([]);
 
-        await agent.init('code', headerConfig({ header: 'none' }));
+        await agent.init('code', headerConfig({ header: 'none' }), new MemorySaver());
 
         expect(infoLines()).toEqual([CODE_APPROVALS_NOTICE]);
       });
@@ -514,7 +514,7 @@ describe('GthLangChainAgent', () => {
           const agent = new GthLangChainAgent(statusUpdateCallback);
           mcpClientInstanceMock.getTools.mockResolvedValue([]);
 
-          await agent.init(command, headerConfig({ header: 'compact' }));
+          await agent.init(command, headerConfig({ header: 'compact' }), new MemorySaver());
 
           expect(infoLines()).toEqual([]);
         }
@@ -527,7 +527,7 @@ describe('GthLangChainAgent', () => {
         const agent = new GthLangChainAgent(statusUpdateCallback);
         mcpClientInstanceMock.getTools.mockResolvedValue([]);
 
-        await agent.init(undefined, headerConfig({ header: 'compact' }));
+        await agent.init(undefined, headerConfig({ header: 'compact' }), new MemorySaver());
 
         expect(infoLines()).toEqual([]);
       });
@@ -538,11 +538,15 @@ describe('GthLangChainAgent', () => {
         const agent = new GthLangChainAgent(statusUpdateCallback);
         mcpClientInstanceMock.getTools.mockResolvedValue([]);
 
-        await agent.init('ask', {
-          ...headerConfig({ header: 'compact' }),
-          modelDisplayName: undefined,
-          modelProviderType: undefined,
-        } as unknown as GthConfig);
+        await agent.init(
+          'ask',
+          {
+            ...headerConfig({ header: 'compact' }),
+            modelDisplayName: undefined,
+            modelProviderType: undefined,
+          } as unknown as GthConfig,
+          new MemorySaver()
+        );
 
         expect(infoLines()).toEqual(['Gaunt Sloth · ask']);
       });
@@ -565,11 +569,15 @@ describe('GthLangChainAgent', () => {
         const agent = new GthLangChainAgent(statusUpdateCallback);
         mcpClientInstanceMock.getTools.mockResolvedValue([]);
 
-        await agent.init('ask', {
-          ...headerConfig({ header: 'compact' }),
-          modelDisplayName: undefined,
-          modelProviderType: 'google-genai',
-        } as unknown as GthConfig);
+        await agent.init(
+          'ask',
+          {
+            ...headerConfig({ header: 'compact' }),
+            modelDisplayName: undefined,
+            modelProviderType: 'google-genai',
+          } as unknown as GthConfig,
+          new MemorySaver()
+        );
 
         expect(infoLines()).toEqual(['Gaunt Sloth · ask · google-genai']);
       });
@@ -623,7 +631,7 @@ describe('GthLangChainAgent', () => {
         const agent = new GthLangChainAgent(statusUpdateCallback);
         mcpClientInstanceMock.getTools.mockResolvedValue([]);
 
-        await agent.init('ask', headerConfig({ header: 'none' }));
+        await agent.init('ask', headerConfig({ header: 'none' }), new MemorySaver());
 
         expect(infoLines()).toEqual([]);
       });
@@ -647,10 +655,14 @@ describe('GthLangChainAgent', () => {
         mcpClientInstanceMock.getTools.mockResolvedValue([]);
         agentMock.stream.mockResolvedValue([]);
 
-        await agent.init('ask', {
-          ...headerConfig(output as GthConfig['output']),
-          canInterruptInferenceWithEsc: true,
-        } as GthConfig);
+        await agent.init(
+          'ask',
+          {
+            ...headerConfig(output as GthConfig['output']),
+            canInterruptInferenceWithEsc: true,
+          } as GthConfig,
+          new MemorySaver()
+        );
         await agent.stream([new HumanMessage('hi')], {
           recursionLimit: 1000,
           configurable: { thread_id: 'test-thread-id' },
@@ -690,7 +702,7 @@ describe('GthLangChainAgent', () => {
 
       mcpClientInstanceMock.getTools.mockResolvedValue([]);
 
-      await agent.init(undefined, configWithTools);
+      await agent.init(undefined, configWithTools, new MemorySaver());
     });
 
     it('should combine toolkit tools with MCP tools', async () => {
@@ -707,7 +719,7 @@ describe('GthLangChainAgent', () => {
       const mcpTools = [{ name: 'mcp__filesystem__list_directory' } as StructuredToolInterface];
       mcpClientInstanceMock.getTools.mockResolvedValue(mcpTools);
 
-      await agent.init(undefined, configWithTools);
+      await agent.init(undefined, configWithTools, new MemorySaver());
     });
 
     it('should filter resolved tools by the allowedTools allow-list', async () => {
@@ -728,7 +740,7 @@ describe('GthLangChainAgent', () => {
         allowedTools: ['mcp__jira__getJiraIssue'],
       } as GthConfig;
 
-      await agent.init(undefined, config);
+      await agent.init(undefined, config, new MemorySaver());
 
       expect(resolveTools).toHaveBeenCalled();
       const toolsArg = createAgentMock.mock.calls.at(-1)?.[0].tools as StructuredToolInterface[];
@@ -754,7 +766,7 @@ describe('GthLangChainAgent', () => {
         allowedTools: ['mcp__unimarket__*'],
       } as GthConfig;
 
-      await agent.init(undefined, config);
+      await agent.init(undefined, config, new MemorySaver());
 
       const toolsArg = createAgentMock.mock.calls.at(-1)?.[0].tools as StructuredToolInterface[];
       // Every mcp__unimarket__… tool is kept; the filesystem tool and the other MCP server drop.
@@ -781,7 +793,7 @@ describe('GthLangChainAgent', () => {
         allowedTools: ['gh_pr'],
       } as GthConfig;
 
-      await agent.init(undefined, config);
+      await agent.init(undefined, config, new MemorySaver());
 
       const toolsArg = createAgentMock.mock.calls.at(-1)?.[0].tools as StructuredToolInterface[];
       // The nameless server tool can never be named in the allow-list, so it is retained rather
@@ -811,7 +823,7 @@ describe('GthLangChainAgent', () => {
           allowedTools: ['mcp__jira__getJiraIssue'],
         } as GthConfig;
 
-        await agent.init(undefined, config);
+        await agent.init(undefined, config, new MemorySaver());
 
         // The agent BOUND one tool (the assertion above this block pins that). The inventory must
         // still carry all three: a denominator taken from the bound list would read 1/1 — full
@@ -846,7 +858,7 @@ describe('GthLangChainAgent', () => {
           mcpServers: { jira: {}, unimarket: {} },
         } as unknown as GthConfig;
 
-        await agent.init(undefined, config);
+        await agent.init(undefined, config, new MemorySaver());
 
         expect(agent.getAdvertisedTools()?.tools).toEqual([
           { name: 'mcp__jira__getJiraIssue', server: 'jira' },
@@ -866,7 +878,7 @@ describe('GthLangChainAgent', () => {
 
         const config = { ...mockConfig, mcpServers: { jira: {} } } as unknown as GthConfig;
 
-        await agent.init(undefined, config);
+        await agent.init(undefined, config, new MemorySaver());
 
         // Still counted — it is a real advertised tool — but attributed to no server rather than
         // to the wrong one.
@@ -890,7 +902,7 @@ describe('GthLangChainAgent', () => {
           ] as unknown as StructuredToolInterface[],
         } as GthConfig;
 
-        await agent.init(undefined, config);
+        await agent.init(undefined, config, new MemorySaver());
 
         const advertised = agent.getAdvertisedTools();
         // A nameless tool cannot be named in a trace, so counting it in the denominator would make
@@ -1101,7 +1113,7 @@ describe('GthLangChainAgent', () => {
           resolveTools: vi.fn().mockResolvedValue([]),
           resolveMiddleware: async (m) => m ?? [],
         });
-        await agent.init(command, config);
+        await agent.init(command, config, new MemorySaver());
       };
 
       it('gates code mode by default (shell defaults ON in code) and announces the gate', async () => {
@@ -1211,7 +1223,7 @@ describe('GthLangChainAgent', () => {
           resolveTools: vi.fn().mockResolvedValue([]),
           resolveMiddleware: async (m) => m ?? [],
         });
-        await agent.init('code', mockConfig);
+        await agent.init('code', mockConfig, new MemorySaver());
 
         const middleware = createAgentMock.mock.calls.at(-1)?.[0].middleware as { name: string }[];
         const idx = middleware.findIndex((m) => m.name === 'GthLeanToolErrorBudget');
@@ -1327,7 +1339,7 @@ describe('GthLangChainAgent', () => {
           resolveTools: vi.fn().mockResolvedValue([]),
           resolveMiddleware: async (m) => m ?? [],
         });
-        await agent.init('code', mockConfig);
+        await agent.init('code', mockConfig, new MemorySaver());
 
         const middleware = createAgentMock.mock.calls.at(-1)?.[0].middleware as { name: string }[];
         // Pin the composition: EXT-36 sits at index 3, right after GS2-36's budget at index 2, and
@@ -1750,7 +1762,7 @@ describe('GthLangChainAgent', () => {
           resolveTools: vi.fn().mockResolvedValue([]),
           resolveMiddleware: async (m) => m ?? [],
         });
-        await agent.init('code', mockConfig);
+        await agent.init('code', mockConfig, new MemorySaver());
         expect(getDebugMw()).toBeDefined();
       });
 
@@ -1759,7 +1771,7 @@ describe('GthLangChainAgent', () => {
           resolveTools: vi.fn().mockResolvedValue([]),
           resolveMiddleware: async (m) => m ?? [],
         });
-        await agent.init('code', mockConfig);
+        await agent.init('code', mockConfig, new MemorySaver());
 
         const response = { content: 'yo' };
         const handler = vi.fn().mockResolvedValue(response);
@@ -1777,7 +1789,7 @@ describe('GthLangChainAgent', () => {
           resolveTools: vi.fn().mockResolvedValue([]),
           resolveMiddleware: async (m) => m ?? [],
         });
-        await agent.init('code', mockConfig);
+        await agent.init('code', mockConfig, new MemorySaver());
 
         const onRequest = vi.fn();
         const onResponse = vi.fn();
@@ -1801,7 +1813,7 @@ describe('GthLangChainAgent', () => {
           resolveTools: vi.fn().mockResolvedValue([]),
           resolveMiddleware: async (m) => m ?? [],
         });
-        await agent.init('code', mockConfig);
+        await agent.init('code', mockConfig, new MemorySaver());
 
         agent.debugCapture = {
           onRequest: () => {
@@ -1831,7 +1843,7 @@ describe('GthLangChainAgent', () => {
           resolveTools: vi.fn().mockResolvedValue([]),
           resolveMiddleware: async (m) => m ?? [],
         });
-        await agent.init('code', mockConfig);
+        await agent.init('code', mockConfig, new MemorySaver());
 
         // Deliberately NO agent.debugCapture — the snapshot must not depend on it.
         expect(agent.debugCapture).toBeUndefined();
@@ -1876,7 +1888,7 @@ describe('GthLangChainAgent', () => {
           resolveTools: vi.fn().mockResolvedValue([]),
           resolveMiddleware: async (m) => m ?? [],
         });
-        await agent.init('code', mockConfig);
+        await agent.init('code', mockConfig, new MemorySaver());
 
         const first = [{ content: 'first turn' }];
         const second = [{ content: 'second turn' }];
@@ -1920,7 +1932,7 @@ describe('GthLangChainAgent', () => {
           resolveTools: vi.fn().mockResolvedValue([]),
           resolveMiddleware: async (m) => m ?? [],
         });
-        await agent.init('code', mockConfig);
+        await agent.init('code', mockConfig, new MemorySaver());
 
         const status = getStatusMw();
         expect(status).toBeDefined();
@@ -1973,10 +1985,14 @@ describe('GthLangChainAgent', () => {
           resolveMiddleware: async (m) => m ?? [],
         });
         // get_weather is the only bound tool, so it is the repair allow-list.
-        await agent.init('code', {
-          ...mockConfig,
-          tools: [{ name: 'get_weather', invoke: vi.fn(), description: 'x' }],
-        } as GthConfig);
+        await agent.init(
+          'code',
+          {
+            ...mockConfig,
+            tools: [{ name: 'get_weather', invoke: vi.fn(), description: 'x' }],
+          } as GthConfig,
+          new MemorySaver()
+        );
         return agent;
       }
 
@@ -2073,7 +2089,7 @@ describe('GthLangChainAgent', () => {
 
       it('selects the code-mode prompt for the code command', async () => {
         const agent = new GthLangChainAgent(statusUpdateCallback);
-        await agent.init('code', mockConfig);
+        await agent.init('code', mockConfig, new MemorySaver());
 
         expect(readModePromptMock).toHaveBeenCalledWith('code', expect.anything());
         expect(readModePromptMock).not.toHaveBeenCalledWith('chat', expect.anything());
@@ -2102,7 +2118,7 @@ describe('GthLangChainAgent', () => {
         systemUtilsMock.getCurrentWorkDir.mockReturnValue('/proj/work');
 
         const agent = new GthLangChainAgent(statusUpdateCallback);
-        await agent.init('code', mockConfig);
+        await agent.init('code', mockConfig, new MemorySaver());
 
         const systemPrompt = createAgentMock.mock.calls.at(-1)?.[0].systemPrompt as string;
         // OS/shell-dialect note (EXT-26): host OS + shell + the file-write steer.
@@ -2493,7 +2509,7 @@ describe('GthLangChainAgent', () => {
         streamOutput: false,
         tools: mockTools,
       } as GthConfig;
-      await agent.init(undefined, config);
+      await agent.init(undefined, config, new MemorySaver());
 
       const runConfig: RunnableConfig = {
         recursionLimit: 1000,
@@ -3931,11 +3947,15 @@ describe('GthLangChainAgent', () => {
       const fakeListChatModel = new FakeListChatModel({ responses: [] });
       fakeListChatModel.bindTools = vi.fn().mockReturnValue(fakeListChatModel);
 
-      await agent.init(undefined, {
-        ...mockConfig,
-        llm: fakeListChatModel,
-        tools: [clientTool],
-      } as GthConfig);
+      await agent.init(
+        undefined,
+        {
+          ...mockConfig,
+          llm: fakeListChatModel,
+          tools: [clientTool],
+        } as GthConfig,
+        new MemorySaver()
+      );
 
       // The agent received a wrapped clone — extract it from createAgent's call
       const createAgentArg = createAgentMock.mock.calls[0][0] as {
@@ -3976,11 +3996,15 @@ describe('GthLangChainAgent', () => {
       const fakeListChatModel = new FakeListChatModel({ responses: [] });
       fakeListChatModel.bindTools = vi.fn().mockReturnValue(fakeListChatModel);
 
-      await agent.init(undefined, {
-        ...mockConfig,
-        llm: fakeListChatModel,
-        tools: [serverTool],
-      } as GthConfig);
+      await agent.init(
+        undefined,
+        {
+          ...mockConfig,
+          llm: fakeListChatModel,
+          tools: [serverTool],
+        } as GthConfig,
+        new MemorySaver()
+      );
 
       const createAgentArg = createAgentMock.mock.calls[0][0] as {
         tools: StructuredToolInterface[];

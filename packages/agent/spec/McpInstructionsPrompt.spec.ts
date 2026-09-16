@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GthConfig } from '#src/config.js';
 import type { McpServerInstruction } from '@gaunt-sloth/core/core/types.js';
+import { MemorySaver } from '@langchain/langgraph';
 
 /**
  * EXT-32 — MCP server `instructions` injected into the composed system prompt.
@@ -54,7 +55,7 @@ async function systemPromptFor(
     resolveTools: vi.fn().mockResolvedValue([]),
     ...(instructions ? { getMcpServerInstructions: () => instructions } : {}),
   });
-  await agent.init('code', makeConfig());
+  await agent.init('code', makeConfig(), new MemorySaver());
   return createAgentMock.mock.calls.at(-1)?.[0].systemPrompt as string | undefined;
 }
 

@@ -33,6 +33,7 @@ import {
   type GthConfig,
 } from '#src/config.js';
 import type { StatusUpdateCallback } from '#src/core/types.js';
+import { MemorySaver } from '@langchain/langgraph';
 
 // Silence the user-facing display fns so the suite's stdout stays clean; everything else in
 // consoleUtils stays real. Self-contained factory: this module is pulled in by the static
@@ -316,7 +317,11 @@ describe('§4.5 wiring — the suffix follows the RESOLVED rung', () => {
 
   it('appends the rung sentence to the gated shell and nothing to the granted read tool', async () => {
     const agent = new GthLangChainAgent(statusUpdate, resolvers as never);
-    await agent.init('code', { ...baseConfig(), approvals: 'write' } as GthConfig);
+    await agent.init(
+      'code',
+      { ...baseConfig(), approvals: 'write' } as GthConfig,
+      new MemorySaver()
+    );
 
     expect(registeredDescriptions()).toEqual({
       [SHELL_TOOL_NAME]: `Run a shell command. ${SUFFIX.write}`,
@@ -326,7 +331,11 @@ describe('§4.5 wiring — the suffix follows the RESOLVED rung', () => {
 
   it('appends nothing at all under bypass', async () => {
     const agent = new GthLangChainAgent(statusUpdate, resolvers as never);
-    await agent.init('code', { ...baseConfig(), approvals: 'bypass' } as GthConfig);
+    await agent.init(
+      'code',
+      { ...baseConfig(), approvals: 'bypass' } as GthConfig,
+      new MemorySaver()
+    );
 
     expect(registeredDescriptions()).toEqual({
       [SHELL_TOOL_NAME]: 'Run a shell command.',
@@ -338,11 +347,15 @@ describe('§4.5 wiring — the suffix follows the RESOLVED rung', () => {
     // A description generated from the ROOT rung would say nothing here (root is bypass) while the
     // gate would in fact stop and ask — exactly the disagreement §4.5 forbids.
     const agent = new GthLangChainAgent(statusUpdate, resolvers as never);
-    await agent.init('code', {
-      ...baseConfig(),
-      approvals: 'bypass',
-      commands: { code: { approvals: 'manual' } },
-    } as unknown as GthConfig);
+    await agent.init(
+      'code',
+      {
+        ...baseConfig(),
+        approvals: 'bypass',
+        commands: { code: { approvals: 'manual' } },
+      } as unknown as GthConfig,
+      new MemorySaver()
+    );
 
     expect(registeredDescriptions()[SHELL_TOOL_NAME]).toBe(
       `Run a shell command. ${SUFFIX['manual']}`
@@ -351,18 +364,22 @@ describe('§4.5 wiring — the suffix follows the RESOLVED rung', () => {
 
   it('follows a per-command override in the permissive direction too', async () => {
     const agent = new GthLangChainAgent(statusUpdate, resolvers as never);
-    await agent.init('code', {
-      ...baseConfig(),
-      approvals: 'manual',
-      commands: { code: { approvals: 'bypass' } },
-    } as unknown as GthConfig);
+    await agent.init(
+      'code',
+      {
+        ...baseConfig(),
+        approvals: 'manual',
+        commands: { code: { approvals: 'bypass' } },
+      } as unknown as GthConfig,
+      new MemorySaver()
+    );
 
     expect(registeredDescriptions()[SHELL_TOOL_NAME]).toBe('Run a shell command.');
   });
 
   it('uses the assisted wording at the default rung', async () => {
     const agent = new GthLangChainAgent(statusUpdate, resolvers as never);
-    await agent.init('code', baseConfig());
+    await agent.init('code', baseConfig(), new MemorySaver());
 
     expect(registeredDescriptions()[SHELL_TOOL_NAME]).toBe(
       `Run a shell command. ${SUFFIX['assisted']}`
@@ -373,7 +390,11 @@ describe('§4.5 wiring — the suffix follows the RESOLVED rung', () => {
     // `chat` emits no dev tools, so the shell gate is off; at a rated rung the gated set is the
     // shell alone, so nothing is gated at all and no description may claim otherwise.
     const agent = new GthLangChainAgent(statusUpdate, resolvers as never);
-    await agent.init('chat', { ...baseConfig(), approvals: 'assisted' } as GthConfig);
+    await agent.init(
+      'chat',
+      { ...baseConfig(), approvals: 'assisted' } as GthConfig,
+      new MemorySaver()
+    );
 
     expect(registeredDescriptions()).toEqual({
       [SHELL_TOOL_NAME]: 'Run a shell command.',
@@ -387,7 +408,11 @@ describe('§4.5 wiring — the suffix follows the RESOLVED rung', () => {
     // gate — which is what makes `manual` true for a chat session's MCP and custom tools. The
     // granted read built-in must still carry nothing.
     const agent = new GthLangChainAgent(statusUpdate, resolvers as never);
-    await agent.init('chat', { ...baseConfig(), approvals: 'manual' } as GthConfig);
+    await agent.init(
+      'chat',
+      { ...baseConfig(), approvals: 'manual' } as GthConfig,
+      new MemorySaver()
+    );
 
     expect(registeredDescriptions()).toEqual({
       [SHELL_TOOL_NAME]: `Run a shell command. ${SUFFIX['manual']}`,
@@ -397,7 +422,7 @@ describe('§4.5 wiring — the suffix follows the RESOLVED rung', () => {
 
   it('records the tool names it registered with the graph', async () => {
     const agent = new GthLangChainAgent(statusUpdate, resolvers as never);
-    await agent.init('code', baseConfig());
+    await agent.init('code', baseConfig(), new MemorySaver());
 
     expect(agent.getRegisteredToolNames()).toEqual([SHELL_TOOL_NAME, 'read_file']);
   });

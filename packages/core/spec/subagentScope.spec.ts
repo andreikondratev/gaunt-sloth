@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import type { GthConfig } from '#src/config.js';
 import type { StatusUpdateCallback } from '#src/core/types.js';
 import { StatusLevel } from '#src/core/types.js';
+import { MemorySaver } from '@langchain/langgraph';
 
 const createAgentMock = vi.fn();
 vi.mock('langchain', async () => {
@@ -75,7 +76,8 @@ describe('EXT-114 — declared subagents are never silently dropped', () => {
       configWith([
         { name: 'searcher', profile: 'flash' },
         { name: 'reviewer', profile: 'sonnet' },
-      ])
+      ]),
+      new MemorySaver()
     );
 
     const warnings = subagentWarnings();
@@ -91,7 +93,11 @@ describe('EXT-114 — declared subagents are never silently dropped', () => {
 
   it('points at the docs instead of paraphrasing what replaces them', async () => {
     const runner = new GthAgentRunner(statusUpdate, { resolveTools: async () => [] } as never);
-    await runner.init('code', configWith([{ name: 'searcher', profile: 'flash' }]));
+    await runner.init(
+      'code',
+      configWith([{ name: 'searcher', profile: 'flash' }]),
+      new MemorySaver()
+    );
 
     expect(subagentWarnings()[0]).toContain(SUBAGENTS_DOCS_URL);
   });
@@ -133,7 +139,7 @@ describe('EXT-114 — declared subagents are never silently dropped', () => {
     const runner = new GthAgentRunner(statusUpdate, { resolveTools: async () => [] } as never);
 
     await expect(
-      runner.init('code', configWith([{ name: 'searcher', profile: 'flash' }]))
+      runner.init('code', configWith([{ name: 'searcher', profile: 'flash' }]), new MemorySaver())
     ).rejects.toThrow('provider is not configured');
     expect(subagentWarnings()).toHaveLength(1);
   });
@@ -159,14 +165,14 @@ describe('EXT-114 — declared subagents are never silently dropped', () => {
 
   it('stays quiet when no subagents are declared', async () => {
     const runner = new GthAgentRunner(statusUpdate, { resolveTools: async () => [] } as never);
-    await runner.init('code', configWith());
+    await runner.init('code', configWith(), new MemorySaver());
 
     expect(subagentWarnings()).toEqual([]);
   });
 
   it('stays quiet for an EMPTY subagents array — nothing was asked for', async () => {
     const runner = new GthAgentRunner(statusUpdate, { resolveTools: async () => [] } as never);
-    await runner.init('code', configWith([]));
+    await runner.init('code', configWith([]), new MemorySaver());
 
     expect(subagentWarnings()).toEqual([]);
   });

@@ -10,7 +10,7 @@ import {
 import type { GthAdvertisedTool, GthAdvertisedTools } from '#src/core/types.js';
 import { GthAgentInitOptions, GthCommand, StatusLevel } from '#src/core/types.js';
 import { approvalSubjectForToolName } from '#src/core/approvals/mcpSubjects.js';
-import { GthAbstractAgent } from '#src/core/GthAbstractAgent.js';
+import { GthAbstractAgent, isClientFulfilledTool } from '#src/core/GthAbstractAgent.js';
 import { debugLog, debugLogObject } from '#src/utils/debugUtils.js';
 import { buildSystemMessages, formatToolCalls, readModePrompt } from '#src/utils/llmUtils.js';
 import { modelProviderLabel } from '#src/core/modelLabel.js';
@@ -1255,6 +1255,45 @@ export class GthLangChainAgent extends GthAbstractAgent {
             }),
           ]
         : [];
+
+    // EXT-121 — refuse to build a graph that WILL interrupt but has nowhere to save the suspension.
+    //
+    // Suspending a graph writes a checkpoint. With no saver, LangGraph raises
+    // `MISSING_CHECKPOINTER` from inside `interrupt()` — so the failure lands mid-turn, on the
+    // user's first gated tool call, in a vocabulary that names nothing they configured. Everything
+    // needed to know that is already here, so it is checked here.
+    //
+    // **The condition is a CONJUNCTION, and that is the whole design — do not "simplify" it into a
+    // required third parameter.** The honest fault is not "a saver was omitted" but "a saver was
+    // omitted AND something will interrupt". Omitting one is legitimate and common: a graph with no
+    // interrupt never suspends, never checkpoints, and needs no saver. Making the parameter required
+    // instead would reject every one of those callers — the overwhelming majority of them tests that
+    // build an agent only to inspect what it was constructed with, and never run it.
+    //
+    // **The left side is a DISJUNCTION over the two independent interrupt installers, because there
+    // are two and they do not imply each other.** The approval middleware above is one; the other is
+    // the client-tool substitution in `extractAndFlattenTools`, which rewrites a
+    // `metadata.client === true` tool's body to `await interrupt(...)`. Keying on `interruptTools`
+    // alone would miss it on exactly the surface that matters: `commandAnswersApprovals` is false for
+    // `api`, so an AG-UI run has an EMPTY interrupt set while its client tools interrupt for real —
+    // the same surface [[EXT-119]] reached a user from. Read the interrupt set from the very array
+    // that installs the middleware, and the client marker through the same predicate that does the
+    // substituting, so neither side can drift from what it is standing in for.
+    const hasClientFulfilledTool = tools.some((tool) => isClientFulfilledTool(tool));
+    if ((interruptTools.length > 0 || hasClientFulfilledTool) && checkpointer === undefined) {
+      const surface = command ? `The ${command} ` : 'This ';
+      const mechanism = hasClientFulfilledTool
+        ? 'client-fulfilled tools, which suspend the graph when called'
+        : 'a tool-approval interrupt, which suspends the graph when a gated tool is called';
+      throw new Error(
+        `${surface}agent was built with ${mechanism}, but no checkpointer was supplied to ` +
+          `GthLangChainAgent.init(). A suspended graph is saved to the checkpointer, so without ` +
+          `one the first such tool call fails mid-turn instead of asking. Pass a ` +
+          `BaseCheckpointSaver as the third argument to init() — a MemorySaver is enough when the ` +
+          `conversation does not need to outlive the process.`
+      );
+    }
+
     if (shellGateNotice) {
       this.statusUpdate(shellGateNotice.level, shellGateNotice.message);
     }

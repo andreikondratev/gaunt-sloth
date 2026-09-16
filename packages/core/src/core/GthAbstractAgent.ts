@@ -1994,8 +1994,7 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
       } else {
         // This is a regular tool
         let singleTool = toolOrToolkit as StructuredToolInterface;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if ((singleTool as any).metadata?.client === true) {
+        if (isClientFulfilledTool(singleTool)) {
           // Clone the tool to avoid mutating the original
           singleTool = Object.assign(Object.create(Object.getPrototypeOf(singleTool)), singleTool);
           const stubFunc = async (_input: unknown, _config?: RunnableConfig) => {
@@ -2012,4 +2011,24 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
     }
     return flattenedTools;
   }
+}
+
+/**
+ * **Is this tool fulfilled by the client, i.e. does calling it raise an `interrupt()`?**
+ *
+ * The single derivation of the `metadata.client === true` marker. {@link
+ * GthAbstractAgent.extractAndFlattenTools} uses it to decide which tools get their body swapped for
+ * an `interrupt()` stub, and `GthLangChainAgent.init`'s checkpointer guard uses it to decide whether
+ * the graph it is about to build can interrupt at all.
+ *
+ * **Those two must not be able to disagree**, which is the whole reason this is a function and not a
+ * pair of inline `metadata?.client` reads: the guard exists to refuse a graph that will interrupt
+ * without a saver, so a marker the stub honours and the guard does not is a graph that reaches a
+ * user with the exact failure the guard was added to prevent. Same reason `resolveInterruptToolNames`
+ * is one shared derivation rather than one per backend — a set computed twice is a set that drifts.
+ */
+export function isClientFulfilledTool(tool: unknown): boolean {
+  return (
+    (tool as { metadata?: { client?: unknown } } | null | undefined)?.metadata?.client === true
+  );
 }
