@@ -133,6 +133,10 @@ describe('ollama provider processJsonConfig', () => {
     await processJsonConfig(buildConfig({ fetch: base }) as any);
 
     const builtConfig = chatOllamaConstructorMock.mock.calls[0][0] as { fetch: typeof fetch };
+    // Without this the cell is decorative: if the wrapper were dropped entirely, `builtConfig.fetch`
+    // WOULD be `base`, and the pass-through assertion below would pass for the wrong reason. The
+    // claim is that the WRAPPER adds nothing outside a deadline, so there has to be a wrapper.
+    expect(builtConfig.fetch).not.toBe(base);
     await builtConfig.fetch('http://127.0.0.1/x', { method: 'POST' });
 
     expect(base).toHaveBeenCalledWith('http://127.0.0.1/x', { method: 'POST' });
