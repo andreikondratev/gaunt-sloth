@@ -10,6 +10,16 @@ export { createResolvers } from '#src/resolvers.js';
 export * from '#src/builtInToolsConfig.js';
 export { resolveMiddleware } from '#src/middleware/registry.js';
 
+// The mark a middleware puts on a message it appends to state in `beforeModel`, so that a sibling
+// deciding which tool results the coming model call continues from steps over it instead of reading
+// it as the end of the conversation. Exported because a middleware written in a JS config appends
+// the same way gth's own do.
+export {
+  isMiddlewareInjected,
+  markMiddlewareInjected,
+  MIDDLEWARE_INJECTED_KEY,
+} from '#src/middleware/middlewareInjectedMarker.js';
+
 // The agent-backend seam every command resolves its factory through.
 export { resolveAgentFactory } from '#src/core/resolveAgentFactory.js';
 

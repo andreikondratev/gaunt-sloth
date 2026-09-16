@@ -35,6 +35,7 @@ import {
 import { HumanMessage, isToolMessage } from '@langchain/core/messages';
 import type { BaseMessage, MessageContent } from '@langchain/core/messages';
 import { imageBlockFor } from '#src/middleware/frontendImageInjectionMiddleware.js';
+import { isMiddlewareInjected } from '#src/middleware/middlewareInjectedMarker.js';
 
 export interface BinaryContentInjectionMiddlewareSettings {
   name?: 'binary-content-injection';
@@ -252,11 +253,48 @@ function getFormatLabel(formatType: string): string {
  * `isToolMessage` rather than `instanceof ToolMessage`: the predicate is class-identity free, so a
  * second `@langchain/core` copy in a consumer's tree cannot make a real tool result look like the
  * end of the run and silently drop the attachment.
+ *
+ * **CFG-72 — a message a sibling middleware appended in this step is stepped over, not treated as
+ * the end of the run.** "The model call that directly follows tool execution" is a claim about the
+ * graph, and the graph interposes every `beforeModel` hook between the tools node and this one: the
+ * tools node routes back to the FIRST `beforeModel` node, the chain ends at the agent node, and the
+ * agent node builds its request from the state those nodes have already committed. So a sibling that
+ * appends — `frontendImageInjectionMiddleware` puts the captured frame on the end — leaves a
+ * HumanMessage sitting on the trailing tool run, the walk-back stops on it, and the attachment is
+ * never collected. Measured on the real graph, same scenario: 0 blocks reach the model with the
+ * sibling active, 1 without it. It needs no same-step coincidence, because that middleware's
+ * idempotency guard is keyed on the graph THREAD — a replayed history re-injects a capture from
+ * several messages back, at the tail.
+ *
+ * **Why the mark and not a wider window.** The shadow case and the case [[CFG-69]] closed are the
+ * same shape in state: a tool round with a HumanMessage on the end of it. One must attach and the
+ * other must not, so no rule reading message adjacency alone can separate them — measured both ways
+ * here, where restoring the five-message window turns the shadow cells green and the CFG-69
+ * session-survival pin red. What actually differs is PROVENANCE, so provenance is what is recorded:
+ * a middleware marks what it appends to state (`markMiddlewareInjected`, in
+ * `middlewareInjectedMarker.ts`, which carries why the mark is plain data on the message rather than
+ * object identity) and adjacency reasoning steps over it. Narrowness is the safeguard — only a
+ * MARKED message is skipped, so a real user message still ends the walk exactly as CFG-69 left it.
+ *
+ * **Rejected: collecting earlier in the pipeline** (a `beforeModel` of our own, or a stash filled
+ * when the tool runs). Ordering against a sibling's `beforeModel` node is decided by the order the
+ * middleware array happens to be in, which is the fragility this node is about; and a stash keyed on
+ * tool execution drops the attachment on any path where the model call is not in the same process as
+ * the tool call — a resumed or replayed run — while removing the window that CFG-69's control
+ * mutation needs in order to still mean something.
+ *
+ * **The residual, accepted deliberately:** a middleware that appends in `beforeModel` without
+ * marking still shadows. Every middleware gth ships marks; a user's own JS-config middleware can
+ * (the marker is exported), and one that does not fails the way it does today — the attachment is
+ * absent, never corrupted, and nothing reaches history. Closing that would mean dropping adjacency
+ * altogether, which costs more than it buys.
  */
 function collectTrailingBinaryContent(messages: readonly BaseMessage[]): ParsedBinaryContent[] {
   const found: ParsedBinaryContent[] = [];
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
+    // CFG-72: appended by a sibling in this step — not part of the run this call continues from.
+    if (isMiddlewareInjected(msg)) continue;
     if (!isToolMessage(msg)) break;
     if (msg.name === 'gth_read_binary' && typeof msg.content === 'string') {
       const parsedContent = parseBinaryContent(msg.content);

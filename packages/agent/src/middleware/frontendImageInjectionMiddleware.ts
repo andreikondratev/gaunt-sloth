@@ -19,6 +19,7 @@ import { createMiddleware, type AgentMiddleware } from 'langchain';
 import { HumanMessage, isToolMessage } from '@langchain/core/messages';
 import type { MessageContent } from '@langchain/core/messages';
 import { debugLog } from '@gaunt-sloth/core/utils/debugUtils.js';
+import { markMiddlewareInjected } from '#src/middleware/middlewareInjectedMarker.js';
 
 /**
  * The tool-result envelope a frontend capture tool posts back as the ToolMessage's (string) content:
@@ -256,12 +257,23 @@ export function createFrontendImageInjectionMiddleware(
 
       if (injected.length === 0) return undefined;
 
+      // CFG-72: everything appended below carries the middleware-injected mark. This hook runs as
+      // its own graph node ahead of the agent node, so what it appends lands on the end of the
+      // trailing tool run that a `wrapModelCall` sibling reads to decide which tool results the
+      // coming call continues from. Unmarked, the frame reads as a fresh user message and shadows
+      // that read — measured, a `gth_read_binary` PDF stopped reaching the model entirely whenever a
+      // capture was in history. The mark is what keeps the frame visible to the model and invisible
+      // to adjacency reasoning; see `middlewareInjectedMarker.ts`.
       const newMessages = [...messages];
       for (const { payload, id } of injected) {
         if (payload.error) {
           // Mark injected so the error note isn't re-emitted on a later turn.
           injectedIds.add(id);
-          newMessages.push(new HumanMessage({ content: `Camera unavailable: ${payload.error}` }));
+          newMessages.push(
+            markMiddlewareInjected(
+              new HumanMessage({ content: `Camera unavailable: ${payload.error}` })
+            )
+          );
           continue;
         }
         if (payload.mimeType && payload.data) {
@@ -271,9 +283,14 @@ export function createFrontendImageInjectionMiddleware(
           injectedIds.add(id);
           const block = imageBlockFor(opts.provider, payload.mimeType, payload.data);
           newMessages.push(
-            new HumanMessage({
-              content: [{ type: 'text', text: 'Camera frame captured:' }, block] as MessageContent,
-            })
+            markMiddlewareInjected(
+              new HumanMessage({
+                content: [
+                  { type: 'text', text: 'Camera frame captured:' },
+                  block,
+                ] as MessageContent,
+              })
+            )
           );
         }
         // else: a capture result whose `data` is absent — inject nothing, leave the guard clean.
