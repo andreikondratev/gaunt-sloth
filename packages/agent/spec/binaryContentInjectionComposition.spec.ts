@@ -26,7 +26,15 @@
  * defect is about.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
+import {
+  AIMessage,
+  HumanMessage,
+  mapChatMessagesToStoredMessages,
+  mapStoredMessagesToChatMessages,
+  ToolMessage,
+  type BaseMessage,
+} from '@langchain/core/messages';
+import { MemorySaver } from '@langchain/langgraph';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { RunnableConfig } from '@langchain/core/runnables';
 import { GthLangChainAgent } from '@gaunt-sloth/core/core/GthLangChainAgent.js';
@@ -236,13 +244,25 @@ describe('CFG-72 — the marker itself', () => {
     expect(marked.content).toBe('hello');
   });
 
-  it('the marker survives the JSON round trip a replayed history goes through', () => {
+  it('the marker survives the two serialisers a persisted conversation actually goes through', async () => {
+    // A hand-rolled `JSON.parse(JSON.stringify(...))` here would test JSON, not LangChain. The
+    // replayed-history half of this node depends on the mark still being there after a checkpoint
+    // round trip, so both real paths are exercised: the stored-message mapping persistence uses,
+    // and the serde every `BaseCheckpointSaver` writes through — the SQLite saver gth runs for a
+    // session included. A mark that silently dropped at either boundary would leave the shadow
+    // standing in production while the in-process cells above stayed green.
     const marked = markMiddlewareInjected(new HumanMessage('hello'));
-    const revived = new HumanMessage({
-      content: marked.content as string,
-      additional_kwargs: JSON.parse(JSON.stringify(marked.additional_kwargs)),
-    });
-    expect(isMiddlewareInjected(revived)).toBe(true);
+
+    const stored = mapStoredMessagesToChatMessages(
+      JSON.parse(JSON.stringify(mapChatMessagesToStoredMessages([marked])))
+    );
+    expect(isMiddlewareInjected(stored[0])).toBe(true);
+
+    const serde = new MemorySaver().serde;
+    const [type, bytes] = await serde.dumpsTyped({ messages: [marked] });
+    const revived = (await serde.loadsTyped(type, bytes)) as { messages: BaseMessage[] };
+    expect(revived.messages[0].getType()).toBe('human');
+    expect(isMiddlewareInjected(revived.messages[0])).toBe(true);
   });
 
   it('is duck-typed: a foreign message object from another @langchain/core copy is still read (RC-21)', () => {
