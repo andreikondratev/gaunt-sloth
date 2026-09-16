@@ -215,8 +215,80 @@ describe('history/historyFormat', () => {
       // would overstate them on the very screen this exists to make honest.
       const line = formatStoreSizeLine(stats());
       expect(line).toContain('5.0 MB on disk');
-      expect(line).toContain('3.0 MB is 124 checkpoints across 10 threads');
+      expect(line).toContain('3.0 MB is conversation state');
+      expect(line).toContain('124 checkpoints across 10 threads');
       expect(line).toContain('gth history prune');
+    });
+
+    /**
+     * GS2-111 — the byte figure covers the checkpoint tables whole, pending writes included, while
+     * the count beside it is checkpoint rows alone. Handing one to the other is the false
+     * attribution this node exists to remove: those 124 checkpoints do not weigh 3.0 MB.
+     */
+    it('does NOT attribute the whole byte figure to the checkpoint count', () => {
+      const line = formatStoreSizeLine(stats());
+      expect(line).not.toContain('3.0 MB is 124 checkpoints');
+      // The writes are named as their own population rather than folded into the checkpoints.
+      expect(line).toContain('300 pending writes');
+    });
+
+    /**
+     * The orphan clause has to be read off `writeOnlyBytes` / `writeOnlyThreadCount` and nothing
+     * else. An assertion on the rendered sentence cannot show that on its own — it reds for any
+     * wording change at all — so this moves ONLY the orphan fields and pins that only the orphan
+     * clause moves with them.
+     */
+    it('names the orphaned share, and moves it independently of every other figure', () => {
+      const none = formatStoreSizeLine(stats());
+      const some = formatStoreSizeLine(stats({ writeOnlyThreadCount: 2, writeOnlyBytes: 50_000 }));
+      expect(none).not.toContain('with no checkpoint');
+      expect(some).toContain('48.8 KB of that on 2 threads with no checkpoint');
+      // The differential: that clause is the ONLY difference between the two renderings, so the
+      // file size, the checkpoint share and both counts demonstrably did not move with it.
+      expect(some.replace(', 48.8 KB of that on 2 threads with no checkpoint', '')).toBe(none);
+    });
+
+    it('counts a single orphaned thread in the singular', () => {
+      const line = formatStoreSizeLine(stats({ writeOnlyThreadCount: 1, writeOnlyBytes: 1024 }));
+      expect(line).toContain('1.0 KB of that on 1 thread with no checkpoint');
+    });
+
+    /**
+     * The store a dropped first `put` leaves: pending writes and no checkpoint anywhere.
+     * `gth history list` renders this line for such a store (GS2-111 widened its guard to the pair
+     * GS2-108 settled on for `gth insights`), so the sentence has to be true with every checkpoint
+     * figure at zero — and must never emit `0 checkpoints across 0 threads`, the rendering this
+     * node was originally filed over.
+     */
+    it('a store of nothing but pending writes reads true, with no zero-checkpoint clause', () => {
+      const line = formatStoreSizeLine(
+        stats({
+          fileBytes: 50_000,
+          checkpointBytes: 50_000,
+          checkpointCount: 0,
+          threadCount: 0,
+          writeCount: 12,
+          writeOnlyThreadCount: 1,
+          writeOnlyBytes: 50_000,
+        })
+      );
+      expect(line).toContain('48.8 KB is conversation state');
+      expect(line).toContain('12 pending writes');
+      expect(line).toContain('48.8 KB of that on 1 thread with no checkpoint');
+      expect(line).not.toContain('0 checkpoints');
+      expect(line).not.toContain('0 threads');
+    });
+
+    /**
+     * An embedder reaches this function off the published barrel with no guard in front of it, so
+     * a stats object with nothing in it has to render a sentence rather than a dangling colon.
+     */
+    it('drops the detail entirely rather than trailing a colon over nothing', () => {
+      const line = formatStoreSizeLine(
+        stats({ checkpointBytes: 0, checkpointCount: 0, threadCount: 0, writeCount: 0 })
+      );
+      expect(line).toContain('0 B is conversation state.');
+      expect(line).not.toContain('conversation state:');
     });
 
     it('names the largest threads and says which of them nothing can resume', () => {

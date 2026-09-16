@@ -792,6 +792,36 @@ describe('GS2-107 checkpoint retention', () => {
       maintenance.close();
     });
 
+    /**
+     * GS2-111 — `checkpointBytes` sums `checkpoint_writes` over the WHOLE table, so a healthy
+     * thread's attached pending writes are inside it just as an orphan's are. Pinned as its own
+     * cell because the field's name invites the narrower reading, and because the readout that
+     * quotes this figure can only be honest about which populations it covers if this stays true:
+     * subtracting `writeOnlyBytes` from it does NOT leave checkpoint-row bytes.
+     */
+    it('counts the pending writes of a HEALTHY thread inside the checkpoint share', () => {
+      const db = openStoreAndSaver();
+      seedThread(db, 'named', { count: 3, payload: 4000 });
+      seedConversation(db, { threadId: 'named' });
+      const sumOf = (sql: string): number =>
+        Number((db.prepare(sql).get() as Record<string, unknown>).bytes ?? 0);
+      const checkpointBlobs = sumOf(
+        `SELECT COALESCE(SUM(LENGTH(checkpoint) + LENGTH(metadata)), 0) AS bytes FROM checkpoints`
+      );
+      const writeBlobs = sumOf(
+        `SELECT COALESCE(SUM(LENGTH(value)), 0) AS bytes FROM checkpoint_writes`
+      );
+      const stats = collectCheckpointStoreStats(db, dbPath);
+
+      // Nothing is orphaned here, so the excess over the checkpoint rows can only be attached
+      // writes — which is the whole point of the cell.
+      expect(stats.writeOnlyThreadCount).toBe(0);
+      expect(writeBlobs).toBeGreaterThan(0);
+      expect(stats.checkpointBytes).toBe(checkpointBlobs + writeBlobs);
+      expect(stats.checkpointBytes).toBeGreaterThan(checkpointBlobs);
+      db.close();
+    });
+
     it('MUTATION CONTROL: the counts come from the rows, not from a constant', () => {
       const db = openStoreAndSaver();
       seedThread(db, 'a', { count: 2 });

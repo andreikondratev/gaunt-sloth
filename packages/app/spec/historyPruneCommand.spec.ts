@@ -370,13 +370,45 @@ describe('gth history prune (GS2-107)', () => {
       expect(output()).toContain('9 checkpoints across 2 threads');
     });
 
-    it('stays quiet when there are no checkpoints to report', async () => {
+    it('stays quiet when there is nothing at all to report', async () => {
       const { openHistoryStore } = await import('@gaunt-sloth/core/history/historyStore.js');
       const store = openHistoryStore(dbPath, { create: true })!;
       store.record({ command: 'ask', prompt: 'p', response: 'r' });
       store.close();
       await run('list', '--db', dbPath);
       expect(output()).not.toContain('Conversation store:');
+    });
+
+    /**
+     * GS2-111 — the primary witness, driven through the real command: a store holding both
+     * checkpoints and orphaned pending writes. The orphan bytes are inside the headline figure, so
+     * the sentence has to name them as their own share instead of charging them to the checkpoint
+     * count.
+     */
+    it('does not charge the orphaned bytes to the checkpoint count', async () => {
+      await seed({ threadId: 't-a', ageDays: 1, checkpoints: 4, payload: 3000 });
+      await seedWriteOnly('t-orphan');
+      await run('list', '--db', dbPath);
+      const said = output();
+      expect(said).toContain('4 checkpoints across 1 thread');
+      expect(said).toContain('48.8 KB of that on 1 thread with no checkpoint');
+      expect(said).not.toMatch(/of which [\d.]+ [KMG]?B is 4 checkpoints/);
+    });
+
+    /**
+     * GS2-111 — a dropped first `put` can leave a store with pending writes and no checkpoint at
+     * all: bytes on disk that only `gth history prune` takes back. The old guard read the
+     * checkpoint count alone, so the one screen that reports the store's size said nothing about
+     * such a store. This is the case that made the guard part of the node.
+     */
+    it('reports a store holding nothing but orphaned pending writes', async () => {
+      await seedWriteOnly('t-orphan');
+      await run('list', '--db', dbPath);
+      const said = output();
+      expect(said).toContain('Conversation store:');
+      expect(said).toContain('1 thread with no checkpoint');
+      expect(said).toContain('gth history prune');
+      expect(said).not.toContain('0 checkpoints');
     });
   });
 });
