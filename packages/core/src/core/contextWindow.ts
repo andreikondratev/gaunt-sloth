@@ -33,6 +33,12 @@
  * for an unrecognised model, which on a 262144-token local model would compact a conversation that
  * had all the room in the world, and on an unknown cloud model would compact at roughly 3.3k tokens
  * with nothing on screen to say why.
+ *
+ * **That last branch is the only one that ends in silence, so it is the only one that logs**
+ * ([[EXT-168]]). Every other outcome leaves a number `/status` can attribute to a source; an empty
+ * resolution leaves nothing — no threshold, no notice, and no way to tell "this model needs no
+ * compaction" apart from "no source has ever heard of this model". {@link resolveContextWindow}
+ * therefore writes one `debugLog` line naming the provider, the model and the consequence.
  */
 import { debugLog } from '#src/utils/debugUtils.js';
 import {
@@ -327,6 +333,31 @@ export function resolveContextWindow(
     } catch {
       /* see readProfileContextWindow: someone else's getter */
     }
+    // [[EXT-168]] — **the branch that decides nothing is the one that has to say something.**
+    // Reaching here means no preventive threshold will be derived for the rest of the session, and
+    // every other signal this feature has is keyed to a number that does not exist: `/status`
+    // prints the `unknown` label only if someone asks, and the guard simply never fires. So the
+    // resolution says so once, on its way out.
+    //
+    // It is not a hypothetical branch. The backstop tier is a table compiled into a provider
+    // package, and a provider that retires ids faster than that package is republished empties it:
+    // measured on `@langchain/groq`, 17 profile entries of which 2 are ids groq still serves, so
+    // six of its eight live chat models have no backstop at all. Those six then rest on the
+    // models.dev tier alone — which the runtime reads `cacheOnly` (see `catalogOptions`), so an
+    // unfilled catalog cache, not an outage, is enough to land here on an ordinary first session.
+    //
+    // `debugLog` rather than a user-facing notice is deliberate, and the ring buffer is why it is
+    // still visible: `debugUtils.ts` fills that buffer unconditionally and `/debug-dump` hands it
+    // over verbatim, so the line is there for anyone who asks without a warning firing at every
+    // session start for the many models whose window is one cold-cache read away from unknown.
+    // Raising it to a notice is a UX decision about default-on noise, not a logging change.
+    debugLog(
+      `Context window unknown for provider '${providerId ?? '(none given)'}' model ` +
+        `'${modelId ?? '(none given)'}': no models.dev row and no provider model profile knew it, ` +
+        'so no preventive compaction threshold will be derived this session. If this model has a ' +
+        'models.dev entry, filling the catalog cache (gth models --refresh, or gth init) is what ' +
+        'makes the runtime read one.'
+    );
     return { tokens: null, origin: 'unknown' };
   };
 

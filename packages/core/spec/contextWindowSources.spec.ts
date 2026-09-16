@@ -18,6 +18,7 @@ import {
   resolveContextWindowSource,
   UNKNOWN_CONTEXT_WINDOW,
 } from '#src/core/contextWindow.js';
+import { getDebugLogBuffer } from '#src/utils/debugUtils.js';
 import type { ProviderCatalog } from '#src/providers/modelCatalog.js';
 
 /** A models.dev slice carrying one model id at one context limit. */
@@ -32,6 +33,33 @@ const catalogWith = (models: Record<string, number>): ProviderCatalog => ({
 
 /** A chat model that reports a LangChain profile window, and nothing else. */
 const modelWithProfile = (maxInputTokens: number): unknown => ({ profile: { maxInputTokens } });
+
+/**
+ * Run `work` and hand back its result together with the debug-log lines it appended.
+ *
+ * Read off the REAL ring buffer rather than a mocked `debugLog`, because the buffer is the thing
+ * the claim is about: `debugUtils.ts` fills it whether or not debug logging is switched on, and
+ * `/debug-dump` (GS2-46) serialises it verbatim, so a line that reaches it is a line a maintainer
+ * can actually get at. A mocked `debugLog` would pin only that some function was called, which is
+ * true of a signal wired to a surface nobody reads.
+ *
+ * The slice is taken from the length recorded BEFORE the call, so the assertion is about the lines
+ * this resolution emitted and never about buffer contents some earlier cell left behind.
+ */
+const withDebugLines = async <T>(
+  work: () => Promise<T>
+): Promise<{ result: T; lines: string[] }> => {
+  const before = getDebugLogBuffer().length;
+  const result = await work();
+  return { result, lines: getDebugLogBuffer().slice(before) };
+};
+
+/** The empty-resolution signal, matched on its opening words rather than the whole sentence. */
+const EMPTY_RESOLUTION_SIGNAL = /Context window unknown for provider/;
+
+/** Just the signal lines out of a debug-log slice. */
+const signalsIn = (lines: string[]): string[] =>
+  lines.filter((line) => EMPTY_RESOLUTION_SIGNAL.test(line));
 
 describe('EXT-161 — models.dev outranks the LangChain profile (RULED)', () => {
   it('takes the catalog number when the two DISAGREE', async () => {
@@ -205,6 +233,80 @@ describe('EXT-161 — an unknown window is reported as unknown, and never guesse
     for (const origin of ['ollama', 'models.dev', 'profile', 'unknown'] as const) {
       expect(CONTEXT_WINDOW_ORIGIN_LABELS[origin]).toMatch(/\S/);
     }
+  });
+});
+
+/**
+ * [[EXT-168]] — **an empty resolution is the one outcome that used to leave no trace at all.**
+ *
+ * The fixtures are the measured groq case rather than invented ids, because that is what makes the
+ * branch reachable rather than theoretical: `@langchain/groq`'s profile table carries 17 ids, of
+ * which only the two `openai/gpt-oss-*` are still served, so a live model like `allam-2-7b` has no
+ * backstop entry — and the models.dev tier above it is read cache-only at runtime, so an unfilled
+ * catalog cache is enough to leave both tiers empty.
+ *
+ * Every cell here is paired with a control in which a source DOES resolve, because "a line was
+ * logged" is an assertion about presence and would pass just as well against an emission that fired
+ * on every resolution — at which point it would say nothing about whether the window was known.
+ */
+describe('EXT-168 — an empty resolution says so, instead of going quiet', () => {
+  it('logs the provider, the model and the consequence when NO source knows the window', async () => {
+    // A cold catalog slice that has heard of a different model: the cache-miss shape, not an outage.
+    const catalogReader = vi.fn(async () => catalogWith({ 'openai/gpt-oss-120b': 131_072 }));
+    const { result, lines } = await withDebugLines(() =>
+      resolveContextWindow({}, { providerId: 'groq', modelId: 'allam-2-7b', catalogReader }).read()
+    );
+
+    expect(result).toEqual({ tokens: null, origin: 'unknown' });
+    const signals = signalsIn(lines);
+    expect(signals).toHaveLength(1);
+    // Both identifiers, and they are distinct strings — a line carrying only the model id would not
+    // tell a maintainer which provider's tables to go and look at.
+    expect(signals[0]).toContain('groq');
+    expect(signals[0]).toContain('allam-2-7b');
+    // The consequence, which is the part that makes the line worth reading: nothing will fire.
+    expect(signals[0]).toMatch(/no preventive compaction threshold will be derived/);
+  });
+
+  it('CONTROL: stays quiet when models.dev resolves the window', async () => {
+    const catalogReader = vi.fn(async () => catalogWith({ 'allam-2-7b': 4096 }));
+    const { result, lines } = await withDebugLines(() =>
+      resolveContextWindow({}, { providerId: 'groq', modelId: 'allam-2-7b', catalogReader }).read()
+    );
+
+    expect(result).toEqual({ tokens: 4096, origin: 'models.dev' });
+    expect(signalsIn(lines)).toEqual([]);
+  });
+
+  it('CONTROL: stays quiet when the profile backstop resolves the window', async () => {
+    // The two ids that still have a groq profile entry are exactly the case this control stands
+    // for: models.dev missed, the backstop caught it, and nothing is wrong.
+    const catalogReader = vi.fn(async () => catalogWith({ 'some-other-model': 131_072 }));
+    const { result, lines } = await withDebugLines(() =>
+      resolveContextWindow(modelWithProfile(131_072), {
+        providerId: 'groq',
+        modelId: 'openai/gpt-oss-120b',
+        catalogReader,
+      }).read()
+    );
+
+    expect(result).toEqual({ tokens: 131_072, origin: 'profile' });
+    expect(signalsIn(lines)).toEqual([]);
+  });
+
+  it('says it ONCE a session, not before every model call', async () => {
+    // The resolution is memoised and the guard reads it before every model call, so an emission
+    // that escaped the memo would fill the ring buffer that `/debug-dump` exists to hand over.
+    const catalogReader = vi.fn(async () => catalogWith({}));
+    const resolved = resolveContextWindow(
+      {},
+      { providerId: 'groq', modelId: 'allam-2-7b', catalogReader }
+    );
+    const { lines } = await withDebugLines(async () => {
+      await Promise.all([resolved.source(), resolved.source(), resolved.read(), resolved.read()]);
+    });
+
+    expect(signalsIn(lines)).toHaveLength(1);
   });
 });
 
