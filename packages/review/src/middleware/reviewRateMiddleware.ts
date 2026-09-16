@@ -78,6 +78,39 @@ const REVIEW_RATE_TOOL_NAME = 'gth_review_rate';
  */
 export const DEFAULT_REVIEW_RATE_TIMEOUT_MS = 120_000;
 
+// [[EXT-183]] — the review GENERATION has no budget of its own. That is a decision deferred on a
+// named measurement, not an oversight, and the asymmetry with the cap above is deliberate.
+//
+// The budget above bounds the rating call only. The generation that runs before it is bounded by
+// nothing: its runnable config carries a recursion limit and a thread id, the agent adds only
+// `streamFromInput`'s Esc `AbortController`, and gth sets no call timeout on any provider. Nor is a
+// runaway there rare — across the recorded gate windows the runaways split about evenly between the
+// two calls, and in the most recent one all three of them were generation.
+//
+// WHY NO NUMBER WAS CHOSEN. The seam exists: `wrapModelCall` wraps each model call individually, so
+// a budget could bound ONE call without capping a legitimate many-turn review, and a value in the
+// 120-240 s band would sit below the integration suite's 300 s per-test ceiling while clearing every
+// healthy call measured here by a wide margin. What is missing is the measurement that would set it.
+// Every healthy sample is a sub-kilobyte fixture reviewed by a local `gemma4:12b` at ~31.5 tokens a
+// second, and none is the case a default has to survive: one call, a real diff, a remote provider,
+// thinking enabled. Wall clock does not carry across providers — the same number is a few thousand
+// tokens locally and something else entirely on a fast model with a large thinking budget — and
+// GS2-105 could pick 120 s only because it had a healthy baseline for the call it was bounding.
+// Truncating a real review is the failure a review tool can least afford, so the number waits for
+// its measurement: legitimate single-call durations for `review` and `pr` across the providers
+// people actually run, at real diff sizes.
+//
+// WHY THE GAP IS TOLERABLE MEANWHILE. What makes an unbounded RATING call the failure GS2-105 exists
+// to prevent is that it renders NOTHING while it runs — a finished review followed by an unexplained
+// pause. The generation is the opposite: it streams token by token (`streamOutput` defaults true),
+// so a user watching it can see what it is doing and judge when it has gone wrong, and on a TTY
+// `streamFromInput` has Esc armed to stop it.
+//
+// Two cases that reasoning does not cover, neither of them claimed harmless: `streamOutput: false`,
+// whose non-streaming `invoke` path arms no Esc at all and so IS the silent shape described above;
+// and any caller whose stdin is not a TTY — CI, a piped diff, the batch pipeline — where Esc is off
+// by construction.
+
 export function createReviewRateMiddleware(
   settings: ReviewRateMiddlewareSettings,
   gthConfig: GthConfig
