@@ -15,6 +15,7 @@ import {
   collectCheckpointStoreStats,
   deleteThreads,
   findUnaddressableThreads,
+  findWriteOnlyThreads,
   openCheckpointMaintenance,
   reclaimUnresumableThreads,
   retentionTablesReady,
@@ -133,6 +134,19 @@ describe('GS2-107 checkpoint retention', () => {
       ).run(lastTs, options.command ?? 'chat', id);
     }
     return id;
+  };
+
+  /**
+   * GS2-108 — the write-only shape: pending writes with no checkpoint to attach them to. What a
+   * dropped `put` leaves behind when the task's `putWrites` still lands, and what a torn delete
+   * left behind before {@link deleteThreads} became atomic.
+   */
+  const seedWriteOnly = (db: DatabaseSync, threadId: string, bytes = 50_000): void => {
+    db.prepare(
+      `INSERT OR REPLACE INTO checkpoint_writes
+       (thread_id, checkpoint_ns, checkpoint_id, task_id, idx, channel, type, value)
+       VALUES (?, '', 'ckpt-gone', 'task', 0, 'messages', 'json', ?)`
+    ).run(threadId, new TextEncoder().encode('y'.repeat(bytes)));
   };
 
   /** How many rows one table holds for a thread — `checkpoints` and `checkpoint_writes` alike. */
@@ -654,6 +668,98 @@ describe('GS2-107 checkpoint retention', () => {
       expect(
         db.prepare(`SELECT COUNT(*) AS n FROM checkpoints WHERE thread_id = 'keeper'`).get()
       ).toMatchObject({ n: 1 });
+      db.close();
+    });
+  });
+
+  /**
+   * GS2-108 — the class neither query above can see. Both source `FROM checkpoints`, so a thread
+   * whose rows are only in `checkpoint_writes` answers neither, and before this predicate existed
+   * its bytes were counted in the readout's total and reachable by no pass at all.
+   */
+  describe('the second predicate — pending writes with no checkpoint', () => {
+    it('finds a write-only thread and leaves every thread that HAS a checkpoint alone', () => {
+      const db = openStoreAndSaver();
+      seedThread(db, 'named', { ts: ago(30 * DAY) });
+      seedConversation(db, { threadId: 'named' });
+      seedThread(db, 'unaddressable', { ts: ago(30 * DAY) });
+      seedWriteOnly(db, 'writes-only');
+
+      expect(findWriteOnlyThreads(db)).toEqual(['writes-only']);
+      // A thread with checkpoints has pending writes too — they are exactly what must NOT answer
+      // this predicate, or a live conversation's rows would.
+      expect(rowsFor(db, 'checkpoint_writes', 'named')).toBeGreaterThan(0);
+      db.close();
+    });
+
+    it('never offers the caller its own thread', () => {
+      const db = openStoreAndSaver();
+      seedWriteOnly(db, 'mine');
+      expect(findWriteOnlyThreads(db, { excludeThreadIds: ['mine'] })).toEqual([]);
+      db.close();
+    });
+
+    /**
+     * Deliberate, and the reason the sweep rides on `gth history prune` alone: the automatic pass
+     * reclaims only what it can date, and a thread with no checkpoint carries no `ts` to read. A
+     * change that lets the close hook take these rows reds here, which is the point.
+     */
+    it('is NOT taken by the automatic pass, at any age', () => {
+      const db = openStoreAndSaver();
+      seedWriteOnly(db, 'writes-only');
+      expect(findUnaddressableThreads(db, { now: NOW })).toEqual([]);
+      expect(reclaimUnresumableThreads(db, { now: NOW + 365 * DAY })).toMatchObject({
+        threadCount: 0,
+      });
+      expect(rowsFor(db, 'checkpoint_writes', 'writes-only')).toBe(1);
+      db.close();
+    });
+
+    it('does nothing when the checkpoints table is absent, rather than calling every write an orphan', () => {
+      // Without `checkpoints` the predicate has nothing to test against and would answer "all of
+      // them" — the same failure `retentionTablesReady` guards the conversation predicate against.
+      const db = new DatabaseSync(dbPath);
+      db.exec(
+        `CREATE TABLE checkpoint_writes (
+           thread_id TEXT NOT NULL, checkpoint_ns TEXT NOT NULL, checkpoint_id TEXT NOT NULL,
+           task_id TEXT NOT NULL, idx INTEGER NOT NULL, channel TEXT NOT NULL,
+           type TEXT, value BLOB,
+           PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id, task_id, idx))`
+      );
+      seedWriteOnly(db, 'lonely', 100);
+      expect(findWriteOnlyThreads(db)).toEqual([]);
+      db.close();
+    });
+
+    it('the readout counts those bytes as write-only, inside the total it was already reporting', () => {
+      const db = openStoreAndSaver();
+      seedThread(db, 'named', { count: 2, payload: 100, ts: ago(2 * DAY) });
+      seedConversation(db, { threadId: 'named' });
+      seedWriteOnly(db, 'writes-only', 50_000);
+      const stats = collectCheckpointStoreStats(db, dbPath);
+
+      expect(stats.writeOnlyThreadCount).toBe(1);
+      expect(stats.writeOnlyBytes).toBe(50_000);
+      // Inside the headline figure, which is what made them read as ordinary live weight: the
+      // number was never wrong, it was unaccounted for.
+      expect(stats.checkpointBytes).toBeGreaterThan(50_000);
+      db.close();
+    });
+
+    /**
+     * Stated as its own cell rather than folded into the one above, so that a change to the
+     * CONVERSATION predicate reds this and leaves the write-only assertions alone — the two are
+     * different questions and a cell that asserted both could not tell you which one moved.
+     */
+    it('is a set disjoint from the unaddressable one — a thread cannot be in both', () => {
+      const db = openStoreAndSaver();
+      seedThread(db, 'no-conversation', { ts: ago(30 * DAY) });
+      seedWriteOnly(db, 'writes-only');
+
+      const unaddressable = findUnaddressableThreads(db, { now: NOW, includeWithinGrace: true });
+      expect(unaddressable).toContain('no-conversation');
+      expect(unaddressable).not.toContain('writes-only');
+      expect(findWriteOnlyThreads(db)).not.toContain('no-conversation');
       db.close();
     });
   });

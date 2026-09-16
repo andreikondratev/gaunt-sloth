@@ -24,6 +24,9 @@
  * - {@link selectPrunableConversations} + {@link deleteThreads} is `gth history prune`: it removes
  *   state a user *could* still have resumed, so it is never automatic, never has a silent default
  *   bound, and says what it will remove before it removes it.
+ * - {@link findWriteOnlyThreads} rides on `gth history prune` and on nothing else. It is the only
+ *   pass that can reach a thread with pending writes and no checkpoint at all — rows no reader in
+ *   this codebase can return, which is why they need a pass of their own.
  *
  * ## The predicate: one class, not two
  *
@@ -33,14 +36,30 @@
  * by any id a person could type: it is unaddressable, and deleting it removes no capability anyone
  * had.
  *
- * That single predicate covers both classes retention has to reclaim, because the second collapses
- * into the first at the row level:
+ * That single predicate covers both classes of *addressable-by-a-person* state, because the second
+ * collapses into the first at the row level:
  *
  * - a thread with **no conversation row at all** — a `/clear` mints a fresh thread that nothing ever
  *   names ([[EXT-109]]), and an abandoned boot or a test can leave one too;
  * - a conversation whose **`thread_id` is NULL** — written by `clearConversationThread` when a
  *   checkpoint write fails. NULLing the column *destroys the link*, so the thread it used to name is
  *   thereafter an orphan by exactly the definition above. There is no second query to write.
+ *
+ * ## The one class that predicate cannot see: a thread with writes and no checkpoint
+ *
+ * Both queries above read `FROM checkpoints`, so they ask a question about threads that *have* a
+ * checkpoint. A thread with rows only in `checkpoint_writes` answers neither, and it is not a
+ * hypothetical shape: `put` is fail-soft by contract — it catches, reports through
+ * `onWriteFailure`, drops the checkpoint row and lets the turn continue — while `putWrites` is a
+ * separate call that goes on landing. A thread whose first `put` was dropped therefore keeps its
+ * pending writes with no checkpoint to attach them to, for good.
+ *
+ * Nothing can read those rows. `getTuple` and `list` both source `FROM checkpoints` and return
+ * nothing for such a thread, and pending writes are only ever handed back attached to a checkpoint
+ * tuple — so the rows are not merely unaddressable by an id a person could type, they are
+ * unreachable by this codebase. {@link findWriteOnlyThreads} is the second predicate, and it exists
+ * because the readout otherwise counts those bytes in {@link CheckpointStoreStats.checkpointBytes}
+ * as ordinary stored weight while no pass in this module can reclaim them.
  *
  * ## Whole threads, never a prefix
  *
@@ -119,6 +138,17 @@ export interface CheckpointStoreStats {
   /** Threads no conversation row names, and what they cost — what reclamation will take. */
   unresumableThreadCount: number;
   unresumableBytes: number;
+  /**
+   * Threads holding pending writes and no checkpoint, and what they cost.
+   *
+   * Reported apart from {@link unresumableBytes} because the two differ in what they are waiting
+   * for: an unresumable thread goes on its own a day after the session ends, and these go only
+   * when someone types `gth history prune`. Counted inside {@link checkpointBytes}, which is the
+   * whole point — without this pair those bytes sit in the total with nothing naming them, and the
+   * per-thread breakdown beside them cannot account for the difference.
+   */
+  writeOnlyThreadCount: number;
+  writeOnlyBytes: number;
 }
 
 /** What one {@link reclaimUnresumableThreads} / {@link deleteThreads} pass removed. */
@@ -336,17 +366,89 @@ export function findUnaddressableThreads(
 }
 
 /**
+ * GS2-108 — the second predicate: a thread with rows in `checkpoint_writes` and none in
+ * `checkpoints`. Named as one constant for the same reason the first one is.
+ */
+export const WRITE_ONLY_THREADS_SQL = `SELECT DISTINCT w.thread_id AS thread_id
+     FROM checkpoint_writes w
+    WHERE NOT EXISTS (
+            SELECT 1 FROM checkpoints c WHERE c.thread_id = w.thread_id
+          )`;
+
+/**
+ * Every thread holding pending writes with no checkpoint — see the module note for why the
+ * conversation-link predicate cannot see one. Never throws.
+ *
+ * ## Reclaimed, not merely labelled — and what that rejected
+ *
+ * The alternative was to leave the rows where they are and only report them honestly: add the
+ * count to the readout, call the bytes unreclaimable, stop. That is the smaller change and it was
+ * rejected, because it ends with a screen telling a user about weight they have no way to remove —
+ * `VACUUM` does not touch live rows, and no command in this codebase would have deleted them. It
+ * would also have been sized against the wrong hazard: this state is not only a relic of a torn
+ * delete from before {@link deleteThreads} became atomic, it is produced by the fail-soft `put`
+ * path any time a checkpoint write is dropped and the task's writes are not. It keeps arriving, so
+ * a label alone would keep accumulating.
+ *
+ * ## Why `gth history prune` and never the automatic pass
+ *
+ * This module reclaims automatically only what it can date: {@link findUnaddressableThreads} reads
+ * a thread's newest checkpoint for its `ts` and treats an unreadable one as "age unknown, therefore
+ * never old enough". A write-only thread has no checkpoint at all, so no age can be established for
+ * it by that rule — which is the same rule, applied consistently, rather than a new exception.
+ * `checkpoint_writes` carries no timestamp of its own to substitute, and inventing a stand-in
+ * signal would be a guess wearing a guarantee.
+ *
+ * The explicit command is where it belongs anyway. `gth history prune` already takes a bound the
+ * person typed, prints what it will remove, asks, and — as its own help text says — removes state
+ * belonging to a conversation that may be open in another window right now. Sweeping rows that no
+ * reader can return is strictly weaker than what the command already does with the person's
+ * consent.
+ *
+ * The residual, stated rather than engineered around: another process can hold a thread that is
+ * momentarily write-only, between the checkpoint write for a super-step and the writes of its
+ * tasks (read from LangGraph's loop, where the checkpoint `put` is chained and `putWrites` is not —
+ * so their order at the database is not guaranteed; not measured here). Taking those rows costs
+ * that conversation a re-run of one super-step's tasks on a later resume, which is what
+ * `durability: "exit"` does by design — and it cannot happen at all in the process doing the
+ * writing, whose own thread ids arrive here through `excludeThreadIds`.
+ */
+export function findWriteOnlyThreads(
+  db: DatabaseSync,
+  options: { excludeThreadIds?: readonly string[] } = {}
+): string[] {
+  // Both tables, not just the one queried: without `checkpoints` every write row would answer the
+  // predicate and a sweep would take the whole table — the same failure {@link retentionTablesReady}
+  // guards the conversation predicate against.
+  if (!hasTable(db, 'checkpoints') || !hasTable(db, 'checkpoint_writes')) return [];
+  const excluded = new Set(options.excludeThreadIds ?? []);
+  try {
+    const rows = db.prepare(WRITE_ONLY_THREADS_SQL).all() as Record<string, unknown>[];
+    return rows
+      .map((row) => String(row.thread_id))
+      .filter((threadId) => threadId.length > 0 && !excluded.has(threadId));
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Delete every checkpoint and pending write of the named threads, and report what went.
  *
  * The single-thread spelling on the saver (`GthSqliteSaver.deleteThread`) routes through here, so
  * there is one implementation of the delete rather than two that can drift.
  *
  * **Both tables go in one transaction.** A thread's rows live in `checkpoints` and in
- * `checkpoint_writes`, and only the first of those is what anything looks for: every candidate query
- * in this module reads `FROM checkpoints`. So a failure between the two statements would leave
- * `checkpoint_writes` rows belonging to a thread that no longer appears in `checkpoints` — bytes the
- * readout still counts as stored, that no later pass can find, and that no reader can reach. Not a
- * self-healing leak; a permanent one. Either both deletes land or neither does.
+ * `checkpoint_writes`, and only the first of those is what a reader looks for: `getTuple` and
+ * `list` both read `FROM checkpoints`, and so does every predicate here that asks about a
+ * conversation. So a failure between the two statements leaves `checkpoint_writes` rows belonging
+ * to a thread that no longer appears in `checkpoints` — bytes no reader can reach, that no
+ * automatic pass will ever take back, and that the readout would otherwise count as ordinary stored
+ * weight. Either both deletes land or neither does.
+ *
+ * {@link findWriteOnlyThreads} gives that state a remedy; it does not make it acceptable. The
+ * remedy is a command someone has to type, on rows this module would rather never have written, so
+ * the atomicity is what keeps a routine delete from manufacturing work for it.
  *
  * The caller must not already be inside a transaction: the rollback here would discard theirs. No
  * caller is — the two entry points are the close hook and `gth history prune`.
@@ -531,6 +633,8 @@ export function collectCheckpointStoreStats(
     largestThreads: [],
     unresumableThreadCount: 0,
     unresumableBytes: 0,
+    writeOnlyThreadCount: 0,
+    writeOnlyBytes: 0,
   };
   let fileBytes = 0;
   try {
@@ -584,6 +688,14 @@ export function collectCheckpointStoreStats(
       (sum, entry) => sum + entry.bytes,
       0
     );
+    // GS2-108 — disjoint from the set above by construction: that one is sourced FROM checkpoints
+    // and this one from threads that have no row there, so no thread is counted twice and the two
+    // figures can be read side by side.
+    const writeOnly = findWriteOnlyThreads(db);
+    const writeOnlyBytes = [...bytesByThread(db, writeOnly).values()].reduce(
+      (sum, entry) => sum + entry.bytes,
+      0
+    );
 
     return {
       dbPath,
@@ -601,6 +713,8 @@ export function collectCheckpointStoreStats(
       })),
       unresumableThreadCount: unaddressable.length,
       unresumableBytes: unaddressableBytes,
+      writeOnlyThreadCount: writeOnly.length,
+      writeOnlyBytes,
     };
   } catch {
     return { ...empty, fileBytes };
@@ -646,6 +760,11 @@ export class CheckpointMaintenance {
 
   unaddressable(options: { now?: number; graceMs?: number } = {}): string[] {
     return findUnaddressableThreads(this.db, options);
+  }
+
+  /** GS2-108 — threads holding pending writes and no checkpoint, which only a prune reclaims. */
+  writeOnly(options: { excludeThreadIds?: readonly string[] } = {}): string[] {
+    return findWriteOnlyThreads(this.db, options);
   }
 
   remove(threadIds: readonly string[]): ReclaimSummary {

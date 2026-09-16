@@ -196,6 +196,8 @@ describe('history/historyFormat', () => {
       ],
       unresumableThreadCount: 3,
       unresumableBytes: 4096,
+      writeOnlyThreadCount: 0,
+      writeOnlyBytes: 0,
       ...over,
     });
 
@@ -234,6 +236,37 @@ describe('history/historyFormat', () => {
       expect(lines).toHaveLength(1);
       expect(lines[0]).toContain('chat');
       expect(lines[0]).toContain('code');
+    });
+
+    // GS2-108 — the bytes this screen exists to make honest include pending writes whose
+    // checkpoint never landed, and nothing in the per-thread breakdown can account for them.
+    it('names the write-only threads and points at the one command that removes them', () => {
+      const lines = formatCheckpointStoreStats(
+        stats({ writeOnlyThreadCount: 2, writeOnlyBytes: 50_000 })
+      );
+      const said = lines.join('\n');
+      expect(said).toContain('2 threads holding pending writes with no checkpoint');
+      expect(said).toContain('48.8 KB');
+      expect(said).toContain('gth history prune');
+    });
+
+    it('says nothing about write-only threads when there are none', () => {
+      expect(formatCheckpointStoreStats(stats()).some((l) => l.includes('Unreadable'))).toBe(false);
+    });
+
+    /**
+     * A store can hold write-only threads and nothing else — the shape a dropped first `put`
+     * leaves. Counting checkpoints alone would answer "no checkpoints recorded" while the byte
+     * total is not zero, which is this screen stating the opposite of what it just measured.
+     */
+    it('does NOT call a store of nothing but write-only threads empty', () => {
+      const lines = formatCheckpointStoreStats(
+        stats({ checkpointCount: 0, writeOnlyThreadCount: 1, writeOnlyBytes: 50_000 })
+      );
+      const said = lines.join('\n');
+      expect(said).not.toContain('no checkpoints recorded');
+      expect(said).toContain('1 thread holding pending writes with no checkpoint');
+      expect(said).toContain('48.8 KB');
     });
   });
 });

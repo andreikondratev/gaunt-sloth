@@ -128,6 +128,44 @@ describe('gth history prune (GS2-107)', () => {
     return rows.map((r) => String(r.thread_id));
   };
 
+  /**
+   * GS2-108 — a thread holding pending writes with no checkpoint. `put` is fail-soft: a dropped
+   * checkpoint write leaves the task's `putWrites` rows behind with nothing to attach them to, and
+   * a torn delete did the same before the delete became atomic. Written straight through the
+   * schema the store and the saver create, because no product path can be asked to fail on demand.
+   */
+  const addPendingWrite = async (
+    threadId: string,
+    checkpointId: string,
+    bytes = 50_000
+  ): Promise<void> => {
+    const { openHistoryStore } = await import('@gaunt-sloth/core/history/historyStore.js');
+    const { openCheckpointSaver } = await import('@gaunt-sloth/core/history/checkpointSaver.js');
+    openHistoryStore(dbPath, { create: true })!.close();
+    openCheckpointSaver(dbPath)!.close();
+    const db = new DatabaseSync(dbPath);
+    db.prepare(
+      `INSERT OR REPLACE INTO checkpoint_writes
+       (thread_id, checkpoint_ns, checkpoint_id, task_id, idx, channel, type, value)
+       VALUES (?, '', ?, 'task', 0, 'messages', 'json', ?)`
+    ).run(threadId, checkpointId, new TextEncoder().encode('y'.repeat(bytes)));
+    db.close();
+  };
+
+  /** The orphaned shape: the checkpoint the writes name is not in the store and never will be. */
+  const seedWriteOnly = (threadId: string, bytes = 50_000): Promise<void> =>
+    addPendingWrite(threadId, 'ckpt-gone', bytes);
+
+  /** Pending-write rows a thread still holds, read off the store rather than off an output line. */
+  const writeRowsFor = (threadId: string): number => {
+    const db = new DatabaseSync(dbPath);
+    const row = db
+      .prepare(`SELECT COUNT(*) AS n FROM checkpoint_writes WHERE thread_id = ?`)
+      .get(threadId) as Record<string, unknown>;
+    db.close();
+    return Number(row.n);
+  };
+
   it('refuses to guess a bound, and removes nothing', async () => {
     await seed({ threadId: 't-old', ageDays: 400 });
     await run('prune', '--db', dbPath);
@@ -200,6 +238,52 @@ describe('gth history prune (GS2-107)', () => {
     await run('prune', '--keep-last', '5', '--yes', '--db', dbPath);
     expect(output()).toContain('no conversation names');
     expect(threadsInStore()).toEqual(['t-named']);
+  });
+
+  /**
+   * GS2-108 — the whole point of the node, asserted on the rows rather than on a sentence. Before
+   * this, `checkpoint_writes` rows whose `checkpoints` row was gone answered no candidate query in
+   * the module, survived every pass including the widest bound this command accepts, and had their
+   * bytes counted in the readout's live total.
+   */
+  it('reclaims a thread whose pending writes outlived its checkpoints, and leaves the rest alone', async () => {
+    await seed({ threadId: 't-recent', ageDays: 1 });
+    // The control, and the one that discriminates: a pending write of the SAME shape and size,
+    // attached to a checkpoint that exists. A sweep keyed on anything coarser than "no checkpoint
+    // row" — on the blob, on the table, on the absence of a conversation — takes this one too.
+    await addPendingWrite('t-recent', 'cp-t-recent-0');
+    await seedWriteOnly('t-writes-only');
+    expect(writeRowsFor('t-writes-only')).toBe(1);
+
+    await run('prune', '--older-than', '30', '--yes', '--db', dbPath);
+
+    expect(writeRowsFor('t-writes-only')).toBe(0);
+    expect(output()).toContain('pending writes with no checkpoint');
+    // The bound selected no conversation, so the recent one is untouched — rows and writes alike.
+    expect(threadsInStore()).toEqual(['t-recent']);
+    expect(writeRowsFor('t-recent')).toBe(1);
+  });
+
+  it('removes them only after --yes, like everything else this command takes', async () => {
+    await seed({ threadId: 't-recent', ageDays: 1 });
+    await seedWriteOnly('t-writes-only');
+    await run('prune', '--older-than', '30', '--db', dbPath);
+    expect(output()).toContain('pending writes with no checkpoint');
+    expect(output()).toContain('Re-run with `--yes`');
+    expect(writeRowsFor('t-writes-only')).toBe(1);
+  });
+
+  /**
+   * A store can hold nothing but write-only threads, and the plan's "is there anything to do"
+   * guard runs before the confirmation does — so a set it does not count is a set that prints a
+   * plan and then silently returns.
+   */
+  it('acts on a store that holds write-only threads and nothing else', async () => {
+    await seedWriteOnly('t-writes-only');
+    await run('prune', '--older-than', '30', '--yes', '--db', dbPath);
+    expect(output()).not.toContain('Nothing to prune');
+    expect(output()).toContain('History prune complete');
+    expect(writeRowsFor('t-writes-only')).toBe(0);
   });
 
   it('refuses a bound that is not a whole number rather than reinterpreting it', async () => {

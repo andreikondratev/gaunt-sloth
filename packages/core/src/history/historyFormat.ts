@@ -140,7 +140,10 @@ export function formatStoreSizeLine(stats: CheckpointStoreStats): string {
  * is already unreachable, and which threads are the big ones.
  */
 export function formatCheckpointStoreStats(stats: CheckpointStoreStats): string[] {
-  if (stats.checkpointCount === 0) {
+  // GS2-108 — the store can hold pending writes whose checkpoints never landed, and nothing else.
+  // A count of checkpoints alone would answer "nothing recorded" there, while the byte total this
+  // screen exists to make honest is not zero. Both have to be empty before there is nothing to say.
+  if (stats.checkpointCount === 0 && stats.writeOnlyThreadCount === 0) {
     return [
       'Conversation store: no checkpoints recorded. Interactive `chat` and `code` sessions ' +
         'write the state a resume needs; other commands do not.',
@@ -148,11 +151,24 @@ export function formatCheckpointStoreStats(stats: CheckpointStoreStats): string[
   }
   const lines: string[] = [];
   lines.push(`Database file: ${formatBytes(stats.fileBytes)} (${stats.dbPath})`);
-  lines.push(
-    `Checkpoints: ${stats.checkpointCount} across ${stats.threadCount} ` +
-      `${stats.threadCount === 1 ? 'thread' : 'threads'}, ${formatBytes(stats.checkpointBytes)} ` +
-      `including ${stats.writeCount} pending writes`
-  );
+  if (stats.checkpointCount > 0) {
+    lines.push(
+      `Checkpoints: ${stats.checkpointCount} across ${stats.threadCount} ` +
+        `${stats.threadCount === 1 ? 'thread' : 'threads'}, ${formatBytes(stats.checkpointBytes)} ` +
+        `including ${stats.writeCount} pending writes`
+    );
+  }
+  if (stats.writeOnlyThreadCount > 0) {
+    // Named separately from the total above rather than folded into it: these bytes are inside
+    // `checkpointBytes` but belong to no thread the per-thread breakdown can list, so without this
+    // line the two numbers on this screen disagree and nothing accounts for the difference.
+    lines.push(
+      `Unreadable: ${stats.writeOnlyThreadCount} ` +
+        `${stats.writeOnlyThreadCount === 1 ? 'thread' : 'threads'} holding pending writes with ` +
+        `no checkpoint, ${formatBytes(stats.writeOnlyBytes)} — nothing can read or resume these, ` +
+        'and `gth history prune` is what removes them.'
+    );
+  }
   if (stats.unresumableThreadCount > 0) {
     lines.push(
       `Unresumable: ${stats.unresumableThreadCount} ` +
@@ -182,10 +198,12 @@ export function formatCheckpointStoreStats(stats: CheckpointStoreStats): string[
 export function formatPrunePlan(
   candidates: PrunableConversation[],
   unaddressableThreads: number,
-  unaddressableBytes: number
+  unaddressableBytes: number,
+  writeOnlyThreads: number,
+  writeOnlyBytes: number
 ): string[] {
   const lines: string[] = [];
-  if (candidates.length === 0 && unaddressableThreads === 0) {
+  if (candidates.length === 0 && unaddressableThreads === 0 && writeOnlyThreads === 0) {
     return ['Nothing to prune: no stored conversation state matches those bounds.'];
   }
   if (candidates.length > 0) {
@@ -224,6 +242,15 @@ export function formatPrunePlan(
       `Also reclaims ${unaddressableThreads} ` +
         `${unaddressableThreads === 1 ? 'thread' : 'threads'} no conversation names ` +
         `(${formatBytes(unaddressableBytes)}), which nothing could have resumed.`
+    );
+  }
+  // GS2-108 — said out loud rather than swept quietly, because this is the only pass that reaches
+  // these rows and a person who never runs it is a person whose store never gives them back.
+  if (writeOnlyThreads > 0) {
+    lines.push(
+      `Also reclaims ${writeOnlyThreads} ` +
+        `${writeOnlyThreads === 1 ? 'thread' : 'threads'} holding pending writes with no ` +
+        `checkpoint (${formatBytes(writeOnlyBytes)}), which nothing can read or resume.`
     );
   }
   return lines;

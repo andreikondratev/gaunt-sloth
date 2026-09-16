@@ -214,11 +214,23 @@ export function historyCommand(
         // is how a person finds out how much of the store was never reachable in the first place.
         const unaddressable = maintenance.unaddressable();
         const unaddressableBytes = maintenance.bytesOf(unaddressable);
+        // GS2-108 — and so does the write-only set: threads whose pending writes outlived the
+        // checkpoint they belonged to. This is the ONLY command that reaches them, because they
+        // carry no checkpoint to read an age from and the automatic pass reclaims nothing it
+        // cannot date. The reasoning is at `findWriteOnlyThreads`.
+        const writeOnly = maintenance.writeOnly();
+        const writeOnlyBytes = maintenance.bytesOf(writeOnly);
         displayInfo('History prune:');
-        for (const line of formatPrunePlan(candidates, unaddressable.length, unaddressableBytes)) {
+        for (const line of formatPrunePlan(
+          candidates,
+          unaddressable.length,
+          unaddressableBytes,
+          writeOnly.length,
+          writeOnlyBytes
+        )) {
           display(line);
         }
-        if (candidates.length === 0 && unaddressable.length === 0) return;
+        if (candidates.length === 0 && unaddressable.length === 0 && writeOnly.length === 0) return;
         if (!options.yes) {
           displayWarning('Nothing was removed. Re-run with `--yes` to remove it.');
           return;
@@ -227,6 +239,7 @@ export function historyCommand(
         const removed = maintenance.remove([
           ...candidates.map((c) => c.threadId),
           ...unaddressable,
+          ...writeOnly,
         ]);
         const vacuumed = maintenance.vacuum();
         const after = fileBytes(dbPath);
