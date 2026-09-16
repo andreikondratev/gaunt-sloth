@@ -46,6 +46,12 @@ const reportDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gth-e2e-reactbuild-'));
  *
  * A `file:` URL is handed to `--import` rather than a path: `NODE_OPTIONS` is parsed as a command
  * line, and a Windows path's backslashes do not survive that intact.
+ *
+ * `NODE_OPTIONS` is SET, not appended to. An inherited value would be concatenated into the same
+ * shell-parsed string, where a quoted entry does not survive — and these cases need nothing the
+ * caller might already have there. `--import` is on Node's NODE_OPTIONS allow-list (verified
+ * against a control: `--eval=` in NODE_OPTIONS is refused, so the list is genuinely enforced here
+ * rather than ignored).
  */
 const envFor = (reportName: string, nodeEnv?: string): Record<string, string | undefined> => {
   const env: Record<string, string | undefined> = { ...process.env };
@@ -55,8 +61,7 @@ const envFor = (reportName: string, nodeEnv?: string): Record<string, string | u
   env.TERM = 'xterm-256color';
   env.GTH_TUI_E2E_FIXTURE = fixture('greeting.json');
   env.GTH_E2E_REACT_BUILD_REPORT = path.join(reportDir, reportName);
-  env.NODE_OPTIONS =
-    `${process.env.NODE_OPTIONS ?? ''} --import=${pathToFileURL(probe).href}`.trim();
+  env.NODE_OPTIONS = `--import=${pathToFileURL(probe).href}`;
   if (nodeEnv !== undefined) env.NODE_ENV = nodeEnv;
   return env;
 };
