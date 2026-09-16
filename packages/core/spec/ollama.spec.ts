@@ -101,6 +101,43 @@ describe('ollama provider processJsonConfig', () => {
     expect(builtConfig.headers).toEqual({ Authorization: 'Bearer proxy-token' });
   });
 
+  // [[EXT-180]] — the fast half of the ollama abort bridge. That the composed signal actually
+  // closes a socket is measured in `abortDrainsProcess.spec.ts`; these two only pin that the
+  // shipped provider installs the wrapper at all, which is the part a tidy-up would delete.
+  it('installs a fetch that carries a call deadline signal onto the request', async () => {
+    // The base is supplied through the config so the INSTALLED wrapper is the thing exercised —
+    // rebuilding one from the module here would assert about the module and prove nothing about
+    // whether the provider wires it in.
+    const base = vi.fn(async () => new Response('ok'));
+    const { processJsonConfig } = await import('#src/providers/ollama.js');
+    const { runWithCallSignal } = await import('#src/runtime/callSignalContext.js');
+
+    await processJsonConfig(buildConfig({ fetch: base }) as any);
+
+    const builtConfig = chatOllamaConstructorMock.mock.calls[0][0] as { fetch: typeof fetch };
+    expect(builtConfig.fetch).not.toBe(base);
+
+    const controller = new AbortController();
+    await runWithCallSignal(controller.signal, () => builtConfig.fetch('http://127.0.0.1/x'));
+
+    // Delegated, so a caller-supplied fetch is wrapped rather than discarded...
+    expect(base).toHaveBeenCalledTimes(1);
+    // ...and carrying the deadline's signal, which is the whole point.
+    expect((base.mock.calls[0] as unknown[])[1]).toMatchObject({ signal: controller.signal });
+  });
+
+  it('leaves a request untouched when no call deadline is running', async () => {
+    const base = vi.fn(async () => new Response('ok'));
+    const { processJsonConfig } = await import('#src/providers/ollama.js');
+
+    await processJsonConfig(buildConfig({ fetch: base }) as any);
+
+    const builtConfig = chatOllamaConstructorMock.mock.calls[0][0] as { fetch: typeof fetch };
+    await builtConfig.fetch('http://127.0.0.1/x', { method: 'POST' });
+
+    expect(base).toHaveBeenCalledWith('http://127.0.0.1/x', { method: 'POST' });
+  });
+
   it('honors an explicit config baseUrl over OLLAMA_HOST and the default', async () => {
     systemUtilsMock.env = { OLLAMA_HOST: 'http://192.168.1.50:11434' };
     const { processJsonConfig } = await import('#src/providers/ollama.js');

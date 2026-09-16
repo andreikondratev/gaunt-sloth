@@ -8,6 +8,7 @@ import type { ChatOllamaInput } from '@langchain/ollama';
 
 import { DEFAULT_OLLAMA_NUM_CTX } from '#src/core/contextWindow.js';
 import { GTH_MAX_RETRIES } from '#src/core/retryPolicy.js';
+import { ambientSignalFetch } from '#src/runtime/callSignalContext.js';
 import { writeConfigFileWithMessages } from '#src/utils/fileUtils.js';
 import { buildInitConfigContent, getCuratedFallbackModel } from '#src/providers/modelDiscovery.js';
 import {
@@ -84,6 +85,16 @@ export async function processJsonConfig(
     // Being local and unauthenticated, Ollama is also the provider where an absent retry matters
     // least: the shared-pool rate limiting the count exists to ride out does not apply to it.
     maxRetries: llmConfig.maxRetries ?? GTH_MAX_RETRIES,
+    // [[EXT-180]] — THE ONLY THING THAT ABORTS AN OLLAMA REQUEST AT THE SOCKET. Do not drop this
+    // as an unused option: `@langchain/ollama` never puts a signal on the request it sends, and the
+    // `ollama` client's public API has nowhere to accept one, so a call deadline that fires leaves
+    // the HTTP request in flight and the process unable to exit. The client's `fetch` is the one
+    // seam a caller can reach, and this wrapper composes the deadline's signal onto every request
+    // made through it. Wrapping rather than replacing, so a caller-supplied `fetch` still applies.
+    //
+    // It is inert outside a call deadline, and the reasoning — in particular why aborting the
+    // returned stream instead would not work — is in `runtime/callSignalContext.ts`.
+    fetch: ambientSignalFetch(llmConfig.fetch),
   };
   // `ChatOllama` is a native client, so NOTHING in a `configuration` block reaches it — say so
   // before dropping it, rather than letting a stale config behave differently than it reads.

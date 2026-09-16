@@ -30,18 +30,22 @@
  *   count drops to zero, and a process that ends by draining (`process.exitCode`, no
  *   `process.exit`) exits instead of hanging. Without the signal that same process hangs until
  *   killed, which is the differential that makes this a measurement rather than an assertion.
- * - **`@langchain/ollama` 1.3.0: NOT honoured at the socket.** It reads the signal only at the
- *   consumption layer — `options.signal?.throwIfAborted()` and an early `return` out of the stream
- *   generator — and never passes it to the underlying fetch. The promise rejects promptly with
- *   `AbortError`, so every assertion here still passes, **but the HTTP request stays in flight and
- *   still holds the event loop open.** For that provider this module bounds the *wait*, not the
- *   *connection*; closing that gap needs a change in `@langchain/ollama` itself.
+ * - **`@langchain/ollama` 1.3.0: not honoured by the client, and bridged here instead.** It reads
+ *   the signal only at the consumption layer — `options.signal?.throwIfAborted()` and an early
+ *   `return` out of the stream generator — and never passes it to the underlying fetch. The promise
+ *   rejects promptly either way, so every assertion here still passes over the difference. What
+ *   closes the socket is {@link runWithCallSignal}: this helper publishes the deadline's signal as
+ *   an ambient one, and the ollama provider installs a `fetch` that composes it onto each request.
+ *   See {@link @gaunt-sloth/core!runtime/callSignalContext | callSignalContext} for why the abort
+ *   has to reach the `fetch` call itself and not the returned stream.
  *
- * That second bullet is the reason this doc names versions. A later bump can turn it from false to
- * true, and nothing in the unit suite can tell you it did.
+ * That second bullet is the reason this doc names versions. A later bump can turn the client's own
+ * behaviour from false to true, and nothing in the unit suite can tell you it did — so the
+ * measurement carries a cell that fails the day it changes, rather than a claim that quietly rots.
  *
  * @module
  */
+import { runWithCallSignal } from '#src/runtime/callSignalContext.js';
 
 /**
  * The sentinel {@link raceCallDeadline} resolves to when the budget expired before the call
@@ -126,6 +130,8 @@ export function startCallDeadline(timeoutMs: number): CallDeadline {
  * @param start Starts the call, given the signal to pass to the provider. It is called exactly
  *   once. **The signal has to reach the provider invocation** — a `start` that ignores it produces
  *   a helper that times out and aborts nothing, which is the defect this module was written to fix.
+ *   It is invoked inside {@link runWithCallSignal}, so a client that has no way to accept a signal
+ *   can still pick it up from the ambient context.
  */
 export async function raceCallDeadline<T>(
   deadline: CallDeadline,
@@ -148,7 +154,11 @@ export async function raceCallDeadline<T>(
   // spares the provider a request that was doomed before it was sent.
   if (deadline.signal.aborted) return CALL_TIMED_OUT;
 
-  const call = start(deadline.signal);
+  // **The ambient context has to wrap the START of the call, not the await of its result.** A
+  // client that takes no signal reads it from here during its own `fetch`, which happens while
+  // `start` is still running; establishing the context around the `await` below would be too late,
+  // and around `Promise.race` would be both too late and too wide.
+  const call = runWithCallSignal(deadline.signal, () => start(deadline.signal));
   // **The `Promise.race` below is also what keeps the abort from becoming an unhandled rejection**,
   // and that is worth stating because the obvious defensive line here is redundant. The losing
   // entrant still settles — and on the timeout path the entrant we lose is one WE abort, so it
