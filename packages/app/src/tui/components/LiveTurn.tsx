@@ -315,8 +315,9 @@ export function checklistPanelRows(items: readonly ChecklistItemViewModel[]): nu
  * caller only routes here once {@link gaunt-sloth!tui/viewModel.parseChecklistArgs | parseChecklistArgs} yields rows; a still-streaming/partial
  * args buffer falls back to the generic `ToolCallPanel`.
  *
- * Row text arrives already neutralised — the parser owns that, and `ChecklistItemViewModel.content`
- * states it — so it is painted verbatim here and needs no second treatment.
+ * Row text arrives already redacted and neutralised — the parser owns both, and
+ * `ChecklistItemViewModel.content` states it — so it is painted verbatim here and needs no second
+ * treatment.
  */
 export function ChecklistPanel({ items }: { items: ChecklistItemViewModel[] }): React.ReactElement {
   const done = items.filter((i) => i.status === 'completed').length;

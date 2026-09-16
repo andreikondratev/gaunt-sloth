@@ -268,6 +268,37 @@ function getDefaultSecrets(): string[] {
   return cachedSecrets;
 }
 
+/**
+ * Redact one display string with the same secret set every tool panel is rendered through.
+ *
+ * **Why this exists here rather than the caller harvesting its own secrets.** The redaction itself
+ * is `redactText`, which is pure and lives in `utils/redactSecrets.js`; what is NOT pure is the
+ * secret SET, and that set is this module's state. It is assembled by `collectSecretValues` from
+ * the process env plus the config registered through {@link setToolDisplayConfig} — a seam the
+ * agent runner calls, into core. A caller outside core can import `collectSecretValues` (it is
+ * exported), but it has no registered config to hand it, so an outside harvest would silently drop
+ * the inline-config literals (technique 1b) and produce a redaction *weaker* than the panel beside
+ * it — the failure mode being visibly redacted output that is not actually the same guarantee. It
+ * would also stand up a second cache to keep in step with this one.
+ *
+ * So the boundary is drawn at the string: a display caller sends text in and gets redacted text
+ * back, and the secret values never leave this module. That also keeps the answer to "what counts
+ * as a secret on a rendered surface" in one place, which is the property that made the shared
+ * redactor worth having.
+ *
+ * Deliberately **not** wrapped in its own `try`/`catch`: `redactText` is already fail-safe
+ * end-to-end (it returns the withheld marker on any internal error, never the raw text) and the
+ * secret harvest degrades to `[]` with the provider patterns still applying. A second error policy
+ * layered on top is how a fail-safe becomes a fail-open.
+ *
+ * **Redact before any other treatment**, neutralisation included — see `formatParamValue` for the
+ * full reasoning. A literal secret carrying a control character stops matching the moment that
+ * character is rewritten to a printable escape.
+ */
+export function redactForToolDisplay(text: string): string {
+  return redactText(text, getDefaultSecrets());
+}
+
 /** Test seam: drop the cached secret literals + registered config so specs can vary both. */
 export function resetToolDisplaySecretsCacheForTests(): void {
   cachedSecrets = null;

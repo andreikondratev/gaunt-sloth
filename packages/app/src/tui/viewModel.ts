@@ -1,6 +1,7 @@
 import type { AgentStreamEvent, PendingToolInterrupt } from '@gaunt-sloth/core/core/types.js';
 import type { ConversationCompaction } from '@gaunt-sloth/core/core/compaction.js';
 import { neutralizeUntrustedText } from '@gaunt-sloth/core/core/shell/framing.js';
+import { redactForToolDisplay } from '@gaunt-sloth/core/core/toolDisplay.js';
 import type { TranscriptItem } from '#src/tui/types.js';
 
 /**
@@ -686,7 +687,12 @@ export type ChecklistItemStatus = 'pending' | 'in_progress' | 'completed';
 /** One checklist row parsed from a `gth_checklist` tool call's args. */
 export interface ChecklistItemViewModel {
   /**
-   * The row's text, **already neutralised and safe to paint verbatim**.
+   * The row's text, **already redacted and neutralised, and safe to paint verbatim**.
+   *
+   * Redaction is the half a reader is most likely to think belongs elsewhere. It does not: the row
+   * is painted on the panel closest to the prompt, and a plan step mentioning a key or a token is
+   * ordinary model output rather than an attack. The generic tool panel treats that case, and a
+   * row reaching this type untreated would be the one surface that does not.
    *
    * This is a model-written string — under prompt injection, attacker-chosen — and the panel it
    * feeds is pinned directly above the input dock, closer to the prompt than anything else on the
@@ -707,13 +713,27 @@ export interface ChecklistItemViewModel {
  * `parseTaskArgs`: a half-streamed or malformed buffer never throws — it returns `null` so
  * the renderer keeps showing the last good state (or falls back to the generic tool panel).
  *
- * **Every row's text is neutralised here**, with the same shared helper the tool-display and
- * approval paths use, so control characters and ANSI reach the screen as printable escapes instead
- * of as instructions to the terminal. It sits on the producer rather than at the panel because this
- * is the only place checklist rows are made: a renderer rewritten around a different layout inherits
- * the guard, and there is no second call site for someone to forget. `status` needs no treatment —
- * it is accepted only when it matches one of three literals — and the glyphs and header the panel
- * draws around the text are the renderer's own constants.
+ * **Every row's text is redacted and then neutralised here**, with the same shared helpers the
+ * tool-display and approval paths use: secrets become the withheld marker, and control characters
+ * and ANSI reach the screen as printable escapes instead of as instructions to the terminal. Both
+ * sit on the producer rather than at the panel because this is the only place checklist rows are
+ * made: a renderer rewritten around a different layout inherits them, and there is no second call
+ * site for someone to forget. `status` needs no treatment — it is accepted only when it matches one
+ * of three literals — and the glyphs and header the panel draws around the text are the renderer's
+ * own constants.
+ *
+ * **The order of the two is load-bearing and is not a style choice.** Redaction runs on the RAW
+ * string. Neutralisation rewrites every control character to a printable escape, so a configured
+ * literal secret whose value carries one stops matching the instant it is rewritten — redacting
+ * second would leave that secret on screen while still passing any test written with a clean
+ * provider-shaped key, because the provider patterns anchor on printable ASCII that neutralisation
+ * never touches. This is the same ordering, for the same reason, that the generic tool panel
+ * states at `formatParamValue`.
+ *
+ * Redaction is the checklist's most ordinary hazard rather than its most hostile one: this panel is
+ * pinned directly above the input dock, and a model writing a plan step that mentions a key or a
+ * token is doing something entirely normal. The generic tool panel one row away already treats
+ * exactly that.
  */
 export function parseChecklistArgs(argsText: string): ChecklistItemViewModel[] | null {
   if (!argsText.trim()) return null;
@@ -734,7 +754,8 @@ export function parseChecklistArgs(argsText: string): ChecklistItemViewModel[] |
       typeof content === 'string' &&
       (status === 'pending' || status === 'in_progress' || status === 'completed')
     ) {
-      rows.push({ content: neutralizeUntrustedText(content), status });
+      // Redact first, neutralise second — never the reverse. See this function's docblock.
+      rows.push({ content: neutralizeUntrustedText(redactForToolDisplay(content)), status });
     }
   }
   return rows.length ? rows : null;
