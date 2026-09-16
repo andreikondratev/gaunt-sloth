@@ -772,7 +772,10 @@ describe('PersistedApprovalGrants', () => {
       'a non-boolean hint value',
       { readOnlyHint: 'true', destructiveHint: false, idempotentHint: true, openWorldHint: false },
     ],
-    ['a missing hint', { readOnlyHint: true, destructiveHint: false, idempotentHint: true }],
+    [
+      'a null hint value',
+      { readOnlyHint: null, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    ],
     ['not an object at all', 'readOnly'],
     ['an array', [true, false, true, false]],
   ])('drops a grant whose snapshot is %s', (_label, annotations) => {
@@ -811,6 +814,53 @@ describe('PersistedApprovalGrants', () => {
       'utf8'
     );
     expect(new PersistedApprovalGrants(file).size()).toBe(1);
+  });
+
+  /**
+   * EXT-75 — **an ABSENT hint is not a malformed one**, and the grant is kept with that hint filled
+   * from its own fail-closed default. `TOOL_ANNOTATION_HINTS` is the MCP spec's vocabulary, so it
+   * can grow, and on the release that grows it every grant on disk is one written without the new
+   * key; rejecting those would discard every saved approval invisibly.
+   *
+   * **Two hints are omitted on purpose, and their defaults differ** (`readOnlyHint` false,
+   * `destructiveHint` true). One omission would pass just as well against a fill that wrote a
+   * single blanket value for every hint, which would be a different rule wearing the same green.
+   * The two that ARE stored are both spelled against their defaults, so a fill that overwrote what
+   * the file actually said would show up here too.
+   *
+   * The file-widening case — a hint the running version knows and the saved record could not have —
+   * is pinned under a simulated fifth hint in `approvalGrantHintMigration.spec.ts`.
+   */
+  it('fills an absent hint from its own fail-closed default and keeps the grant', () => {
+    const entry = toolGrantEntry(mcpSubject('jira', 'search'))!;
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 2,
+        grants: [
+          {
+            entry,
+            grantedAt: 'x',
+            scope: 'always',
+            annotations: { idempotentHint: true, openWorldHint: false },
+          },
+        ],
+      }),
+      'utf8'
+    );
+
+    const store = new PersistedApprovalGrants(file);
+    expect(store.size()).toBe(1);
+    expect(approvesSubject(store.entries(), mcpSubject('jira', 'search'))).toBe(true);
+    expect(store.find(entry)?.annotations).toEqual({
+      readOnlyHint: MCP_FAIL_CLOSED_ANNOTATIONS.readOnlyHint,
+      destructiveHint: MCP_FAIL_CLOSED_ANNOTATIONS.destructiveHint,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
+    // CONTROL: the two filled values really are opposites, so one blanket value cannot satisfy both.
+    expect(MCP_FAIL_CLOSED_ANNOTATIONS.readOnlyHint).toBe(false);
+    expect(MCP_FAIL_CLOSED_ANNOTATIONS.destructiveHint).toBe(true);
   });
 
   /**

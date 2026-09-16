@@ -437,10 +437,39 @@ function fileWriteTime(filePath: string): string {
  *
  * Three outcomes, and the middle one is the point: `undefined` when the field is absent (a `shell`
  * grant, or a tool grant written before the field existed — nothing to compare, so the grant
- * stands), the set when it is four booleans, and `null` when it is **present and malformed**, which
- * drops the whole grant.
+ * stands), the set when every hint it names is a boolean, and `null` when one is **present and
+ * malformed**, which drops the whole grant.
  *
- * That last case is deliberately harsher than the rest of {@link readGrant}, and for a reason that
+ * ## An absent hint and a malformed one mean opposite things
+ *
+ * A hint **absent** from a stored snapshot is filled with its fail-closed default
+ * ({@link MCP_FAIL_CLOSED_ANNOTATIONS}) and the grant is kept. A hint **present** and not a boolean
+ * still drops it. The two are one keystroke apart in a file and are not the same failure.
+ *
+ * `TOOL_ANNOTATION_HINTS` is the MCP specification's vocabulary rather than ours, so it can gain a
+ * member. Every grant already saved was written without that key, so rejecting on absence would
+ * discard every approval on disk on the release that widens the set — and discard it invisibly,
+ * since a grant that was dropped is indistinguishable from one never made.
+ *
+ * **The fill is a reconstruction, not a guess.** An effective set starts at
+ * {@link MCP_FAIL_CLOSED_ANNOTATIONS} and only a hint that is both known and trusted moves it
+ * (`core/approvals/annotations.ts`), so the default is the value that hint effectively held at the
+ * moment the grant was made. It also leaves the filled hint un-weakenable — every move in
+ * {@link annotationWeakenings} ends at the default rather than starting there — which is exactly
+ * the position a grant carrying no snapshot at all already occupies. Nothing is invalidated less
+ * than it would have been.
+ *
+ * A snapshot naming no hints at all is the same case and is filled the same way rather than
+ * special-cased into a rejection: the rule is per hint, and a record that named none reads as one
+ * written by a version that knew none.
+ *
+ * **Indexing {@link MCP_FAIL_CLOSED_ANNOTATIONS} by the hint is load-bearing, not brevity.** A
+ * member added to `TOOL_ANNOTATION_HINTS` but not to {@link EffectiveToolAnnotations} makes this
+ * line fail to compile, so the vocabulary and its defaults cannot drift apart unnoticed. Writing
+ * the four values out here instead would compile, and would reintroduce one layer up the very
+ * failure this fill exists to prevent.
+ *
+ * The malformed case is deliberately harsher than the rest of {@link readGrant}, and for a reason that
  * does not apply to the other metadata: **this field decides something.** `grantedAt` and `scope`
  * are display, so coercing them costs nothing; a snapshot is what invalidation compares against, so
  * a coerced one (a string `"true"` read as truthy) would feed a wrong comparison into the check and
@@ -454,8 +483,13 @@ function readAnnotationSnapshot(value: unknown): EffectiveToolAnnotations | null
   const record = value as Record<string, unknown>;
   const snapshot: Record<string, boolean> = {};
   for (const hint of TOOL_ANNOTATION_HINTS) {
-    if (typeof record[hint] !== 'boolean') return null;
-    snapshot[hint] = record[hint] as boolean;
+    const stored = record[hint];
+    if (stored === undefined) {
+      snapshot[hint] = MCP_FAIL_CLOSED_ANNOTATIONS[hint];
+      continue;
+    }
+    if (typeof stored !== 'boolean') return null;
+    snapshot[hint] = stored;
   }
   return snapshot as unknown as EffectiveToolAnnotations;
 }
