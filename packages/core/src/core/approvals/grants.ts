@@ -496,10 +496,74 @@ export function readGrant(value: unknown, fallbackTime: string): ApprovalGrant |
 }
 
 /**
+ * A private, mutable copy of a rule entry. `pattern` is the one field that can be an object (a
+ * `hint` pattern, §3.1), so it is copied too — a shallow spread alone would leave the copy sharing
+ * the very object the matcher compares against.
+ */
+function copyApprovalEntry(entry: ApprovalEntry): ApprovalEntry {
+  if (entry.type === 'shell' || typeof entry.pattern === 'string') return { ...entry };
+  return { ...entry, pattern: { ...entry.pattern } };
+}
+
+/**
+ * A private, mutable copy of a whole grant record: the record, its entry, and the annotation
+ * snapshot.
+ *
+ * `annotations` is spread **conditionally**, so a grant that carried no snapshot keeps exactly the
+ * keys it arrived with rather than gaining an `annotations: undefined`. The stored record and what
+ * a caller is handed then have the same shape, which is what lets the two be compared.
+ */
+function copyGrant(grant: ApprovalGrant): ApprovalGrant {
+  return {
+    ...grant,
+    entry: copyApprovalEntry(grant.entry),
+    ...(grant.annotations ? { annotations: { ...grant.annotations } } : {}),
+  };
+}
+
+/**
+ * Freeze a grant record through to its leaves, so a write anywhere in it throws.
+ *
+ * **Only ever applied to a copy this store made.** An entry object arrives already shared — the
+ * `always` path hands the same one to the session store and the persisted store — so freezing what
+ * a caller passed would reach out of this store and make somebody else's record read-only.
+ */
+function freezeGrant(grant: ApprovalGrant): ApprovalGrant {
+  if (typeof grant.entry.pattern === 'object') Object.freeze(grant.entry.pattern);
+  Object.freeze(grant.entry);
+  if (grant.annotations) Object.freeze(grant.annotations);
+  return Object.freeze(grant);
+}
+
+/**
  * A set of grants with entry-identity semantics. Pure data + membership: it holds what the human
  * granted and answers *is this the same grant*, never *does this grant cover that command*.
+ *
+ * **What it holds is private to it in BOTH directions.** A grant record is copied on the way in, so
+ * nothing a caller kept can be written through into what the gate matches against; and no accessor
+ * hands back a record a consumer can write through either. Making that structural here rather than
+ * a habit at each call site is the whole of the guarantee: a consumer reading grants to display,
+ * log or sort them is not thinking about the store, and that is exactly the consumer that would
+ * otherwise rewrite it by accident.
+ *
+ * **The out direction is enforced two ways, and the difference is the hot path** ([[EXT-76]]):
+ *
+ * - {@link find} and {@link list} hand back **copies**. They serve displays, the persisted file and
+ *   the conversation record — called when a human asks or a grant changes, never per call — so a
+ *   copy costs nothing that matters, and it leaves those consumers holding an ordinary mutable
+ *   record, which is what a public accessor of this package promises them.
+ * - {@link entries} hands back the stored entries themselves, **frozen**. The matcher reads it on
+ *   *every gated call*, so copying there would allocate a record per grant per call for a consumer
+ *   that only ever reads; a freeze is the same protection at no per-call cost, and it is the louder
+ *   one — a stray write throws instead of being quietly absorbed by a copy nobody looks at again.
+ *
+ * Freezing everything and copying nowhere would be cheaper still, and is rejected because
+ * {@link find} and {@link list} feed public accessors whose records are handed to other packages:
+ * a frozen record there is an observable contract change for every consumer of them, bought for a
+ * saving on paths that are not hot.
  */
 export class ApprovalGrantStore {
+  /** Each one deep-copied and frozen by {@link add}; only this array is ever mutated. */
   private readonly grants: ApprovalGrant[] = [];
 
   constructor(initial: readonly ApprovalGrant[] = []) {
@@ -509,31 +573,39 @@ export class ApprovalGrantStore {
   /**
    * Add a grant. Returns whether it was new — an identical entry is not stored twice.
    *
-   * The {@link ApprovalGrant.annotations} snapshot is **copied on the way in**, so what the store
-   * holds is private to this grant whatever the caller passed: the effective set may be a live
-   * object the caller keeps, or (were a source ever to regress) the shared fail-closed constant, and
-   * a store aliasing either would let one grant's record be rewritten from outside it. Copying here
-   * rather than at each call site makes that structural instead of a habit every caller must keep.
+   * **The whole record is copied on the way in**, so what the store holds is private to it whatever
+   * the caller passed: the {@link ApprovalGrant.annotations} snapshot may be a live object the
+   * caller keeps, or (were a source ever to regress) the shared fail-closed constant; the `entry` is
+   * shared by construction, since the `always` path hands the same one to this store and to the
+   * persisted store. A store aliasing any of them would let one grant's record be rewritten from
+   * outside it. Copying here rather than at each call site makes that structural instead of a habit
+   * every caller must keep.
+   *
+   * The copy is then frozen, which is what {@link entries} rests on — and it is the copy that is
+   * frozen, never the caller's object, so nothing outside this store becomes read-only.
    */
   add(grant: ApprovalGrant): boolean {
     const key = grantKey(grant.entry);
     if (this.grants.some((held) => grantKey(held.entry) === key)) return false;
-    this.grants.push(
-      grant.annotations ? { ...grant, annotations: { ...grant.annotations } } : grant
-    );
+    this.grants.push(freezeGrant(copyGrant(grant)));
     return true;
   }
 
   /**
-   * The grant stored under this entry's identity, or `undefined`.
+   * A private copy of the grant stored under this entry's identity, or `undefined`.
    *
    * **Identity, never a match decision** — the same de-duplication question {@link add} asks. It
    * answers *"is this the same grant"*, and whether a grant covers a call remains
    * `resolveApprovalRules`'s alone.
+   *
+   * A **copy** rather than the stored record: what this returns reaches a display through public
+   * accessors, and a consumer that reads a grant in order to render it is the one least likely to
+   * be thinking about whose object it holds.
    */
   find(entry: ApprovalEntry): ApprovalGrant | undefined {
     const key = grantKey(entry);
-    return this.grants.find((held) => grantKey(held.entry) === key);
+    const held = this.grants.find((grant) => grantKey(grant.entry) === key);
+    return held ? copyGrant(held) : undefined;
   }
 
   /**
@@ -552,12 +624,23 @@ export class ApprovalGrantStore {
     return true;
   }
 
-  /** Every grant, in the order they were made. */
+  /**
+   * Every grant, in the order they were made — a fresh array of private copies, so neither the list
+   * nor the records in it are the store's. See {@link find} for why this side copies rather than
+   * freezes.
+   */
   list(): ApprovalGrant[] {
-    return [...this.grants];
+    return this.grants.map(copyGrant);
   }
 
-  /** Just the entries, for handing to the matcher as one of its rule lists. */
+  /**
+   * Just the entries, for handing to the matcher as one of its rule lists.
+   *
+   * **The stored entries themselves, frozen** — the one accessor that does not copy, because it is
+   * the one on the hot path: the matcher reads it on every gated call, and its rule lists are
+   * read-only by type and by use. A write to one of these throws; a consumer that needs to change
+   * an entry wants a grant record from {@link list} and its own copy of it.
+   */
   entries(): ApprovalEntry[] {
     return this.grants.map((grant) => grant.entry);
   }
@@ -1210,12 +1293,15 @@ export class PersistedApprovalGrants {
     };
   }
 
-  /** Every grant. */
+  /** Every grant, each a private copy — {@link ApprovalGrantStore.list}. */
   list(): ApprovalGrant[] {
     return this.store.list();
   }
 
-  /** Just the entries, for handing to the matcher as one of its rule lists. */
+  /**
+   * Just the entries, for handing to the matcher as one of its rule lists. Frozen, and for the
+   * reason {@link ApprovalGrantStore.entries} gives — this is the same hot path one wrapper down.
+   */
   entries(): ApprovalEntry[] {
     return this.store.entries();
   }
@@ -1274,7 +1360,7 @@ export class PersistedApprovalGrants {
     return false;
   }
 
-  /** The grant held under this entry's identity, or `undefined`. */
+  /** A private copy of the grant held under this entry's identity, or `undefined`. */
   find(entry: ApprovalEntry): ApprovalGrant | undefined {
     return this.store.find(entry);
   }

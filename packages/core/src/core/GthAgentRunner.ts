@@ -182,16 +182,6 @@ import {
 const CRASH_TRANSCRIPT_TAIL_MESSAGES = 8;
 
 /**
- * A private copy of a rule entry, for handing to a display. `pattern` is the one field that can be
- * an object (a `hint` pattern, §3.1), so it is copied too — a shallow spread alone would leave the
- * displayed entry sharing the very object the matcher compares against.
- */
-function copyApprovalEntry(entry: ApprovalEntry): ApprovalEntry {
-  if (entry.type === 'shell' || typeof entry.pattern === 'string') return { ...entry };
-  return { ...entry, pattern: { ...entry.pattern } };
-}
-
-/**
  * [[EXT-29]] §5.1 — the `justification` argument of a `run_shell_command` call, when the model
  * supplied a usable one.
  *
@@ -866,10 +856,10 @@ export class GthAgentRunner {
    *
    * **Read-only in both senses.** It never loads the persisted store — same rule as
    * {@link getAllowlistCounts}: a display must not create the store in order to show it, so a
-   * session that has not yet needed the file lists its session grants alone. And every grant is
-   * **deep-copied on the way out**, because the stores hand back their live records: the copy on the
-   * way in is what makes a snapshot private to its grant, and handing the same object to a renderer
-   * would put what the gate matches against one property assignment away from any consumer.
+   * session that has not yet needed the file lists its session grants alone. And what it hands back
+   * is private to the caller, because `ApprovalGrantStore.list` hands out copies; this method adds
+   * no copy of its own, so the guarantee has one owner rather than one owner and one consumer that
+   * happened to defend itself.
    */
   public getGrants(): ApprovalGrant[] {
     const held = [
@@ -884,18 +874,14 @@ export class GthAgentRunner {
       const key = renderApprovalEntryObject(grant.entry);
       if (seen.has(key)) continue;
       seen.add(key);
-      grants.push({
-        ...grant,
-        entry: copyApprovalEntry(grant.entry),
-        ...(grant.annotations ? { annotations: { ...grant.annotations } } : {}),
-      });
+      grants.push(grant);
     }
     return grants;
   }
 
   /**
    * GS2-20 — **the grants that belong to the conversation**: every `session`-scoped entry in the
-   * two runtime stores, deep-copied on the way out for the reason {@link getGrants} gives.
+   * two runtime stores, private to the caller for the reason {@link getGrants} gives.
    *
    * `always` entries are deliberately left out. They mirror the project's allow-list / deny-list
    * files, which every run reads for itself; recording them against the conversation as well would
@@ -904,20 +890,9 @@ export class GthAgentRunner {
    * process would otherwise have lost.
    */
   public getSessionScopedGrants(): ConversationGrants {
-    const copy = (grant: ApprovalGrant): ApprovalGrant => ({
-      ...grant,
-      entry: copyApprovalEntry(grant.entry),
-      ...(grant.annotations ? { annotations: { ...grant.annotations } } : {}),
-    });
     return {
-      allow: this.sessionGrants
-        .list()
-        .filter((grant) => grant.scope === 'session')
-        .map(copy),
-      deny: this.denyGrants
-        .list()
-        .filter((grant) => grant.scope === 'session')
-        .map(copy),
+      allow: this.sessionGrants.list().filter((grant) => grant.scope === 'session'),
+      deny: this.denyGrants.list().filter((grant) => grant.scope === 'session'),
     };
   }
 
