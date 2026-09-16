@@ -616,6 +616,27 @@ export function isContextOverflow(error: unknown): boolean {
 }
 
 /**
+ * Which context-overflow arms `error`'s text actually matches, in list order.
+ *
+ * `isContextOverflow` answers yes or no. That is not enough for a caller whose job is to find out
+ * whether one *particular* arm is still doing its work, because several arms reach the same answer
+ * and two of them reach it from opposite causes: a groq context overflow is carried by the prose
+ * arm `reduce the length of the messages`, while a groq TPM rate rejection is carried by the
+ * adjacent `request too large`. A check that reads only the resulting category therefore passes for
+ * the wrong reason at exactly the moment the first arm stops matching. Naming the arms is what
+ * separates them.
+ *
+ * Read-only, and no classification consults it — it reports what the same pattern list and the same
+ * text reader already decide. The reason it lives here rather than in the caller is that a caller
+ * outside this module cannot reproduce the answer without copying the list, and a copy is precisely
+ * what would keep such a check green after the production arm had been deleted.
+ */
+export function contextOverflowPatternsMatching(error: unknown): readonly string[] {
+  const text = errorText(error);
+  return CONTEXT_OVERFLOW_PATTERNS.filter((pattern) => text.includes(pattern));
+}
+
+/**
  * The exception feeder: classify a thrown value into the taxonomy.
  *
  * **[[CFG-73]] A committed reason outranks everything else, prose included.** When
