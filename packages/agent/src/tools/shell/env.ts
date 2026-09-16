@@ -98,15 +98,45 @@ export function shouldScrubEnvVar(name: string): boolean {
 }
 
 /**
+ * Marker the CLI entry point (`packages/app/cli.js`) sets alongside a `NODE_ENV`
+ * it invented for itself, so React resolves to its production build (TUI-C55).
+ *
+ * It exists because the value carries no provenance: an operator's own
+ * `NODE_ENV=production` is byte-identical to the one we synthesize, and the two
+ * must be treated differently — theirs is a deliberate instruction to the whole
+ * process tree, ours is an implementation detail of how *we* render. Without the
+ * marker, stripping `NODE_ENV` from child environments would quietly discard a
+ * setting the operator made on purpose.
+ *
+ * It is an environment variable rather than module state because it has to cross
+ * from `packages/app`'s entry script into this package, which that script cannot
+ * import from at the point it runs.
+ */
+export const SYNTHESIZED_NODE_ENV_MARKER = 'GTH_SYNTHESIZED_NODE_ENV';
+
+/**
  * Build the child environment for a spawned shell command: a copy of the parent
  * env with LLM/cloud credentials removed. Defaults to the live `process.env`
  * (via systemUtils); a source can be injected for testing.
+ *
+ * Also drops a `NODE_ENV` we synthesized ourselves (see
+ * {@link SYNTHESIZED_NODE_ENV_MARKER}). Our reason for setting it — picking
+ * React's production build for the Ink renderer — has nothing to do with the
+ * commands the agent runs, and `NODE_ENV=production` changes real behaviour in a
+ * child: it makes `npm install` skip devDependencies, and flips framework build
+ * and logging defaults. Inheriting it would mean a shell tool invocation behaved
+ * differently depending on whether the user happened to be in the TUI.
+ * An operator-set `NODE_ENV` has no marker and is passed through untouched.
  */
 export function buildScrubbedEnv(source: NodeJS.ProcessEnv = processEnv): NodeJS.ProcessEnv {
+  const synthesizedNodeEnv = Boolean(source[SYNTHESIZED_NODE_ENV_MARKER]);
   const scrubbed: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(source)) {
     if (value === undefined) continue;
     if (shouldScrubEnvVar(key)) continue;
+    // The marker is ours and means nothing to a child, so it never travels.
+    if (key === SYNTHESIZED_NODE_ENV_MARKER) continue;
+    if (key === 'NODE_ENV' && synthesizedNodeEnv) continue;
     scrubbed[key] = value;
   }
   return scrubbed;
