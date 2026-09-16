@@ -1,0 +1,18 @@
+{
+  "defaultDelayMs": 15,
+  "turns": [
+    {
+      "events": [
+        { "type": "tool_start", "id": "c1", "name": "gth_checklist" },
+        {
+          "type": "tool_args",
+          "id": "c1",
+          "delta": "{\"items\":[{\"content\":\"rel23-row-done\",\"status\":\"completed\"},{\"content\":\"rel23-row-active\",\"status\":\"in_progress\"},{\"content\":\"rel23-row-todo\",\"status\":\"pending\"}]}"
+        },
+        { "type": "tool_end", "id": "c1" },
+        { "type": "tool_result", "id": "c1", "content": "checklist recorded" },
+        { "type": "text", "delta": "rel23-answer-line" }
+      ]
+    }
+  ]
+}
