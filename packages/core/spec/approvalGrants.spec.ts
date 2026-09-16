@@ -487,8 +487,130 @@ describe('ApprovalGrantStore', () => {
     expect(MCP_FAIL_CLOSED_ANNOTATIONS.openWorldHint).toBe(true);
     // …and the second grant, built from the very same source object, is untouched.
     expect(store.find(second)!.annotations).toEqual(MCP_FAIL_CLOSED_ANNOTATIONS);
-    // CONTROL: the mutation really did land somewhere, so this is isolation and not a no-op.
-    expect(store.find(first)!.annotations!.readOnlyHint).toBe(true);
+    // CONTROL: the mutation really did land somewhere, so this is isolation and not a no-op. It is
+    // asserted on the snapshot that was handed back rather than on a fresh read of the store,
+    // because a write through an accessor reaching the store is the bug the cells below cover.
+    expect(held.readOnlyHint).toBe(true);
+    expect(store.find(first)!.annotations).toEqual(MCP_FAIL_CLOSED_ANNOTATIONS);
+  });
+
+  /**
+   * [[EXT-76]] — **the private copy is a guarantee in BOTH directions**, and these four cells are
+   * the out direction: what an accessor hands back cannot be written through to what the gate
+   * matches against.
+   *
+   * They are separate cells on purpose. The three accessors protect themselves by two different
+   * mechanisms — a copy for the two that serve a display, a freeze for the one the matcher reads on
+   * every gated call — so one cell covering all three would go green on the arm that still worked.
+   */
+  it('find hands back a private copy: writing to it moves nothing in the store', () => {
+    const store = new ApprovalGrantStore();
+    const entry = toolGrantEntry(mcpSubject('jira', 'search'))!;
+    store.add({
+      entry,
+      grantedAt: '2026-08-02T00:00:00.000Z',
+      scope: 'always',
+      annotations: { ...MCP_FAIL_CLOSED_ANNOTATIONS },
+    });
+
+    const handed = store.find(entry)!;
+    handed.scope = 'session';
+    handed.grantedAt = 'rewritten';
+    handed.annotations!.readOnlyHint = true;
+
+    // CONTROL: the writes landed on the record that was handed back, so the assertions below are
+    // isolation and not a mutation that never happened.
+    expect(handed.scope).toBe('session');
+    expect(handed.annotations!.readOnlyHint).toBe(true);
+
+    const fresh = store.find(entry)!;
+    expect(fresh.scope).toBe('always');
+    expect(fresh.grantedAt).toBe('2026-08-02T00:00:00.000Z');
+    expect(fresh.annotations).toEqual(MCP_FAIL_CLOSED_ANNOTATIONS);
+  });
+
+  it('list hands back private copies: writing to one moves nothing in the store', () => {
+    const store = new ApprovalGrantStore();
+    const entry = toolGrantEntry(mcpSubject('jira', 'create_issue'))!;
+    store.add({
+      entry,
+      grantedAt: '2026-08-02T00:00:00.000Z',
+      scope: 'always',
+      annotations: { ...MCP_FAIL_CLOSED_ANNOTATIONS },
+    });
+
+    const [handed] = store.list();
+    handed.scope = 'session';
+    handed.entry.pattern = 'anything_at_all';
+    handed.annotations!.readOnlyHint = true;
+
+    // CONTROL: the writes landed on the record that was handed back.
+    expect(handed.scope).toBe('session');
+    expect(handed.entry.pattern).toBe('anything_at_all');
+
+    const [fresh] = store.list();
+    expect(fresh.scope).toBe('always');
+    expect(fresh.entry).toEqual(entry);
+    expect(fresh.annotations).toEqual(MCP_FAIL_CLOSED_ANNOTATIONS);
+  });
+
+  /**
+   * The matcher reads this one on **every gated call**, so it hands back the stored entries
+   * themselves rather than per-call copies, and they are frozen. A stray write throws where a copy
+   * would have absorbed it silently — which is the louder half of the same guarantee.
+   */
+  it('entries hands back frozen entries: a stray write throws rather than landing', () => {
+    const store = new ApprovalGrantStore();
+    store.add(grantOf('npm test'));
+
+    const [handed] = store.entries();
+    expect(Object.isFrozen(handed)).toBe(true);
+    expect(() => {
+      handed.pattern = 'rm -rf /';
+    }).toThrow(TypeError);
+
+    expect(store.entries()).toEqual([{ type: 'shell', matcher: 'exact', pattern: 'npm test' }]);
+    // Asserted through the gate, because what a leak here would cost is an approval, not a field.
+    expect(approves(store.entries(), 'npm test')).toBe(true);
+    expect(approves(store.entries(), 'rm -rf /')).toBe(false);
+  });
+
+  /**
+   * [[EXT-76]] — the IN direction, which the freeze above made load-bearing: the store may only
+   * freeze what is its own, so what it holds has to be a copy of the whole record rather than of
+   * the snapshot alone. A shell grant carries no snapshot at all, so before this its stored record
+   * was the caller's object outright.
+   */
+  it('the ingress copy covers the entry too, not only the snapshot', () => {
+    const store = new ApprovalGrantStore();
+    const entry = shellGrantEntry('npm test');
+    store.add({ entry, grantedAt: '2026-08-02T00:00:00.000Z', scope: 'always' });
+
+    entry.pattern = 'rm -rf /';
+
+    expect(store.entries()).toEqual([{ type: 'shell', matcher: 'exact', pattern: 'npm test' }]);
+    expect(approves(store.entries(), 'rm -rf /')).toBe(false);
+  });
+
+  /**
+   * The other side of that copy: the freeze is the STORE's, so it may not reach back out and make
+   * the caller's own object read-only. The same entry object is handed to two stores on the
+   * `always` path (`GthAgentRunner.rememberRefusal`), and one of them freezing it would be a write
+   * into somebody else's record.
+   */
+  it('the freeze stays inside the store: what the caller handed in is still its own', () => {
+    const store = new ApprovalGrantStore();
+    const entry = shellGrantEntry('npm test');
+    const grant: ApprovalGrant = { entry, grantedAt: '2026-08-02T00:00:00.000Z', scope: 'always' };
+    store.add(grant);
+
+    expect(Object.isFrozen(grant)).toBe(false);
+    expect(Object.isFrozen(entry)).toBe(false);
+    expect(() => {
+      grant.scope = 'session';
+    }).not.toThrow();
+    // …and that write did not reach the store either.
+    expect(store.list()[0].scope).toBe('always');
   });
 });
 
