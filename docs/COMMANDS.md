@@ -1197,7 +1197,13 @@ gaunt-sloth-api ag-ui --port 4000 --config ./.gsloth.config.json
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/agents/:agentId/run` | Run the agent; streams AG-UI SSE events |
-| `GET`  | `/health`              | Health check — returns `{ "status": "ok" }` |
+| `GET`  | `/health`              | Readiness. `200` with `{ "status": "ok" }` when a model resolved; `503` with `{ "status": "error", "reason": … }` when none did |
+| `GET`  | `/info`                | What is serving you: `{ "status": "ok", "provider": …, "model": … }`, or `{ "status": "error", "provider": null, "model": null }` when no model resolved |
+
+Both status endpoints answer from the model the config actually resolved, never from the fact that
+a request arrived. A server with no usable model can bind and accept connections but cannot answer
+a single run, so it reports itself unhealthy rather than `ok` — a probe that keys on `/health`'s
+status code catches that configuration instead of passing over it.
 
 ### AG-UI Event Sequence
 

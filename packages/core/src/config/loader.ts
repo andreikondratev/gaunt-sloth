@@ -1163,16 +1163,27 @@ function needsProviderRouting(llm: unknown): boolean {
  * Decided by what the value can DO — answer a call — and never by what it looks like. A model a
  * user's own `configure()` built keeps its methods on its prototype and has no own `type` property,
  * so a `type`-key test calls exactly the documented shape unusable; that is the assumption this
- * predicate exists to replace. It is the positive half of {@link needsProviderRouting}, kept as one
+ * predicate exists to replace. It is the positive half of `needsProviderRouting`, kept as one
  * definition rather than two so the two questions cannot drift apart.
  *
- * It is NOT the negation of {@link needsProviderRouting}: that is false for an ABSENT `llm` too, so
+ * The two references to `needsProviderRouting` here are code spans and not `@link`s on purpose:
+ * this predicate is exported and that one is not, so a link would render as a broken reference on
+ * every page that documents this function. Exporting a second symbol to satisfy a cross-reference
+ * would widen the public surface to fix a docs warning, which is the wrong way round.
+ *
+ * It is NOT the negation of `needsProviderRouting`: that is false for an ABSENT `llm` too, so
  * a branch that accepted `!needsProviderRouting(llm)` would accept a config with no model at all.
  * Ask this one when the question is "may this be used?", and ask it FIRST wherever a `type` test
  * could also match — an object that answers calls and happens to carry a `type` field is a working
  * model the user built, and sending it to the provider layer would quietly swap it for another.
+ *
+ * CFG-61 — exported, because the loader is not the only place that has to know whether a model
+ * actually resolved. The AG-UI server's `/health` and `/info` answer that same question about the
+ * config they were handed, and a second copy of the test is how the two would come to disagree:
+ * the loader would route a value the server called a model, or the server would report `ok` about
+ * a value the loader would have sent away to be built. One definition, asked from both sides.
  */
-function isUsableModel(llm: unknown): boolean {
+export function isUsableModel(llm: unknown): boolean {
   return (
     typeof llm === 'object' &&
     llm !== null &&

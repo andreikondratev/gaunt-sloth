@@ -474,6 +474,10 @@
       "kind": "function"
     },
     {
+      "name": "isUsableModel",
+      "kind": "function"
+    },
+    {
       "name": "isUserProvenanceRung",
       "kind": "function"
     },
