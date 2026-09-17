@@ -919,6 +919,17 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
    * For streaming use `#stream` method, streaming is preferred if model API supports it.
    * Please note that this when tools are involved, this method will anyway do multiple LLM
    * calls within LangChain dependency.
+   *
+   * [[EXT-184]] — **this path arms Esc, exactly as `streamFromInput` does.** `GthAgentRunner`
+   * branches on `config.streamOutput`: the streaming arm reaches `streamFromInput`, which arms the
+   * interrupt and threads an abort signal; this is the other arm, and until it did the same a
+   * runaway model call under `streamOutput: false` showed a spinner and nothing else for as long
+   * as the provider took, with no key that could stop it — the one caller-facing turn path with no
+   * interrupt at all.
+   *
+   * The arming is deliberately DUPLICATED rather than shared with its twin: they are the two arms
+   * of one branch, and a single helper would make any regression in one of them show up in both,
+   * which is the one thing a test of this pair has to be able to tell apart.
    */
   async invoke(messages: Message[], runConfig: RunnableConfig): Promise<string> {
     if (!this.agent || !this.config) {
@@ -931,6 +942,38 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
 
     try {
       const progress = new ProgressIndicator('Thinking.');
+      // [[EXT-184]] — the interrupt affordance, armed before the call and torn down in the
+      // `finally` below. `waitForEscape` returns immediately when the config says no, and
+      // `canInterruptInferenceWithEsc` is already ANDed with `isTTY()` when the config is loaded,
+      // so a non-TTY caller (CI, a piped diff, the batch pipeline) arms nothing by construction —
+      // bounding an unattended run is a different question and is not answered here.
+      const interruptState = { escape: false, messageShown: false };
+      const abortController = new AbortController();
+      const showInterruptMessage = () => {
+        if (!interruptState.messageShown) {
+          interruptState.messageShown = true;
+          // Stop the spinner BEFORE saying anything: the callback fires while the invoke is still
+          // pending, so a live `ProgressIndicator` would keep writing dots over the notice until
+          // the call unwinds. `stop()` is idempotent, so the `finally` below is unaffected.
+          progress.stop();
+          this.statusUpdate(StatusLevel.WARNING, '\n\nInterrupted by user, exiting\n\n');
+        }
+      };
+      waitForEscape(
+        () => {
+          interruptState.escape = true;
+          showInterruptMessage();
+          if (!abortController.signal.aborted) {
+            abortController.abort();
+          }
+        },
+        this.config.canInterruptInferenceWithEsc,
+        // GS2-93 / GS2-63: the hint box is part of the run-header preamble, so only the `debug`
+        // rung prints it; the handler stays armed at every rung. Same reading as the twin site in
+        // `streamFromInput`. Only the plain surface reaches this method — the TUI drives
+        // `streamWithEvents` and owns its own keyboard.
+        this.headerRung === 'debug'
+      );
       try {
         debugLog('Calling agent.invoke...');
         // GS2-16: capture the prior conversation length BEFORE invoking so we harvest ONLY this
@@ -942,7 +985,16 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
         // GthAgentRunner: by then the streamed turn is checkpointed, so it is BEFORE the baseline.
         // Fail-soft: an unreadable baseline yields 0 (a one-turn over-count at worst, never a throw).
         const priorMessageCount = await this.getStateMessageCount(runConfig);
-        const response = await this.agent.invoke({ messages }, runConfig);
+        // [[EXT-184]] — the signal is what makes Esc mean something. MEASURED against the installed
+        // langgraph: a graph node that ignores the signal entirely and simply hangs still sees
+        // `invoke()` reject with an `AbortError` ~300 ms after the abort, and the signal is present
+        // inside the node's own config and fires there — so the model call is cancelled rather than
+        // merely abandoned. Cancelling is therefore real here, not the incidental downstream
+        // refusal [[TUI-C97]] found in the approval hold.
+        const response = await this.agent.invoke(
+          { messages },
+          { ...runConfig, signal: abortController.signal }
+        );
         // Harvest token usage + invoked tool names from THIS turn's new messages only (fail-soft)
         // so the local history recorder can populate `gth insights`.
         // TUI-C32 residual f — the streaming path renders the compact per-tool indication via
@@ -1008,6 +1060,35 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
           .join('\n');
       } catch (e) {
         debugLogError('invoke inner', e);
+        // [[EXT-184]] — Esc, or an abort raised under the call. Checked BEFORE every other branch:
+        // an aborted call arrives here as an ordinary rejection, and any branch below would report
+        // the user's own cancellation as a provider failure. The predicate mirrors the streaming
+        // arm's, so the two arms classify a cancellation the same way.
+        //
+        // It RETURNS rather than throws, and returns a notice rather than partial content, for two
+        // reasons. The runner treats an empty non-streaming turn as terminal at once ("Model
+        // returned an empty response…"), so an empty return would answer a deliberate cancellation
+        // with an accusation against the model — the same reason EXT-37 returns a refusal as the
+        // turn's answer a few lines above. And `invoke` produces no incremental output by
+        // construction, so unlike the streaming arm there is no partial text to hand back; the
+        // asymmetry is in what the two arms have, not in how they treat a cancellation.
+        if (interruptState.escape || (e instanceof Error && e.name === 'AbortError')) {
+          this.noteTermination(
+            terminationReason('agent.invoke-cancelled', 'control', {
+              category: 'cancelled',
+              detail: interruptState.escape ? 'escape' : 'AbortError',
+            })
+          );
+          // DL-1, no action is silent: says so even when the key was never pressed, in which case
+          // nothing has been printed yet. A caller's own signal is NOT that case — the spread at
+          // the `invoke` call replaces `runConfig.signal` — so the reachable other cause is an
+          // abort raised beneath us: a call deadline's ambient signal composed onto the request by
+          // `ambientSignalFetch`, or the provider client's own timeout. The notice names the user
+          // because that is the only cause a person can produce at the keyboard; `detail` on the
+          // recorded reason is what separates the two for anyone reading back.
+          showInterruptMessage();
+          return 'Interrupted by user.';
+        }
         if (e instanceof Error && e?.name === 'ToolException') {
           throw e; // Re-throw ToolException to be handled by outer catch
         }
@@ -1034,6 +1115,11 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
         );
         throw e;
       } finally {
+        // [[EXT-184]] — pair the arming on EVERY exit, including the throws above. A leaked
+        // keypress listener holds stdin in raw mode and ref'd, which wedges the readline approval
+        // prompt the runner may run next and stops a one-shot command exiting at all; the twin
+        // site tears down in its stream's `finally`/`cancel` for the same reason.
+        stopWaitingForEscape();
         progress.stop();
       }
     } catch (error) {
