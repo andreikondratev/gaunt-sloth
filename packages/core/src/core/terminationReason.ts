@@ -34,6 +34,7 @@
  */
 
 import { ContextOverflowError } from '@langchain/core/errors';
+import { readProviderErrorPayload } from '#src/core/providerErrorNotice.js';
 
 /**
  * What ended the run, as one closed vocabulary shared by every site and every consumer.
@@ -465,6 +466,30 @@ const CONTEXT_OVERFLOW_PATTERNS: readonly string[] = [
   // argument' would make every malformed request an overflow. [[EXT-176]] carries it; a negative
   // control in `googleContextOverflow.spec.ts` pins it until then.
   'exceeds the maximum number of tokens allowed',
+  // [[EXT-164]] Load-bearing for openrouter, and for ONE of its upstreams. Measured 2026-09-17,
+  // live OpenRouter through `@langchain/openrouter` 0.4.13, three deliberately-oversized requests:
+  //
+  // | routed to      | via id                       | `metadata.provider_error_code` | upstream sentence in `metadata.raw`                 |
+  // |----------------|------------------------------|--------------------------------|-----------------------------------------------------|
+  // | OpenAI         | `openai/gpt-3.5-turbo`       | `context_length_exceeded`      | "This model's maximum context length is 16385 …"     |
+  // | Anthropic      | `anthropic/claude-haiku-4.5` | ABSENT                         | "prompt is too long: 254245 tokens > 200000 maximum" |
+  // | Amazon Bedrock | `anthropic/claude-3-haiku`   | ABSENT                         | "Input is too long for requested model."             |
+  //
+  // The first two already classified — through `context_length_exceeded` and `prompt is too long`
+  // respectively. **The Bedrock one matched nothing** and fell to `invalid_request`, which the
+  // compact-and-retry seam never acts on. That is the gap this arm closes, and it is the node's
+  // point made by the router itself: the SAME OpenRouter id family produced three different
+  // sentences because three different upstreams wrote them.
+  //
+  // **Deliberately `'input is too long for'` rather than the bare `'input is too long'`.**
+  // `isContextOverflow` is consulted BEFORE the `ToolException` arm in
+  // {@link classifyThrownTermination}, so the shorter form would re-route a tool's own
+  // input-length validation message ("Input is too long, maximum 500 characters") to history
+  // compaction. Requiring the continuation keeps the arm on the sentence a *model* endpoint writes
+  // while still spanning its rewordings ("… for this model", "… for the requested model"). The cost
+  // is a hypothetical inline count ("Input is too long (254245 tokens) for requested model"), which
+  // no measured response renders.
+  'input is too long for',
 ];
 
 /** Substrings that mean the provider refused for rate or quota reasons. */
@@ -580,6 +605,27 @@ function errorText(error: unknown): string {
     push(field(inner, 'type'));
     push(field(inner, 'code'));
   }
+  // [[EXT-164]] **A router's own message says nothing, so read the envelope it puts the upstream
+  // error in.** OpenRouter's top-level fields for every provider-side failure are
+  // `message: 'Provider returned error'` and `code: 400` — byte for byte the same for an overflow,
+  // a content filter and a malformed tool schema. Everything that distinguishes them is in
+  // `metadata`: the upstream's verbatim body in `raw`, and OpenRouter's own
+  // `provider_error_code` where the upstream gave it one.
+  //
+  // It reaches the loop above today only because `OpenRouterError.fromResponse` appends
+  // ` | metadata: <json>` to the message — an upstream FORMATTING choice that
+  // `providerErrorNotice.ts` exists to undo on screen and argues against. If upstream stops doing
+  // it, every OpenRouter overflow silently becomes `invalid_request` and is never compacted.
+  // Reading the fields where they actually live is what makes the classification independent of
+  // that string. `openrouterContextOverflow.spec.ts` carries the canary for the day it changes.
+  //
+  // The reader is `providerErrorNotice`'s rather than a second copy: it is already duck-typed on
+  // the shape (so it is not an import of a provider package), already walks one `cause` hop the
+  // way this module does, and a copy is exactly what would keep this green after that one stopped
+  // recognising the payload.
+  const providerPayload = readProviderErrorPayload(error);
+  push(providerPayload?.providerText);
+  push(providerPayload?.providerErrorCode);
   // The separator is deliberately not a plain space: the prose patterns below are multi-word
   // English, and joining two adjacent fragments with a space lets a pattern match ACROSS them —
   // a fragment ending in "rate" beside one starting with "limit" would read as a rate limit.
