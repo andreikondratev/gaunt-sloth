@@ -378,6 +378,86 @@ export const ESTIMATE_CHARS_PER_TOKEN = 3.5;
 export const ESTIMATE_SAFETY_MARGIN = 1.1;
 
 /**
+ * [[EXT-189]] — the share of the prompt a provider must claim to have read before its own number is
+ * believed. Below this, the reported count is treated as evidence the prompt was silently cut down.
+ *
+ * **0.5 is chosen against a measured gap, not picked round.** The two populations the predicate has
+ * to separate were measured live on 2026-09-17 with one identical 35,991-character payload, which at
+ * {@link ESTIMATE_CHARS_PER_TOKEN} reads as a floor estimate of 10,283 tokens:
+ *
+ * | endpoint | window | reported input tokens | share of the estimate |
+ * |---|---|---|---|
+ * | `openai/gpt-3.5-turbo-0613` via OpenRouter | 4,095 | 2,363 | 0.23 |
+ * | `undi95/remm-slerp-l2-13b` via OpenRouter | 6,144 | 3,571 | 0.35 |
+ * | `gryphe/mythomax-l2-13b` via OpenRouter | 8,192 | 4,749 | 0.46 |
+ * | `sao10k/l3-lunaris-8b` via OpenRouter | 8,192 | 4,777 | 0.46 |
+ * | `deepseek/deepseek-r1-distill-llama-70b` via OpenRouter | 8,192 | 4,865 | 0.47 |
+ * | `google/gemma-2-27b-it` via OpenRouter | 8,192 | 6,508 | 0.63 |
+ * | **`openai/gpt-4o-mini` via OpenRouter — NOT truncated** | 128,000 | **21,912** | **2.13** |
+ *
+ * The honest call reports **more** than the estimate rather than less, because that payload tokenises
+ * at about 1.6 characters per token against the 3.5 this module assumes — the worst case available,
+ * and it errs in the direction that keeps the predicate quiet. So the separation is between 0.63 and
+ * 2.13, and 0.5 sits inside it with a 4.3× margin on the honest side.
+ *
+ * **What it costs to be wrong, in each direction.** A false positive discards a real anchor and falls
+ * back to extrapolating the whole prompt from characters, which reads HIGH and at worst buys one
+ * early compaction — the direction {@link ESTIMATE_CHARS_PER_TOKEN} already argues is the safe one. A
+ * false negative leaves the estimate anchored on a number the provider computed after discarding most
+ * of the prompt, which is the failure this exists to stop. To reach a false positive real content
+ * would have to tokenise at 7 characters per token sustained across a whole prompt; prose runs near
+ * 4, code and tool JSON near 3, and base64 near 1.3. Long runs of padding or repeated whitespace are
+ * the shape that could, and they pay the cheap side of the trade.
+ *
+ * **Deliberately NOT caught: the 0.63 row.** `google/gemma-2-27b-it` discarded most of the same
+ * prompt and is not detected, because its tokeniser puts the arrived count closer to our estimate.
+ * Raising the threshold to catch it would spend the honest-side margin on one row; it is recorded
+ * here as known rather than fixed.
+ */
+export const SILENT_TRUNCATION_REPORTED_FRACTION = 0.5;
+
+/**
+ * [[EXT-189]] — the smallest estimate {@link promptTokensLookTruncated} will judge at all.
+ *
+ * A ratio computed over a short prompt is noise: the per-message framing a character count cannot
+ * see (role headers, tool-call scaffolding) is a large share of a small prompt and a rounding error
+ * in a big one, so a two-message conversation can legitimately report half what was estimated. Below
+ * this floor the predicate says nothing rather than guessing, and nothing is lost by the silence —
+ * a prompt this small cannot be overflowing any real window, which is the only situation a provider
+ * would have cause to cut it down in.
+ */
+export const SILENT_TRUNCATION_MIN_ESTIMATE_TOKENS = 4000;
+
+/**
+ * [[EXT-189]] — **did the provider quietly answer from less than it was given?**
+ *
+ * `estimated` is what we believe we sent; `reported` is the provider's own
+ * `usage_metadata.input_tokens` for that same call. A provider that will not accept an oversized
+ * prompt says so with an error, and one that accepts it reports roughly what arrived — so a **200
+ * whose usage envelope is far below the prompt** is the signature of a prompt that was cut down in
+ * transit and answered anyway.
+ *
+ * Measured on OpenRouter 2026-09-17: a 21,912-token prompt to a 4,095-window endpoint came back
+ * `200` reporting 2,363 input tokens, with the answer computed from the 11% that survived. The
+ * generation record shows a single upstream response at status 200 carrying that same 2,363, so the
+ * prompt was reduced **before** it was forwarded; OpenRouter's documented opt-out (`transforms: []`)
+ * was sent on an otherwise byte-identical request and changed nothing. Six of six OpenRouter
+ * endpoints at or below 8k did this; the same model on the same upstream through a different
+ * aggregator, and every direct provider probed, returned a 400 instead.
+ *
+ * **The blind spot is worth knowing before trusting this.** It can only see a provider that reports
+ * what it actually read. One that truncates internally and still reports the full count is invisible
+ * here, and no post-hoc check of the usage envelope can see it — that case needs the pre-call guard,
+ * which is why this predicate protects the guard's input rather than replacing it.
+ */
+export function promptTokensLookTruncated(estimated: number, reported: number): boolean {
+  if (!Number.isFinite(estimated) || !Number.isFinite(reported)) return false;
+  if (reported <= 0) return false;
+  if (estimated < SILENT_TRUNCATION_MIN_ESTIMATE_TOKENS) return false;
+  return reported < estimated * SILENT_TRUNCATION_REPORTED_FRACTION;
+}
+
+/**
  * EXT-160 — tokens reserved for the model's own answer when nothing else says.
  *
  * On ollama `num_ctx` covers the prompt **and** the generation from one budget, so a prompt that
@@ -566,6 +646,12 @@ export interface ContextGuardOptions {
  * With no anchor (the first call of a session) everything is extrapolated, and the system prompt's
  * characters are added because nothing has measured them yet. With an anchor they are already
  * inside the anchor's count and adding them again would double-count the single largest block.
+ *
+ * [[EXT-189]] — **an anchor is only trusted when it can be reconciled with the span it claims to
+ * cover.** The number is a provider's, and a provider that silently discards part of an oversized
+ * prompt reports what it kept, not what it was sent; anchoring on that number would shrink the
+ * estimate to match the damage and quietly switch the guard off for the rest of the session. Such a
+ * candidate is skipped and an earlier one used, or none — see {@link promptTokensLookTruncated}.
  */
 /**
  * EXT-160 — the characters `conversationSize` cannot see, added back.
@@ -620,21 +706,64 @@ function nonTextBlockCharacters(messages: readonly BaseMessage[]): number {
   return total;
 }
 
+/**
+ * [[EXT-189]] — `result[i]` is the characters of `messages[0..i-1]`, plus the system prompt.
+ *
+ * It is the character twin of what an anchor at index `i` claims: `usage_metadata.input_tokens` on
+ * a message is the provider's count of everything that preceded it, system prompt included, so the
+ * two describe the same span and can be compared. Counted through the same two readers the estimate
+ * itself uses, or the comparison would be against a different notion of size than the one the rest
+ * of this module reasons in.
+ */
+function cumulativeCharacters(
+  messages: readonly BaseMessage[],
+  systemPromptCharacters: number
+): number[] {
+  const before: number[] = new Array(messages.length + 1);
+  before[0] = systemPromptCharacters;
+  for (let i = 0; i < messages.length; i++) {
+    const one = messages.slice(i, i + 1);
+    before[i + 1] = before[i] + conversationSize(one).characters + nonTextBlockCharacters(one);
+  }
+  return before;
+}
+
 export function estimatePromptTokens(
   messages: readonly BaseMessage[],
   systemPromptCharacters = 0
 ): number {
   let anchorIndex = -1;
   let anchorTokens = 0;
+  // [[EXT-189]] — characters before each message, so a candidate anchor can be checked against what
+  // it claims to have counted. Built once rather than per candidate: every rejected anchor would
+  // otherwise re-walk the conversation from the start.
+  const charactersBefore = cumulativeCharacters(messages, systemPromptCharacters);
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
     if (!AIMessage.isInstance(message)) continue;
     const input = message.usage_metadata?.input_tokens;
-    if (typeof input === 'number' && Number.isFinite(input) && input > 0) {
-      anchorIndex = i;
-      anchorTokens = input;
-      break;
+    if (typeof input !== 'number' || !Number.isFinite(input) || input <= 0) continue;
+    // [[EXT-189]] — **an anchor is a provider's claim, and a truncating provider's claim is false.**
+    // The anchor's whole value is that it counted everything before it exactly; a provider that
+    // discarded most of the prompt reports what SURVIVED, so anchoring on it tells the guard the
+    // conversation is a fraction of its real size and no compaction ever fires — after which every
+    // later turn is truncated too, each one confirming the last. The candidate is therefore
+    // compared against the characters it claims to cover, and one that cannot be reconciled with
+    // them is skipped in favour of an earlier, honest anchor (or none, which extrapolates the whole
+    // prompt from characters and reads high). See {@link promptTokensLookTruncated}.
+    if (promptTokensLookTruncated(charactersBefore[i] / ESTIMATE_CHARS_PER_TOKEN, input)) {
+      debugLog(
+        `Context guard: ignoring a reported prompt size of ${input} tokens on the message at ` +
+          `index ${i}; the ${charactersBefore[i]} characters before it estimate at least ` +
+          `${Math.ceil(charactersBefore[i] / ESTIMATE_CHARS_PER_TOKEN)} tokens, so the provider ` +
+          'appears to have answered from a prompt it had already cut down. Estimating from ' +
+          'characters instead.'
+      );
+      continue;
     }
+    anchorIndex = i;
+    anchorTokens = input;
+    break;
   }
   // From the anchor message onward: the anchor's own tokens covered everything BEFORE it, so the
   // anchor message itself is part of the next prompt and is counted in the delta.
