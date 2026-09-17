@@ -43,6 +43,16 @@ export function packageOfImporter(importer: string | undefined): string | undefi
  * source files in the workspace packages. This ensures that vi.mock() and
  * dynamic imports all resolve to the same module identity.
  *
+ * That last sentence is load-bearing and holds only while ONE package owns the relative
+ * path (EXT-188). It is what lets a spec outside `core` mock
+ * `@gaunt-sloth/core/utils/systemUtils.js` and intercept what `core`'s own
+ * `#src/utils/systemUtils.js` import resolves to. Narrow either arm below and those mocks
+ * keep installing and their specs keep passing while asserting on a stub production never
+ * writes to — silent to every other gate. Pinned by the EXT-188 cells in
+ * `packages/app/spec/resolveWorkspaceImports.spec.ts` and by the end-to-end
+ * `packages/app/spec/mockSpecifierIdentityGate.spec.ts`; the rule a spec author needs is in
+ * AGENTS.md under "Which specifier to mock".
+ *
  * A `#src/…` import is resolved **importer-aware**: it points at the importing
  * file's OWN workspace package first, then falls back to the fixed dependency-
  * order scan ({@link WORKSPACE_PACKAGES}) only when the importer can't be mapped

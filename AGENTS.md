@@ -435,6 +435,32 @@ Tests are located in `spec/`. Integration tests are located in `integration-test
 - When mock implementations are common for all test cases, apply them in beforeEach.
 - Make sure test actually testing a function, rather than simply testing the mock.
 
+### Which specifier to mock (`#src/…` vs `@gaunt-sloth/<pkg>/…`)
+
+`vi.mock` keys on the **resolved module**, not on the string. Both spellings are in use across the
+suites and **either is correct for a module exactly one package owns** — `resolveWorkspaceImports`
+in the root `vitest.config.ts` maps them onto the same source file, so a spec outside `core` that
+mocks `@gaunt-sloth/core/utils/systemUtils.js` does intercept what `core`'s own
+`#src/utils/systemUtils.js` import resolves to. There is deliberately no single canonical spelling:
+`#src/…` is the in-package self-import (the one `tsc` honours at build time), `@gaunt-sloth/<pkg>/…`
+names a package explicitly, and both are wanted.
+
+**The convergence holds only while one package owns that relative path.** Where two own it the
+spellings resolve to different modules on purpose, `#src/…` following the importer's own package and
+`@gaunt-sloth/<pkg>/…` following the package named. On those paths pick the spelling that names the
+module you mean, and do not assume a mock on one reaches the other. The shared paths at the time of
+writing were `commands/commandUtils.ts`, `utils/fileUtils.ts`, `core/debugCapture.ts` and
+`index.ts` — treat that as an illustration rather than a list to trust, since a second owner can be
+added at any time and nothing reds when one is. The resolver is the authority; if it matters, check
+which packages ship the path.
+
+The invariant is pinned mechanically, so this cannot rot silently: the resolver-level cells live in
+`packages/app/spec/resolveWorkspaceImports.spec.ts` and the end-to-end one in
+`packages/app/spec/mockSpecifierIdentityGate.spec.ts`. If the resolver ever stopped normalising the
+two spellings, every outside-`core` spec mocking a package specifier would keep passing while
+asserting on a stub production never writes to — an assertion that cannot fail — and those cells are
+the only thing that would notice.
+
 Example test
 
 ```typescript
