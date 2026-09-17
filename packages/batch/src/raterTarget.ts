@@ -58,6 +58,8 @@ import {
 } from '@gaunt-sloth/core/core/shell/alignment.js';
 import type { AlignmentDecision } from '@gaunt-sloth/core/core/shell/alignment.js';
 import type { RaterCallCapture } from '@gaunt-sloth/core/core/shell/approvalCapture.js';
+import { armFor, reconcileArmedCapture } from '#src/raterPromptArm.js';
+import type { RaterPromptArm } from '#src/raterPromptArm.js';
 import { ShellNegotiationState } from '@gaunt-sloth/core/core/shell/negotiation.js';
 import {
   FAIL_CLOSED_VERDICT,
@@ -321,6 +323,17 @@ export interface RaterClassifierOptions {
    * this in wall-clock, which is what the rationale's two fail-closed sentences let a reader see.
    */
   timeoutMs?: number;
+  /**
+   * [[BATCH-31]] — this cell's PROMPT ARM: which of our own preflight notes its ratings go out
+   * without, so one suite can express a note-on / note-off comparison instead of two.
+   *
+   * It does NOT mirror an option `rateShellCommand` takes, and that is the design rather than an
+   * inconsistency with the options above: a suppression the gate itself understood would be a
+   * switch inside the gate. What arrives here is a declaration; what removes the note is a model
+   * decorator built in this package. See `raterPromptArm.ts` for the whole argument, including how
+   * the omission is kept out of every route a session can reach.
+   */
+  notes?: RaterPromptArm;
 }
 
 /**
@@ -734,8 +747,15 @@ async function classifyOneRound(
       verdict = { outcome: permissive as ShellSafetyVerdict['outcome'], reason: PROBE_REASON };
     }
   } else {
+    // [[BATCH-31]] — this cell's PROMPT ARM, installed for THIS call only. When the suite declares
+    // no `notes:` axis this is `undefined` and the model handed over below is the very object
+    // resolved at build time, so every existing suite sends a byte-identical prompt through a
+    // byte-identical object. See `raterPromptArm.ts` for why the omission decorates the model
+    // rather than reaching the prompt builder.
+    const arm = options?.notes;
+    const armed = arm !== undefined ? armFor(model, trimmed, arm) : undefined;
     verdict = await rateShellCommand(trimmed, config, {
-      model,
+      model: armed !== undefined ? armed.model : model,
       home: options?.home ?? env?.HOME,
       timeoutMs: options?.timeoutMs,
       // BATCH-34 — the §5.1 context for THIS round, from core's own state, with no test of our own
@@ -758,6 +778,13 @@ async function classifyOneRound(
       },
     });
     modelCalls = 1;
+    // [[BATCH-31]] — adjudicated HERE, after the call and outside `rateShellCommand`'s fail-closed
+    // `try`: a throw raised at the send site would be caught there and recorded as a `destructive`
+    // rating, so an arm that failed to remove its note would be reported as the rater's judgement.
+    // It also repairs `capture.prompt`, which core filled in before the arm edited the message.
+    if (arm !== undefined && armed !== undefined) {
+      reconcileArmedCapture(trimmed, arm, armed.outcome, rating);
+    }
   }
 
   // [[EXT-171]] — the same decision the runner makes, told the same fact: at a negotiating rung a
@@ -913,13 +940,33 @@ export async function buildRaterClassifier(
   // `undefined` lets `rateShellCommand` use the run's own `config.llm` — the same fallback
   // production has, so the sweep's `model:` axis moves the rater exactly when no rater profile is
   // pinned (a pinned profile wins over the sweep, in the eval as in the session).
-  const model =
+  const resolvedModel =
     options?.model ??
     (raterProfile ? await resolveRaterModel(raterProfile, 'approvals.rater') : undefined);
+  // [[BATCH-31]] — **an arm needs a model OBJECT to decorate, and `undefined` is a real resolution
+  // here**: with no `approvals.rater` pinned, `rateShellCommand` reaches for `config.llm` itself and
+  // the decorator would never be installed. Both arms would then send the same prompt and the
+  // comparison would report the note changing nothing — a false negative that passes every test
+  // written about it. So an armed run resolves `config.llm` here instead, which is the SAME object
+  // `rateShellCommand` would have used (`options?.model ?? config.llm`), and refuses to build at all
+  // when there is none. Unarmed runs keep `undefined` and the fallback that goes with it.
+  const model = options?.notes !== undefined ? (resolvedModel ?? config.llm) : resolvedModel;
+  if (options?.notes !== undefined && model === undefined) {
+    throw new Error(
+      'eval: this suite declares a `notes:` prompt arm, but no rating model resolved — neither ' +
+        "`approvals.rater` nor the run's own `llm`. A prompt arm has nothing to act on without " +
+        'one, and the run would silently measure the un-omitted prompt in both arms.'
+    );
+  }
   // [[EXT-127]] — the ALIGNMENT CHECKER's model, resolved once for the same reason the rater's is.
   // `approvals.alignmentChecker` has already been defaulted to the rater's profile by
   // `resolveApprovals`, so a suite that names one rater measures both halves on it — which is what
   // makes a sweep's `model:` axis move the whole gate rather than half of it.
+  //
+  // [[BATCH-31]] — and it is resolved from the RAW override, never from the armed `model` above, so
+  // an arm moves the rating prompt and nothing else. The notes an arm can omit are the rating
+  // prompt's; decorating the checker too would let one axis change two prompts and leave a shifted
+  // column unattributable to either.
   const checkerProfile = approvals?.alignmentChecker;
   const checkerModel =
     options?.model ??

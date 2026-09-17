@@ -12,6 +12,9 @@ import type { ApprovalRung } from '@gaunt-sloth/core/config/shell-policy.js';
 // below needs only the type, and a type import erases entirely.
 import type { PreflightFloorKind } from '@gaunt-sloth/core/core/shell/raterVocabulary.js';
 import type { ToolResultRecord } from '#src/types.js';
+// TYPE-ONLY for the same reason the import above is: this module is on the suite-parse path, and
+// `raterPromptArm.js` pulls core's note builders in as values.
+import type { RaterPromptArm } from '#src/raterPromptArm.js';
 import type {
   AdvertisedToolInventory,
   ToolCoverageReport,
@@ -796,6 +799,17 @@ export interface EvalSweepValue {
   model?: string;
   /** Plain-data config overrides deep-merged onto the resolved config (never `llm`). */
   config?: Record<string, unknown>;
+  /**
+   * [[BATCH-31]] — the cell's PROMPT ARM: which of gth's own preflight notes this cell's ratings go
+   * out without, so a note-on / note-off A/B is one suite file rather than two. `rater` targets
+   * only; `{ omit: [] }` is the baseline arm and is required rather than implied.
+   *
+   * **A third override kind, not a third spelling of `config:`.** It is deliberately not a config
+   * key and never merges into one: a config key is exactly what a session could also be given, and
+   * an omission a session can reach is a switch that suppresses safety context in the live approvals
+   * gate. See `raterPromptArm.ts` for the full argument and for how that is enforced.
+   */
+  notes?: RaterPromptArm;
 }
 
 /**

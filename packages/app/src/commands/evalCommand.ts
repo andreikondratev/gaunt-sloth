@@ -771,7 +771,16 @@ export function evalCommand(
             // from this config, exactly as for the external targets.
             baseConfig = await initConfigForCell(commandLineConfigOverrides, sweepCell);
             const { buildRaterClassifier } = await import('@gaunt-sloth/batch/raterTarget.js');
-            classify = await buildRaterClassifier(parsedSuite.target, baseConfig);
+            // [[BATCH-31]] — and the cell's PROMPT ARM, which is the one override that does not
+            // travel through `baseConfig`. It is handed over separately on purpose: a note omission
+            // that could ride the config would be settable wherever a config is, which is exactly
+            // the reachability the node forbids. `undefined` when no axis declares one, which is
+            // every suite written before this and the whole `rung × model` sweep.
+            classify = await buildRaterClassifier(
+              parsedSuite.target,
+              baseConfig,
+              sweepCell?.notes !== undefined ? { notes: sweepCell.notes } : undefined
+            );
           } else {
             // gth-agent, NO identities (unchanged): one runCell/runConversation under the invoked
             // profile, from the single `initConfig(overrides)` base config (byte-for-byte as before).

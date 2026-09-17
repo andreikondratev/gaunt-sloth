@@ -21,6 +21,13 @@ import type {
   EvalTurn,
   ForcedByMechanism,
 } from '#src/evalTypes.js';
+// [[BATCH-31]] — the omittable note names, read off the registry rather than restated, so a suite
+// that names a note gets the same answer the arm will give it. Like the vocabulary import above
+// this reaches a LEAF: the registry's own imports are core's deterministic note builders
+// (`openWorld.js`, `abstention.js`, which parse strings) and langchain's message classes — not
+// core's rater, and so not the model layer.
+import { RATER_PROMPT_NOTE_NAMES } from '#src/raterPromptArm.js';
+import type { RaterPromptNoteName } from '#src/raterPromptArm.js';
 import { UNRECOGNIZED_LABEL } from '#src/classificationTypes.js';
 import type {
   ClassificationExtractor,
@@ -227,11 +234,17 @@ const RawMetricSchema = z.object({
 });
 
 /** BATCH-25 — one sweep axis value. `model` reaches the config through BATCH-1's supported
- * `initConfig({ model })` seam (a genuinely fresh `.llm`); `config` is a deep merge of plain data. */
+ * `initConfig({ model })` seam (a genuinely fresh `.llm`); `config` is a deep merge of plain data.
+ * [[BATCH-31]] — `notes` is the third kind, and takes neither route: it never becomes config. */
 const RawSweepValueSchema = z.object({
   name: z.string().min(1, 'sweep value name must be a non-empty string'),
   model: z.string().optional(),
   config: z.record(z.string(), z.unknown()).optional(),
+  notes: z
+    .object({
+      omit: z.array(z.string()),
+    })
+    .optional(),
 });
 
 /** BATCH-25 — the sweep: named axes whose cartesian product is the set of runs (`rung × model`). */
@@ -624,6 +637,29 @@ export function parseEvalSuite(yamlText: string, sourcePath?: string): EvalSuite
         'nothing about the SUT. Sweep a `gth-agent` target, or vary the external agent yourself ' +
         'and run the suite once per variant.'
     );
+  }
+
+  // [[BATCH-31]] — a `notes:` arm omits a note from the APPROVALS RATER's prompt, so it means
+  // nothing on any other target: a `gth-agent` or external suite would accept the axis, run twice,
+  // and print two identical columns. Reject it here rather than at the classifier, so the author
+  // learns at parse time and NOTHING runs.
+  //
+  // It is also the fourth leg of this facility's production-unreachability: the one target the
+  // declaration parses on is the one that runs no agent and executes no tool.
+  if (sweep !== undefined && target.type !== 'rater') {
+    const armed = sweep.axes.flatMap((axis) =>
+      axis.values
+        .filter((value) => value.notes !== undefined)
+        .map((value) => `${axis.name}=${value.name}`)
+    );
+    if (armed.length > 0) {
+      throw new Error(
+        `Invalid eval suite${suffix}: sweep value(s) ${armed.join(', ')} declare \`notes:\`, which ` +
+          `omits a note from the approvals rater's prompt — it means nothing for a "${target.type}" ` +
+          'target. Use `notes:` on a `rater` suite; every other target would run the cells and ' +
+          'report columns that differ in nothing.'
+      );
+    }
   }
 
   const suiteDefaultThreshold = data.defaults?.pass_threshold ?? DEFAULT_EVAL_PASS_THRESHOLD;
@@ -1309,16 +1345,40 @@ function buildSweep(
             'provider (a genuinely fresh instance).'
         );
       }
-      if (rawValue.model === undefined && rawValue.config === undefined) {
+      if (
+        rawValue.model === undefined &&
+        rawValue.config === undefined &&
+        rawValue.notes === undefined
+      ) {
         throw new Error(
           `Invalid eval suite${suffix}: sweep value "${axisName}=${valueName}" declares neither ` +
-            '`model:` nor `config:` — a cell that overrides nothing is an unnamed duplicate run.'
+            '`model:`, `config:` nor `notes:` — a cell that overrides nothing is an unnamed ' +
+            'duplicate run.'
         );
+      }
+      // [[BATCH-31]] — the baseline arm of an A/B is written `notes: { omit: [] }` and is a real
+      // declaration, so it passes the check above. That is why the arm is a block with an explicit
+      // list rather than a bare list of names: `omit: []` says "this cell sends the whole prompt",
+      // where a value declaring nothing at all cannot be told from an authoring slip.
+      const notes = rawValue.notes;
+      if (notes !== undefined) {
+        for (const name of notes.omit) {
+          if (!(RATER_PROMPT_NOTE_NAMES as string[]).includes(name)) {
+            throw new Error(
+              `Invalid eval suite${suffix}: sweep value "${axisName}=${valueName}" omits unknown ` +
+                `rater prompt note "${name}". Known notes: ${RATER_PROMPT_NOTE_NAMES.join(', ')}. ` +
+                'Only notes gth exports a byte-exact builder for can be omitted — a name matched ' +
+                'against a copy of the note text here would stop matching the day core reworded it ' +
+                'and would then remove nothing.'
+            );
+          }
+        }
       }
       return {
         name: valueName,
         model: rawValue.model?.trim() || undefined,
         config: rawValue.config,
+        notes: notes && { omit: notes.omit as RaterPromptNoteName[] },
       };
     });
 

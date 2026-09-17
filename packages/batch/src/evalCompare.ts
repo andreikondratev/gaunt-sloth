@@ -8,6 +8,7 @@ import type {
   EvalSweepValue,
   JudgeOutcome,
 } from '#src/evalTypes.js';
+import type { RaterPromptArm } from '#src/raterPromptArm.js';
 
 /**
  * BATCH-25 — the comparison layer: run the same corpus across a sweep of configurations and emit
@@ -41,6 +42,16 @@ export interface SweepCell {
   model?: string;
   /** The merged plain-data config overrides for this cell. */
   config: Record<string, unknown>;
+  /**
+   * [[BATCH-31]] — the cell's rater prompt arm, when an axis value declares one.
+   *
+   * **A sibling of {@link config}, never a key inside it, and that separation is the facility's
+   * first enforcement leg.** `initConfigForCell` deep-merges `config` onto the resolved `GthConfig`
+   * and nothing else; keeping the arm out of it is what makes the omission unable to become a
+   * config value — and therefore unable to be written in a config file, an env var or a CLI flag,
+   * the three carriers that would make it reachable from a live session's approvals gate.
+   */
+  notes?: RaterPromptArm;
 }
 
 /**
@@ -65,15 +76,21 @@ export function expandSweep(sweep: EvalSweep): SweepCell[] {
   return cells.map((cell) => {
     let model: string | undefined;
     let config: Record<string, unknown> = {};
+    // [[BATCH-31]] — the arm follows `model`'s rule, not `config`'s: a later axis REPLACES it rather
+    // than merging. Two axes declaring arms are describing the same knob twice (the cell name shows
+    // it), and a union of their omissions would build a third arm neither axis wrote.
+    let notes: RaterPromptArm | undefined;
     for (const part of cell.parts) {
       if (part.value.model !== undefined) model = part.value.model;
       if (part.value.config) config = deepMerge(config, part.value.config);
+      if (part.value.notes !== undefined) notes = part.value.notes;
     }
     return {
       name: cell.parts.map((part) => `${part.axis}=${part.value.name}`).join(' · '),
       dirName: cell.parts.map((part) => `${part.axis}-${part.value.name}`).join('__'),
       model,
       config,
+      ...(notes !== undefined ? { notes } : {}),
     };
   });
 }

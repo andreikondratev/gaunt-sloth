@@ -144,6 +144,13 @@ export {
 } from '#src/raterTarget.js';
 export type { RaterClassifierOptions } from '#src/raterTarget.js';
 
+// [[BATCH-31]] — the prompt arm: the note-on / note-off A/B a rater suite can express. Only the
+// NAMES and the type are exported. `armRaterModel` deliberately is not — nothing outside this
+// package needs to build one, and the narrower the surface the smaller the chance of a caller
+// wiring an omission somewhere the argument in `raterPromptArm.ts` does not cover.
+export { RATER_PROMPT_NOTE_NAMES } from '#src/raterPromptArm.js';
+export type { RaterPromptArm, RaterPromptNoteName } from '#src/raterPromptArm.js';
+
 // BATCH-19 — the `gth eval` reporter facility (A1 seam). These are the public plugin contract an
 // out-of-core `@gaunt-sloth/eval-reporter-*` package implements, exported from the package root so a
 // reporter package can type its factory against ONE import.

@@ -382,7 +382,8 @@ sweep:
       values: [{ name: x }]
 cases: [{ id: a, prompt: p, must_contain: [x] }]
 `)
-      ).rejects.toThrow(/declares neither `model:` nor `config:`/);
+        // [[BATCH-31]] added `notes:` as a third override kind, so the message names three.
+      ).rejects.toThrow(/declares neither `model:`, `config:` nor `notes:`/);
     });
 
     it('rejects a value name that is not path-safe — it becomes an output-dir component', async () => {
