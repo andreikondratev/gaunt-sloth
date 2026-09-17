@@ -12,8 +12,8 @@
  * simply carries no metadata until the cache fills. Nothing here ever blocks model use.
  *
  * ## Fetch / cache shape
- * models.dev publishes a **single** dataset at {@link MODELS_DEV_URL} (`api.json`, ~3 MB); there is
- * no per-provider endpoint. So "lazy, per-provider" is realised on the **cache side**: on a miss for
+ * models.dev publishes a **single** dataset at {@link MODELS_DEV_URL} — `api.json`, several MB of
+ * JSON, served compressed and so a few hundred KB on the wire; there is no per-provider endpoint. So "lazy, per-provider" is realised on the **cache side**: on a miss for
  * provider *X* we fetch `api.json` once, **slice out just X's models**, and persist that slice to a
  * per-provider cache file (`~/.gsloth/model-catalog/<providerKey>.json`). Subsequent reads are served
  * **cache-first** from that per-provider file and never touch the network within the {@link CATALOG_TTL_MS}
@@ -46,8 +46,11 @@ export const CATALOG_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
 /**
  * Catalog fetch timeout. Deliberately generous (and separate from `/v1/models` discovery's 2 s
- * interactive-path probe): `api.json` is a few MB and this fetch runs off the explicit `gth models`
- * cache-fill path, not a first-run keystroke, so latency headroom matters more than snappiness.
+ * interactive-path probe): this fetch runs off the explicit `gth models` cache-fill path, not a
+ * first-run keystroke, so latency headroom matters more than snappiness. The headroom is for the
+ * slow and high-latency links rather than for the payload — compressed, it is a few hundred KB and
+ * lands in a fraction of a second on a fast connection — and on those links this timeout is the
+ * only thing bounding the wait.
  */
 export const CATALOG_TIMEOUT_MS = 10_000;
 
@@ -137,11 +140,15 @@ export interface CatalogOptions {
    * it is fresh or stale, and `null` when there is none.
    *
    * For callers on a latency-critical path that would rather have no answer than a slow one. The
-   * context guard runs before the first model call of a session, and `api.json` is a few MB behind
-   * a 10 s timeout: a cold cache would put that delay in front of the user's first turn, to decide
-   * a threshold that has a perfectly good fallback (the model profile) and whose absence costs only
-   * that one session's preventive compaction. The cache is filled by `gth init` and
-   * `gth models --refresh`, which are explicit and can afford to wait.
+   * context guard runs before the first model call of a session, and a cold fetch there is bounded
+   * only by {@link CATALOG_TIMEOUT_MS}: a fraction of a second on a fast link, and on a slow or
+   * high-latency one whatever the link takes, all of it in front of the user's first turn — to
+   * decide a threshold that has a fallback (the model profile) and whose absence costs only that
+   * one session's preventive compaction. It is the tail this guards, not the median. The cache is
+   * filled by `gth init` and `gth models --refresh`, which are explicit and can afford to wait.
+   *
+   * What the fallback costs in exchange is written where it is paid — see the tier-3 ruling in
+   * `core/contextWindow.ts`.
    *
    * Ignored when {@link refresh} is set — an explicit refresh is a request to go to the network.
    */

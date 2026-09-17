@@ -43,6 +43,7 @@
 import { debugLog } from '#src/utils/debugUtils.js';
 import {
   getProviderCatalog,
+  MODELS_DEV_PROVIDER_KEY,
   type CatalogOptions,
   type ProviderCatalog,
 } from '#src/providers/modelCatalog.js';
@@ -237,11 +238,16 @@ export interface ContextWindowResolutionOptions {
    * Options threaded to {@link getProviderCatalog} (cache dir, TTL, fetch impl) for hermetic tests.
    *
    * **`cacheOnly` defaults to `true` here and nowhere else.** This resolution sits in front of the
-   * first model call of a session, and a cold `api.json` fetch is a few MB behind a 10 s timeout —
-   * a delay the user would experience as the agent hanging before it said anything, to decide a
-   * threshold that already has a fallback. `gth init` passes `cacheOnly: false` because it is an
-   * explicit, interactive step that can afford to wait, and filling the cache there is what makes
-   * the runtime read a hit.
+   * first model call of a session, and what a cold `api.json` fetch costs there is **bounded only
+   * by the catalog fetch timeout**: a few hundred milliseconds on a fast link, and on a slow one
+   * whatever the link takes, up to the timeout — a delay the user would experience as the agent
+   * hanging before it said anything, to decide a threshold that already has a fallback. It is the
+   * tail rather than the median that this option is protecting, since the cache has a free warm
+   * path either way. `gth init` passes `cacheOnly: false` because it is an explicit, interactive
+   * step that can afford to wait, and filling the cache there is what makes the runtime read a hit.
+   *
+   * The cost of *not* fetching is that the LangChain profile decides alone — see the ruling on that
+   * branch in {@link resolveContextWindow}.
    */
   catalogOptions?: CatalogOptions;
   /** Catalog reader override; {@link getProviderCatalog} when omitted. Injected by the tests. */
@@ -294,6 +300,11 @@ export function resolveContextWindow(
   let pending: Promise<ContextWindowReading> | undefined;
 
   const resolve = async (): Promise<ContextWindowReading> => {
+    // [[EXT-185]] — whether tier 2 was ABSENT rather than merely silent, which are different facts
+    // with the same `null` shape further down. Absent means no cached slice and a runtime that will
+    // not fetch one; silent means the catalog answered and does not cover this id. Only the first
+    // is the case the ruling at tier 3 is about.
+    let catalogWasAbsent = false;
     // 1. Ollama — the number the request will actually carry. It is asked first and not merely
     //    preferred: models.dev deliberately has no ollama entry (local models have no catalog
     //    row), so for ollama there is nothing below this to fall through to.
@@ -314,6 +325,11 @@ export function resolveContextWindow(
           cacheOnly: true,
           ...options.catalogOptions,
         });
+        // A `null` catalog for a provider models.dev does not carry at all (ollama, or any id
+        // outside the key map) is not a cold cache and has no warm path — telling that user to
+        // refresh a catalog that will never hold their model would be a diagnostic that lies.
+        catalogWasAbsent =
+          catalog === null && Boolean(MODELS_DEV_PROVIDER_KEY[providerId as ProviderId]);
         const context = catalog?.models?.[modelId]?.limit?.context;
         if (typeof context === 'number' && Number.isFinite(context) && context > 0) {
           return { tokens: context, origin: 'models.dev' };
@@ -325,9 +341,50 @@ export function resolveContextWindow(
       }
     }
     // 3. The profile — a backstop, recorded as such so a wrong threshold is diagnosable.
+    //
+    // [[EXT-185]] — **on a cold catalog cache this backstop decides alone, and it is RULED that it
+    // still gets to.** Tier 2 is the tier that is missing here, so the ordering above has nothing
+    // to prefer; the question is whether a profile answer with no catalog to check it against
+    // should be acted on at all.
+    //
+    // It should, and the reason is that declining would pay real protection for none. Measured on
+    // this repo's pinned `@langchain/openrouter`, three ids OVERSTATE their window — a ratio of up
+    // to 3.2x — and an overstated window means no preventive compaction at all:
+    //
+    //   mistralai/mistral-medium-3.1         profile 262144, models.dev 131072  (2.0x)
+    //   qwen/qwen3-235b-a22b-thinking-2507   profile 262144, models.dev 131072  (2.0x)
+    //   qwen/qwen3-30b-a3b-thinking-2507     profile 262000, models.dev  81920  (3.2x)
+    //
+    // Those three are **known and accepted**, not unnoticed. For them, returning `null` here
+    // instead would change nothing a user can feel: an overstated window fires no preventive
+    // compaction, an unknown window fires no preventive compaction, and the overflow lands on the
+    // reactive seam either way. Declining every cold-cache profile answer would meanwhile drop the
+    // window for every id whose profile entry is RIGHT — the great majority, and the only source
+    // left when the catalog is not cached — so it would buy nothing on the bad three and lose the
+    // guard on the rest.
+    //
+    // Hardcoding corrections for the three is the other tempting answer and is worse: [[EXT-181]]
+    // measured the profile tables stale across every provider package, so a table of our own would
+    // be a second catalog that rots on its own schedule, and the three ids above are a snapshot of
+    // ONE pinned package rather than a fixed set.
+    //
+    // What is actually lost on this path is not the number but the signal: the empty-resolution
+    // line below already tells a maintainer to fill the catalog cache, and it is precisely the
+    // cold-cache case that never reaches it, because the profile answered. So that case says so
+    // here instead.
     try {
       const profile = profileReader(llm);
       if (profile !== null && Number.isFinite(profile) && profile > 0) {
+        if (catalogWasAbsent) {
+          debugLog(
+            `Context window ${profile} for provider '${providerId}' model '${modelId}' came from ` +
+              "the provider package's built-in profile table: no models.dev slice is cached for " +
+              `'${providerId}', and the runtime reads the catalog cache-only, so that table ` +
+              'decided unchallenged. It is measured to overstate a few ids, and an overstated ' +
+              'window means no preventive compaction at all. Filling the catalog cache ' +
+              '(gth models --refresh, or gth init) is what puts the catalog back in front of it.'
+          );
+        }
         return { tokens: profile, origin: 'profile' };
       }
     } catch {

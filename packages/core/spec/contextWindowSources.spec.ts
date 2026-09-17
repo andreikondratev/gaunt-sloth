@@ -116,9 +116,10 @@ describe('EXT-161 — models.dev outranks the LangChain profile (RULED)', () => 
   });
 
   it('never reaches the network from the runtime path: the catalog read is cache-only', async () => {
-    // The resolution sits in front of the first model call of a session. `api.json` is a few MB
-    // behind a 10s timeout, so a cold fetch here would be experienced as the agent hanging before
-    // it said anything — and it would write the slice into the user's home from a unit run.
+    // The resolution sits in front of the first model call of a session, and a cold fetch there is
+    // bounded only by the catalog timeout — fast on a good link, and on a poor one experienced as
+    // the agent hanging before it said anything. It would also write the slice into the user's home
+    // from a unit run.
     const catalogReader = vi.fn(async () => catalogWith({ 'claude-sonnet-4-5': 200_000 }));
     await resolveContextWindow(undefined, {
       providerId: 'anthropic',
@@ -342,5 +343,120 @@ describe('EXT-161 — one resolution, shared by the guard and /status', () => {
       catalogReader,
     });
     expect(await source()).toBe(200_000);
+  });
+});
+
+/**
+ * EXT-185 — **the cold-cache path, where the backstop decides alone.**
+ *
+ * The runtime reads the catalog cache-only, so on a machine whose slice was never filled tier 2
+ * answers nothing and the profile table decides unchallenged — the one path where that table's
+ * measured overstatements (up to 3.2x on this repo's pinned `@langchain/openrouter`) can set a
+ * threshold nothing will ever cross.
+ *
+ * The number is RULED to stand: declining it would drop the window for every id whose profile entry
+ * is right and change nothing for the wrong ones, which already fire no compaction. What the path
+ * was missing is the signal, so these cells are about the signal.
+ *
+ * **Every cell here pairs with one that differs only in the temperature of the cache.** The reading
+ * is identical on both sides — same tokens, same `profile` origin — so an assertion that could not
+ * tell cold from warm would pass on both and pin nothing.
+ */
+describe('EXT-185 — a cold catalog cache says so when the profile decides', () => {
+  /** The cold-cache signal, matched on the fact it asserts rather than on the whole sentence. */
+  const COLD_CATALOG_SIGNAL = /no models\.dev slice is cached for/;
+  const coldSignalsIn = (lines: string[]): string[] =>
+    lines.filter((line) => COLD_CATALOG_SIGNAL.test(line));
+
+  it('says so when the catalog is ABSENT and the profile supplies the window', async () => {
+    // `null` from the reader is the cold cache exactly: `getProviderCatalog` under `cacheOnly`
+    // returns what is on disk, and on a machine that has never run `gth init` or `gth models`
+    // there is nothing on disk to return.
+    const catalogReader = vi.fn(async () => null);
+    const { result, lines } = await withDebugLines(() =>
+      resolveContextWindow(modelWithProfile(262_000), {
+        providerId: 'openrouter',
+        modelId: 'qwen/qwen3-30b-a3b-thinking-2507',
+        catalogReader,
+      }).read()
+    );
+
+    expect(result).toEqual({ tokens: 262_000, origin: 'profile' });
+    const signals = coldSignalsIn(lines);
+    expect(signals).toHaveLength(1);
+    // The three things that make the line worth reading: which number is in force, whose table it
+    // came from, and the one command that puts the catalog back in front of it.
+    expect(signals[0]).toContain('262000');
+    expect(signals[0]).toContain('qwen/qwen3-30b-a3b-thinking-2507');
+    expect(signals[0]).toMatch(/gth models --refresh/);
+  });
+
+  it('CONTROL: stays quiet when the catalog ANSWERED and simply has no row for the model', async () => {
+    // The discriminating half. A warm catalog that does not cover this id reaches the profile by
+    // the same branch and returns the same reading — so a signal that fired here would be telling
+    // a user with a perfectly good cache to go and fill it.
+    const catalogReader = vi.fn(async () => catalogWith({ 'some-other-model': 131_072 }));
+    const { result, lines } = await withDebugLines(() =>
+      resolveContextWindow(modelWithProfile(262_000), {
+        providerId: 'openrouter',
+        modelId: 'qwen/qwen3-30b-a3b-thinking-2507',
+        catalogReader,
+      }).read()
+    );
+
+    expect(result).toEqual({ tokens: 262_000, origin: 'profile' });
+    expect(coldSignalsIn(lines)).toEqual([]);
+  });
+
+  it('CONTROL: stays quiet for a provider models.dev does not carry at all', async () => {
+    // Reachable rather than hypothetical: ollama configured through its OpenAI-compatible shim
+    // reports `openai` from `_llmType()`, so tier 1 is skipped and tier 2 is entered with
+    // `providerId: 'ollama'` — for which `getProviderCatalog` returns null because there is no
+    // models.dev slice to have, cache or no cache. Refreshing would never produce one.
+    const catalogReader = vi.fn(async () => null);
+    const { result, lines } = await withDebugLines(() =>
+      resolveContextWindow(modelWithProfile(16_384), {
+        providerId: 'ollama',
+        modelId: 'gemma4:12b',
+        catalogReader,
+      }).read()
+    );
+
+    expect(result).toEqual({ tokens: 16_384, origin: 'profile' });
+    expect(coldSignalsIn(lines)).toEqual([]);
+  });
+
+  it('leaves the empty-resolution line alone when nothing knows the model', async () => {
+    // A cold cache AND no profile entry is the unknown case, which already has its own line. Two
+    // lines for one resolution would make the ring buffer harder to read, not easier.
+    const catalogReader = vi.fn(async () => null);
+    const { result, lines } = await withDebugLines(() =>
+      resolveContextWindow(
+        {},
+        {
+          providerId: 'openrouter',
+          modelId: 'qwen/qwen3-30b-a3b-thinking-2507',
+          catalogReader,
+        }
+      ).read()
+    );
+
+    expect(result).toEqual({ tokens: null, origin: 'unknown' });
+    expect(coldSignalsIn(lines)).toEqual([]);
+    expect(signalsIn(lines)).toHaveLength(1);
+  });
+
+  it('says it once a session, not before every model call', async () => {
+    const catalogReader = vi.fn(async () => null);
+    const resolved = resolveContextWindow(modelWithProfile(262_000), {
+      providerId: 'openrouter',
+      modelId: 'qwen/qwen3-30b-a3b-thinking-2507',
+      catalogReader,
+    });
+    const { lines } = await withDebugLines(async () => {
+      await Promise.all([resolved.source(), resolved.source(), resolved.read(), resolved.read()]);
+    });
+
+    expect(coldSignalsIn(lines)).toHaveLength(1);
   });
 });
