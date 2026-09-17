@@ -2303,9 +2303,14 @@ describe('GthLangChainAgent', () => {
       // [[EXT-184]] — the run config reaches the graph with an abort signal added, which is what
       // makes Esc during a non-streaming turn able to cancel it. Every field the caller set is
       // still asserted; the signal is asserted on top of them rather than in place of them.
+      //
+      // Deliberately a plain object rather than `expect.objectContaining`: this cell's job is to
+      // pin the WHOLE shape of what reaches the graph, so an unexpected extra key is a failure
+      // here. `objectContaining` would permit one, which would have made this assertion weaker
+      // than the exact-equality form it replaced rather than stronger.
       expect(agentMock.invoke).toHaveBeenCalledWith(
         { messages: [expect.any(HumanMessage)] },
-        expect.objectContaining({ ...runConfig, signal: expect.any(AbortSignal) })
+        { ...runConfig, signal: expect.any(AbortSignal) }
       );
     });
 
@@ -2469,9 +2474,14 @@ describe('GthLangChainAgent', () => {
       // [[EXT-184]] — the run config reaches the graph with an abort signal added, which is what
       // makes Esc during a non-streaming turn able to cancel it. Every field the caller set is
       // still asserted; the signal is asserted on top of them rather than in place of them.
+      //
+      // Deliberately a plain object rather than `expect.objectContaining`: this cell's job is to
+      // pin the WHOLE shape of what reaches the graph, so an unexpected extra key is a failure
+      // here. `objectContaining` would permit one, which would have made this assertion weaker
+      // than the exact-equality form it replaced rather than stronger.
       expect(agentMock.invoke).toHaveBeenCalledWith(
         { messages: [expect.any(HumanMessage)] },
-        expect.objectContaining({ ...runConfig, signal: expect.any(AbortSignal) })
+        { ...runConfig, signal: expect.any(AbortSignal) }
       );
     });
 
@@ -2527,9 +2537,14 @@ describe('GthLangChainAgent', () => {
       // [[EXT-184]] — the run config reaches the graph with an abort signal added, which is what
       // makes Esc during a non-streaming turn able to cancel it. Every field the caller set is
       // still asserted; the signal is asserted on top of them rather than in place of them.
+      //
+      // Deliberately a plain object rather than `expect.objectContaining`: this cell's job is to
+      // pin the WHOLE shape of what reaches the graph, so an unexpected extra key is a failure
+      // here. `objectContaining` would permit one, which would have made this assertion weaker
+      // than the exact-equality form it replaced rather than stronger.
       expect(agentMock.invoke).toHaveBeenCalledWith(
         { messages: [expect.any(HumanMessage)] },
-        expect.objectContaining({ ...runConfig, signal: expect.any(AbortSignal) })
+        { ...runConfig, signal: expect.any(AbortSignal) }
       );
     });
 
