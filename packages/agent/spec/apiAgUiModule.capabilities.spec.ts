@@ -173,6 +173,70 @@ describe('apiAgUiModule capabilities endpoint', () => {
     expect(written).not.toContain('langgraph');
   });
 
+  it('serves the route under the default CORS headers, with no cors config at all', async () => {
+    // The node's acceptance names reachability with the DEFAULT config, so `baseConfig` carries no
+    // `cors` key: this is the untouched default path, not a widened one. Two things have to hold —
+    // the default `allowMethods` admits GET, and the middleware is registered BEFORE the routes, or
+    // the headers never reach this response.
+    const { startAgUiServer } = await import('#src/modules/apiAgUiModule.js');
+    await startAgUiServer(baseConfig as GthConfig, 3000);
+
+    const corsIndex = mockUseFn.mock.calls.findIndex(([fn]) => typeof fn === 'function');
+    expect(corsIndex, 'no CORS middleware registered').toBeGreaterThanOrEqual(0);
+    const cors = mockUseFn.mock.calls[corsIndex][0] as (
+      _req: unknown,
+      _res: unknown,
+      _next: () => void
+    ) => void;
+
+    const res = makeRes();
+    const next = vi.fn();
+    cors({ method: 'GET' }, res, next);
+    expect(next).toHaveBeenCalledTimes(1);
+
+    const headers = Object.fromEntries(res.setHeader.mock.calls as [string, string][]);
+    expect(headers['Access-Control-Allow-Methods']).toContain('GET');
+    expect(headers['Access-Control-Allow-Origin']).toBeTruthy();
+
+    const capIndex = mockGetFn.mock.calls.findIndex(
+      ([path]) => path === '/agents/:agentId/capabilities'
+    );
+    expect(capIndex).toBeGreaterThanOrEqual(0);
+    expect(mockUseFn.mock.invocationCallOrder[corsIndex]).toBeLessThan(
+      mockGetFn.mock.invocationCallOrder[capIndex]
+    );
+  });
+
+  it('answers the same declaration whatever :agentId is asked for', async () => {
+    // The run route never reads `req.params.agentId`, and this route must not diverge from it: an
+    // id nothing is registered under is answered, not refused. The third request carries no `params`
+    // object at all — a handler that had started reading the id would throw on it, which is what
+    // makes this an invariance check rather than two equal bodies by coincidence.
+    const { startAgUiServer } = await import('#src/modules/apiAgUiModule.js');
+    await startAgUiServer(
+      { ...baseConfig, tools: [fakeTool('read_file', 'Read a file')] } as GthConfig,
+      3000
+    );
+    const handler = handlerFor('/agents/:agentId/capabilities');
+
+    const known = makeRes();
+    handler({ params: { agentId: 'default' } }, known);
+    const unknown = makeRes();
+    handler({ params: { agentId: 'no-such-agent-42' } }, unknown);
+    const bare = makeRes();
+    handler({}, bare);
+
+    const bodyOf = (res: ReturnType<typeof makeRes>) => {
+      expect(res.json).toHaveBeenCalledTimes(1);
+      return res.json.mock.calls[0][0] as Record<string, unknown>;
+    };
+    expect(bodyOf(unknown)).toEqual(bodyOf(known));
+    expect(bodyOf(bare)).toEqual(bodyOf(known));
+    expect(unknown.status).not.toHaveBeenCalled();
+    // Not vacuously equal: the shared body is a real declaration.
+    expect((bodyOf(known).tools as { items: unknown[] }).items).toHaveLength(1);
+  });
+
   // ─── the shipped schema, not a stand-in ───────────────────────────────────
 
   it('answers a body the real AgentCapabilitiesSchema accepts', async () => {
@@ -294,6 +358,33 @@ describe('apiAgUiModule capabilities endpoint', () => {
     const tools = body.tools as { items: { name: string }[]; clientProvided: boolean };
     expect(tools.items.map((item) => item.name)).toEqual(['read_file']);
     expect(tools.clientProvided).toBe(true);
+  });
+
+  it('publishes no server metadata for a tool whose MCP server could not be named', async () => {
+    // `approvalSubjectForToolName` resolves an `mcp__` name against the configured server keys and
+    // yields UNRESOLVED_MCP_SERVER — the EMPTY STRING — when zero or two keys explain it. That value
+    // is an internal "we cannot attribute this call", not a server anyone can be told about, so the
+    // declaration carries no `metadata` for such a tool. The resolvable sibling in the same
+    // inventory is the differential: metadata is omitted HERE, not never emitted.
+    agentAdvertisedToolsMock.mockReturnValue({
+      tools: [
+        { name: 'mcp__unimarket__search', server: 'unimarket' },
+        { name: 'mcp__mystery__do', server: '' },
+      ],
+      filteredOut: [],
+      unnamed: 0,
+    } as GthAdvertisedTools);
+
+    const body = await capabilitiesOf(baseConfig);
+    const items = (body.tools as { items: { name: string; metadata?: unknown }[] }).items;
+    expect(items.find((item) => item.name === 'mcp__mystery__do')).toEqual({
+      name: 'mcp__mystery__do',
+      description: '',
+    });
+    expect(items.find((item) => item.name === 'mcp__unimarket__search')).toMatchObject({
+      metadata: { server: 'unimarket' },
+    });
+    expect(AgentCapabilitiesSchema.safeParse(body).success).toBe(true);
   });
 
   // ─── what is deliberately absent, and what is deliberately false ──────────

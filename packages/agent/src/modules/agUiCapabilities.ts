@@ -247,6 +247,10 @@ function resolveToolItems(config: GthConfig, agent: GthAbstractAgent | undefined
       name: entry.name,
       description: typeof tool?.description === 'string' ? tool.description : '',
       ...(parameters ? { parameters } : {}),
+      // The falsy branch is not only "no server": `approvalSubjectForToolName` hands an MCP tool
+      // whose server it could not resolve the UNRESOLVED_MCP_SERVER sentinel, which is the EMPTY
+      // STRING. That is an internal "this call is unattributable", not a name a client may be told,
+      // so it must stay off the wire — keep this test truthy rather than `!== undefined`.
       ...(entry.server ? { metadata: { server: entry.server } } : {}),
     });
   }
