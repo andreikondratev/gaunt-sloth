@@ -27,6 +27,7 @@
  */
 import { parseTokenBudget, resolveTokenBudget, type TokenBudget } from '#src/config/tokenBudget.js';
 import type {
+  ContextWindowCheck,
   ContextWindowOrigin,
   ContextWindowReading,
   ResolvedContextWindow,
@@ -118,6 +119,14 @@ export interface AutocompactStatus {
   window: number | null;
   /** Which source the window came from. */
   windowOrigin: ContextWindowOrigin;
+  /**
+   * [[EXT-187]] — whether anything was in a position to contradict that window.
+   *
+   * Carried beside `windowOrigin` rather than folded into it, for the reason
+   * {@link ContextWindowCheck} gives: they answer different questions, and a surface that needs one
+   * of them almost always needs the other in the same sentence.
+   */
+  windowCheck: ContextWindowCheck;
   /** The budget exactly as written, when one was written — so `/status` can echo `80%` as `80%`. */
   budget: TokenBudget | null;
 }
@@ -198,6 +207,7 @@ export class AutocompactController {
         thresholdOrigin: 'none',
         window: reading.tokens,
         windowOrigin: reading.origin,
+        windowCheck: reading.check,
         budget,
       };
     }
@@ -206,6 +216,35 @@ export class AutocompactController {
     // explicit `300K` still fires on a model nothing knows the window of. A PERCENTAGE without a
     // window cannot resolve, and falls through to the same "nothing fires" answer as no threshold
     // at all rather than to a guess.
+    //
+    // [[EXT-187]] — **this line is where `/autocompact <n>%` meets a window nothing checked, and it
+    // is RULED to resolve it exactly as it resolves a checked one.** The arithmetic below is
+    // deliberately blind to `reading.check`; what changes is that the status now carries the fact,
+    // so the surface can say the window is unverified instead of presenting it as measured. Three
+    // alternatives were considered here and rejected:
+    //
+    // **Refuse the percentage** — return no threshold when the window is `'unchecked'`. Rejected:
+    // it pays a certain broad loss to avoid an uncertain narrow one. The profile table is RIGHT for
+    // the great majority of ids ([[EXT-185]] measured three overstating entries in one pinned
+    // package, not a majority), and a cold cache is the ORDINARY first-session state rather than an
+    // edge case, because the runtime reads the catalog `cacheOnly`. So refusing would strip
+    // preventive compaction from most models on most first sessions. It also inverts this feature's
+    // own failure mode into a worse one: the user asks for 80%, is told no, and now has nothing —
+    // a protection silently absent is exactly what a threshold they cannot see was meant to avoid.
+    //
+    // **Derate it** — treat an unchecked window as some fraction smaller before applying the
+    // percentage. Rejected as the 4097 failure `contextWindow.ts` opens by naming, wearing a
+    // different hat: it invents a number the user did not choose and cannot predict, and it would
+    // leave `/status` echoing a threshold that matches neither the window printed above it nor the
+    // percentage the user wrote.
+    //
+    // **Ask.** Rejected: the same path serves the `autocompact` CONFIG key, which is read with
+    // nobody at the keyboard, and a prompt at session start for the many models one cold-cache read
+    // away from unknown is the default-on noise [[EXT-168]] already declined a notice over.
+    //
+    // What is left — resolve it and SAY SO — is the only option that keeps the guard that is
+    // usually right while ending the silence that made the setting misleading. The cost is one
+    // sentence on a surface the user is already reading; see `autocompactLines`.
     const named = budget ? resolveTokenBudget(budget, reading.tokens) : null;
     if (named !== null) {
       return {
@@ -214,6 +253,7 @@ export class AutocompactController {
         thresholdOrigin: budgetOrigin === 'default' ? 'config' : budgetOrigin,
         window: reading.tokens,
         windowOrigin: reading.origin,
+        windowCheck: reading.check,
         budget,
       };
     }
@@ -225,6 +265,7 @@ export class AutocompactController {
         thresholdOrigin: 'none',
         window: null,
         windowOrigin: reading.origin,
+        windowCheck: reading.check,
         budget,
       };
     }
@@ -235,6 +276,7 @@ export class AutocompactController {
       thresholdOrigin: 'default',
       window: reading.tokens,
       windowOrigin: reading.origin,
+      windowCheck: reading.check,
       budget,
     };
   }

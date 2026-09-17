@@ -26,7 +26,10 @@ import type {
 import type { TokenBudget } from '@gaunt-sloth/core/config.js';
 import { parseTokenBudget, TokenBudgetError } from '@gaunt-sloth/core/config.js';
 import type { AutocompactStatus } from '@gaunt-sloth/core/core/compactionThreshold.js';
-import { CONTEXT_WINDOW_ORIGIN_LABELS } from '@gaunt-sloth/core/core/contextWindow.js';
+import {
+  CONTEXT_WINDOW_CHECK_LABELS,
+  CONTEXT_WINDOW_ORIGIN_LABELS,
+} from '@gaunt-sloth/core/core/contextWindow.js';
 import {
   APPROVAL_POSTURES,
   APPROVAL_PROTECTION_DOCS_LINES,
@@ -1511,6 +1514,64 @@ export function compactionFailedNotice(reason: string): SlashCommandNotice {
 }
 
 /**
+ * EXT-187 — what `/status` and `/autocompact` add when nothing checked the window.
+ *
+ * Returns nothing at all in the ordinary case, so every call site can splat it unconditionally.
+ * A separate function rather than more branches inside {@link autocompactLines} because that
+ * renderer is a shared surface — [[OPS-125]] is rewriting its threshold provenance — and an
+ * additive helper rebases where a restructured body would conflict.
+ *
+ * **Two lines at most, and the second one is the sharp one.** The first qualifies the window number
+ * itself, which is printed on every branch. The second fires only when the threshold in force was
+ * DERIVED from that window — a percentage budget, or the default — because that is the case where
+ * the doubt is not presentational: the user chose a share of a window, and the share was taken of a
+ * number nothing checked. An absolute `300K` needs no such line; it means the same tokens whatever
+ * the window turns out to be, so saying the window is unverified beside it would attach a warning
+ * to a setting the warning does not touch.
+ *
+ * **Silent for `'checked'` and `'uncheckable'`** — see `CONTEXT_WINDOW_CHECK_LABELS`, which is
+ * where that ruling lives. Compared by exact value rather than by "not checked", so a status from
+ * an older or hand-built fixture that carries no `windowCheck` at all renders exactly as it did
+ * before this node instead of printing a warning nobody can act on.
+ *
+ * **Silent too when there is no window at all, which is not a presentational nicety.** `'unchecked'`
+ * is reachable with `window === null`: a cold catalog cache sets the check state on the models.dev
+ * tier, the profile tier then also fails to know the model, and the state rides out on the empty
+ * resolution (`contextWindow.ts`, the `origin: 'unknown'` return). That is a real first-session
+ * shape for a provider whose compiled-in profile table has gone stale — the `@langchain/groq`
+ * measurement quoted there is exactly it. The note is written about a number: it says "that number
+ * is unverified" and that the built-in table "decided it alone". On the empty resolution there is
+ * no number, and the table did not decide it — it had no entry either. Printing it directly under
+ * "this model's context window is not known to any source we have" would contradict the line above
+ * it and offer a remedy for the wrong problem. **The sentence has to be true on every branch it can
+ * reach**, and gating on the window is what makes that so.
+ *
+ * Deliberately not solved by writing a second, window-less variant of the note. The absent window is
+ * [[OPS-125]]'s subject, and this node's own scope excludes it in those words — the surface here is
+ * a window that is *present, wrong and confident*. A remedy sentence for the unknown-window user is
+ * worth having, but it belongs to the node that owns that branch, phrased against what that branch
+ * actually knows, not bolted on from here where it would be the second renderer describing the same
+ * state in different words.
+ */
+function windowCheckLines(status: AutocompactStatus): string[] {
+  const note = CONTEXT_WINDOW_CHECK_LABELS[status.windowCheck];
+  if (status.windowCheck !== 'unchecked' || status.window === null || !note) return [];
+  const thresholdRestsOnWindow =
+    status.enabled &&
+    status.thresholdTokens !== null &&
+    (status.budget?.kind === 'fraction' || status.thresholdOrigin === 'default');
+  return [
+    note,
+    ...(thresholdRestsOnWindow
+      ? [
+          'The threshold above is a share of that unverified window, so it may sit past the ' +
+            'model’s real limit — set an absolute number instead if you need it to bite.',
+        ]
+      : []),
+  ];
+}
+
+/**
  * EXT-161 — how a resolved threshold and its provenance read to a person.
  *
  * One renderer for both `/autocompact` and `/status`, so the two cannot describe the same number
@@ -1527,6 +1588,7 @@ export function autocompactLines(status: AutocompactStatus): string[] {
     return [
       'Automatic compaction is OFF for this session (`autocompact: false`).',
       windowPart,
+      ...windowCheckLines(status),
       'The conversation is never folded before a request; an overflow is caught after the fact ' +
         'instead, if the provider reports one.',
     ];
@@ -1535,6 +1597,7 @@ export function autocompactLines(status: AutocompactStatus): string[] {
     return [
       'Automatic compaction is on, but nothing will trigger it.',
       windowPart,
+      ...windowCheckLines(status),
       'A threshold is never guessed — a wrong one would fold conversations that had room to ' +
         'spare, silently. Set one yourself with `/autocompact 300K` for this session, or the ' +
         '`autocompact` config key to make it stick.',
@@ -1551,6 +1614,7 @@ export function autocompactLines(status: AutocompactStatus): string[] {
       `${formatCount(status.thresholdTokens)} tokens.`,
     `Threshold: ${provenance[status.thresholdOrigin]}.`,
     windowPart,
+    ...windowCheckLines(status),
   ];
 }
 

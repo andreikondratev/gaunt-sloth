@@ -41,6 +41,7 @@ const status = (over: Partial<AutocompactStatus> = {}): AutocompactStatus => ({
   thresholdOrigin: 'config',
   window: 200_000,
   windowOrigin: 'models.dev',
+  windowCheck: 'checked',
   budget: { kind: 'tokens', tokens: 160_000 },
   ...over,
 });
@@ -282,7 +283,13 @@ describe('EXT-161 — `/autocompact <N>` under `autocompact: false` is refused',
   const offController = () =>
     new AutocompactController({
       config: resolveAutocompactConfig(false),
-      window: { read: async () => ({ tokens: 200_000, origin: 'models.dev' as const }) },
+      window: {
+        read: async () => ({
+          tokens: 200_000,
+          origin: 'models.dev' as const,
+          check: 'checked' as const,
+        }),
+      },
       defaultThreshold: (window) => window - 2048,
     });
 
@@ -319,7 +326,13 @@ describe('EXT-161 — `/autocompact <N>` under `autocompact: false` is refused',
   it('names the off switch, not a missing number, when the config also carries a threshold', async () => {
     const controller = new AutocompactController({
       config: resolveAutocompactConfig({ enabled: false, threshold: '300K' }),
-      window: { read: async () => ({ tokens: 200_000, origin: 'models.dev' as const }) },
+      window: {
+        read: async () => ({
+          tokens: 200_000,
+          origin: 'models.dev' as const,
+          check: 'checked' as const,
+        }),
+      },
       defaultThreshold: (window) => window - 2048,
     });
     const before = await controller.status();
@@ -368,5 +381,153 @@ describe('EXT-161 — /status carries the threshold and its provenance', () => {
     const lines = result.notice!.lines.join(' ');
     expect(lines).not.toContain('Automatic compaction');
     expect(lines).toContain('Mode: chat');
+  });
+});
+
+/**
+ * [[EXT-187]] — **`/status` and `/autocompact` say when nothing checked the window.**
+ *
+ * The number itself is unchanged and the threshold is unchanged; what changes is that the user can
+ * tell a measured window from a profile table that decided unchallenged. Both surfaces go through
+ * `autocompactLines`, so both are read here off the same status.
+ *
+ * **Every cell has its control**, and the control is the reason this is not vacuous: the unchecked
+ * status differs from the checked one in `windowCheck` alone, so an assertion that fired on both —
+ * or on neither — would be pinning the fixture rather than the field.
+ */
+describe('EXT-187 — an unverified window says so', () => {
+  /** The measured case the node was filed on, as a status. */
+  const unchecked = (over: Partial<AutocompactStatus> = {}) =>
+    status({
+      window: 262_000,
+      windowOrigin: 'profile',
+      windowCheck: 'unchecked',
+      ...over,
+    });
+
+  const UNVERIFIED = /unverified/;
+  const REMEDY = /gth models --refresh/;
+
+  it('qualifies the window number, and names the one remedy', () => {
+    const lines = autocompactLines(unchecked()).join(' ');
+    expect(lines).toMatch(UNVERIFIED);
+    expect(lines).toMatch(REMEDY);
+    // CONTROL: the same status with the window checked says neither, so this is the field talking
+    // and not a sentence printed on every window.
+    const checked = autocompactLines(unchecked({ windowCheck: 'checked' })).join(' ');
+    expect(checked).not.toMatch(UNVERIFIED);
+    expect(checked).not.toMatch(REMEDY);
+  });
+
+  it('CONTROL: stays quiet when no catalog could ever check the window', () => {
+    // An ollama model resolved through its profile: nothing checked the number and nothing can.
+    // Telling that user to refresh a catalog that will never hold their model is the diagnostic
+    // that lies, and the third check value exists precisely to stop this line firing here.
+    const lines = autocompactLines(unchecked({ windowCheck: 'uncheckable' })).join(' ');
+    expect(lines).not.toMatch(UNVERIFIED);
+    expect(lines).not.toMatch(REMEDY);
+    // Discriminating half: the harness DOES render the rest of the block, so the silence above is
+    // about the check state rather than about an empty renderer.
+    expect(lines).toContain('Automatic compaction is ON');
+  });
+
+  it('warns that the THRESHOLD inherits the doubt when it is a share of that window', () => {
+    // The sharp half of the node: a percentage is a setting the user chose, reinterpreted against
+    // a number nothing checked.
+    const percentage = autocompactLines(
+      unchecked({ budget: { kind: 'fraction', fraction: 0.8 }, thresholdTokens: 209_600 })
+    ).join(' ');
+    expect(percentage).toMatch(/share of that unverified window/);
+
+    // CONTROL: an absolute count means the same tokens whatever the window turns out to be, so the
+    // threshold sentence must NOT appear — while the window qualification still does, because the
+    // number above it is just as unverified.
+    const absolute = autocompactLines(unchecked()).join(' ');
+    expect(absolute).not.toMatch(/share of that unverified window/);
+    expect(absolute).toMatch(UNVERIFIED);
+  });
+
+  it('warns for the DERIVED default too, which is also a share of the window', () => {
+    const derived = autocompactLines(
+      unchecked({ thresholdOrigin: 'default', budget: null, thresholdTokens: 259_952 })
+    ).join(' ');
+    expect(derived).toMatch(/share of that unverified window/);
+  });
+
+  it('does not promise a threshold when compaction is off, but still qualifies the window', () => {
+    const off = autocompactLines(
+      unchecked({ enabled: false, thresholdTokens: null, thresholdOrigin: 'none' })
+    ).join(' ');
+    expect(off).toContain('OFF');
+    expect(off).toMatch(UNVERIFIED);
+    // Nothing fires, so there is no threshold to inherit anything.
+    expect(off).not.toMatch(/share of that unverified window/);
+  });
+
+  it('reaches /status, which is where a user asks the question', () => {
+    const result = run('/status', ctx({ autocompact: unchecked() }));
+    expect(result.notice!.lines.join(' ')).toMatch(UNVERIFIED);
+    // CONTROL: the ordinary status block carries no such line.
+    expect(run('/status', ctx({ autocompact: status() })).notice!.lines.join(' ')).not.toMatch(
+      UNVERIFIED
+    );
+  });
+
+  it('renders nothing extra for a status that predates the field entirely', () => {
+    // Specs are not type-checked in this repo (`packages/*/tsconfig.json` build `src/` only), so a
+    // stale fixture reaches the renderer with `windowCheck` undefined. It must read exactly as it
+    // did before this node rather than printing a warning — or the word "undefined" — at a user.
+    const stale = { ...status() } as Partial<AutocompactStatus>;
+    delete stale.windowCheck;
+    const lines = autocompactLines(stale as AutocompactStatus).join(' ');
+    expect(lines).not.toMatch(UNVERIFIED);
+    expect(lines).not.toContain('undefined');
+    expect(lines).toContain('Automatic compaction is ON');
+  });
+
+  /**
+   * The note is written ABOUT a number — "that number is unverified", decided by a "built-in table".
+   * Both halves are false on the empty resolution, where there is no number and the table had no
+   * entry either. This is not a hypothetical pairing: `contextWindowSources.spec.ts` pins that
+   * `resolveContextWindow` returns `{ tokens: null, origin: 'unknown', check: 'unchecked' }` when a
+   * cold catalog cache is followed by a profile table that does not know the model — the stale
+   * `@langchain/groq` shape — and `status()` forwards it verbatim.
+   */
+  const noWindow = (over: Partial<AutocompactStatus> = {}) =>
+    unchecked({
+      window: null,
+      windowOrigin: 'unknown',
+      thresholdTokens: null,
+      thresholdOrigin: 'none',
+      budget: null,
+      ...over,
+    });
+
+  it('says nothing unverified when there is no window to be unverified about', () => {
+    const lines = autocompactLines(noWindow()).join(' ');
+    expect(lines).not.toMatch(UNVERIFIED);
+    expect(lines).not.toMatch(REMEDY);
+    // Discriminating halves: the branch DID render, and it rendered the sentence this one would
+    // otherwise have contradicted — so the silence is the window gate and not an empty return.
+    expect(lines).toContain("This model's context window is not known to any source we have.");
+    expect(lines).toContain('Automatic compaction is on, but nothing will trigger it.');
+  });
+
+  it('CONTROL: the same check state with a window present still says it', () => {
+    // The only difference from the cell above is that a number exists. If this went quiet too, the
+    // gate would be suppressing the note for every unchecked status rather than for the one where
+    // the sentence is untrue, and the node's whole surface would be dead.
+    const lines = autocompactLines(noWindow({ window: 262_000, windowOrigin: 'profile' })).join(
+      ' '
+    );
+    expect(lines).toMatch(UNVERIFIED);
+    expect(lines).toMatch(REMEDY);
+  });
+
+  it('holds on the compaction-off branch, which prints the window line too', () => {
+    const lines = autocompactLines(noWindow({ enabled: false })).join(' ');
+    expect(lines).toContain('OFF');
+    expect(lines).not.toMatch(UNVERIFIED);
+    expect(lines).not.toMatch(REMEDY);
   });
 });
