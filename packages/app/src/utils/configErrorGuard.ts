@@ -61,9 +61,17 @@ export function handleConfigDiscoveryError(error: unknown): error is ConfigDisco
  * Wrap a commander program so an unusable configuration terminates the CLI cleanly.
  *
  * Presented as a {@link @gaunt-sloth/core!utils/systemUtils.ProgramLike | ProgramLike} because that is the seam `readStdin` already parses through:
- * argument parsing is where every command action runs, so wrapping it catches the failure wherever
- * in the CLI it was raised, without each command growing its own try/catch. Any other rejection is
+ * argument parsing is where every command action runs, so wrapping it catches a failure that
+ * propagates out of one, without each command growing its own try/catch. Any other rejection is
  * re-thrown unchanged, leaving it in exactly the position it occupied before.
+ *
+ * It is NOT the termination point for every `ConfigDiscoveryError` the CLI can raise, and
+ * reading it as one is how a claim about user-facing output gets made without measuring it. A
+ * command action that handles its own failures ends the run before this wrapper sees anything: the
+ * single-shot runtime catches everything `GthAgentRunner.init` throws and renders it as the run's
+ * last line, so EXT-186's refusal of a config that defines no model reaches a person there, not
+ * here. What reaches this guard is a failure raised while the config is being loaded — before any
+ * command's own error handling is in play — which is where the loader raises.
  */
 export function guardProgramConfigErrors(program: ProgramLike): ProgramLike {
   return {
