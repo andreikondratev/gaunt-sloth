@@ -30,8 +30,15 @@ const controller = (config: unknown, reading: ContextWindowReading) =>
     defaultThreshold,
   });
 
-const KNOWN: ContextWindowReading = { tokens: 200_000, origin: 'models.dev' };
-const UNKNOWN: ContextWindowReading = { tokens: null, origin: 'unknown' };
+const KNOWN: ContextWindowReading = { tokens: 200_000, origin: 'models.dev', check: 'checked' };
+const UNKNOWN: ContextWindowReading = { tokens: null, origin: 'unknown', check: 'checked' };
+
+/**
+ * [[EXT-187]] — the cold-cache reading: the profile table decided alone, so the number is real and
+ * nothing was in a position to contradict it. Same shape as {@link KNOWN} but for the provenance,
+ * which is what makes it usable as the discriminating half of a pair.
+ */
+const UNCHECKED: ContextWindowReading = { tokens: 262_000, origin: 'profile', check: 'unchecked' };
 
 describe('EXT-161 — reading the `autocompact` config key', () => {
   it('is ON when the key is absent (RULED: on by default)', () => {
@@ -220,5 +227,53 @@ describe('EXT-161 — the threshold `gth init` seeds', () => {
   it('leaves room below the window for the answer', () => {
     const window = 200_000;
     expect(seedAutocompactThreshold(window) as number).toBeLessThan(window);
+  });
+});
+
+/**
+ * [[EXT-187]] — **the status carries the window's check state out to `/status`, on every branch.**
+ *
+ * The status is the only thing the surfaces see, so a reading that knows it was unchecked and a
+ * status that drops the fact would leave this node's whole point inside core. Four branches leave
+ * {@link AutocompactController.status}; a field added to three of them is the shape that goes
+ * unnoticed, so all four are walked here.
+ *
+ * The other half of the node is the RULING that this file's arithmetic is blind to that state: an
+ * unchecked window resolves a percentage exactly as a checked one does. That is asserted rather
+ * than assumed, because "honour it as today" is a decision that looks identical to never having
+ * considered the question.
+ */
+describe('EXT-187 — the check state reaches the status, and changes no number', () => {
+  it.each([
+    ['config off', false],
+    ['a percentage budget', '80%'],
+    ['an absolute budget', '300K'],
+    ['nothing configured, so the derived default', undefined],
+  ])('carries windowCheck through the %s branch', async (_label, config) => {
+    expect((await controller(config, UNCHECKED).status()).windowCheck).toBe('unchecked');
+    // The control: the same branch over a checked reading reports the other value, so a status that
+    // hardcoded `'unchecked'` — or dropped the field and compared `undefined` to `undefined` — is
+    // not what made the line above pass.
+    expect((await controller(config, KNOWN).status()).windowCheck).toBe('checked');
+  });
+
+  it('RULED: resolves a percentage against an unchecked window exactly as against a checked one', async () => {
+    // The node's real design question, pinned as behaviour. Refusing the budget here was the live
+    // alternative; the argument for honouring it is at the `resolveTokenBudget` seam in
+    // `compactionThreshold.ts`. What this cell forbids is the number quietly changing.
+    const unchecked = await controller('80%', UNCHECKED).status();
+    expect(unchecked.thresholdTokens).toBe(Math.floor(262_000 * 0.8));
+    expect(unchecked.thresholdOrigin).toBe('config');
+    expect(unchecked.enabled).toBe(true);
+
+    // The discriminator, and the measurement this node was filed on: the same 80% over the window
+    // models.dev actually reports for that id is a threshold less than a third the size. The
+    // setting is honoured either way — the difference is one the user can now see, not one the
+    // arithmetic makes for them.
+    const real = await controller('80%', { ...UNCHECKED, tokens: 81_920 }).status();
+    expect(real.thresholdTokens).toBe(Math.floor(81_920 * 0.8));
+    expect(unchecked.thresholdTokens as number).toBeGreaterThan(
+      3 * (real.thresholdTokens as number)
+    );
   });
 });

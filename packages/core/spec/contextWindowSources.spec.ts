@@ -12,6 +12,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import {
+  CONTEXT_WINDOW_CHECK_LABELS,
   CONTEXT_WINDOW_ORIGIN_LABELS,
   readProfileContextWindow,
   resolveContextWindow,
@@ -75,7 +76,7 @@ describe('EXT-161 — models.dev outranks the LangChain profile (RULED)', () => 
       catalogReader,
     }).read();
 
-    expect(reading).toEqual({ tokens: 128_000, origin: 'models.dev' });
+    expect(reading).toEqual({ tokens: 128_000, origin: 'models.dev', check: 'checked' });
     // Naming the loser explicitly: a test asserting only `128000` would still pass if the profile
     // tier had been deleted rather than outranked.
     expect(readProfileContextWindow(modelWithProfile(1_000_000))).toBe(1_000_000);
@@ -88,7 +89,9 @@ describe('EXT-161 — models.dev outranks the LangChain profile (RULED)', () => 
       modelId: 'a-model-the-catalog-never-heard-of',
       catalogReader,
     }).read();
-    expect(reading).toEqual({ tokens: 64_000, origin: 'profile' });
+    // [[EXT-187]] — `'checked'`: a catalog that ANSWERED was in a position to contradict the
+    // profile and did not, whether or not it carried a row for this id.
+    expect(reading).toEqual({ tokens: 64_000, origin: 'profile', check: 'checked' });
   });
 
   it('falls through to the profile when the catalog is unavailable altogether', async () => {
@@ -100,7 +103,9 @@ describe('EXT-161 — models.dev outranks the LangChain profile (RULED)', () => 
       modelId: 'claude-sonnet-4-5',
       catalogReader,
     }).read();
-    expect(reading).toEqual({ tokens: 64_000, origin: 'profile' });
+    // [[EXT-187]] — the same number as the cell above, carrying the opposite check. That is the
+    // whole point of the field: `tokens` and `origin` cannot tell these two resolutions apart.
+    expect(reading).toEqual({ tokens: 64_000, origin: 'profile', check: 'unchecked' });
   });
 
   it('survives a catalog reader that throws, and still reaches the profile', async () => {
@@ -112,7 +117,10 @@ describe('EXT-161 — models.dev outranks the LangChain profile (RULED)', () => 
       modelId: 'claude-sonnet-4-5',
       catalogReader,
     }).read();
-    expect(reading).toEqual({ tokens: 64_000, origin: 'profile' });
+    // [[EXT-187]] — a reader that threw said nothing about whether a slice exists, so this is NOT
+    // reported as the cold cache: pointing this user at `gth models --refresh` would name a remedy
+    // for a failure it has no bearing on.
+    expect(reading).toEqual({ tokens: 64_000, origin: 'profile', check: 'uncheckable' });
   });
 
   it('never reaches the network from the runtime path: the catalog read is cache-only', async () => {
@@ -161,7 +169,7 @@ describe('EXT-161 — ollama outranks both, because it is the number the request
       catalogReader,
     }).read();
 
-    expect(reading).toEqual({ tokens: 16_384, origin: 'ollama' });
+    expect(reading).toEqual({ tokens: 16_384, origin: 'ollama', check: 'checked' });
     // models.dev deliberately has no ollama entry, so the catalog must not even be consulted.
     expect(catalogReader).not.toHaveBeenCalled();
   });
@@ -187,8 +195,8 @@ describe('EXT-161 — an unknown window is reported as unknown, and never guesse
       catalogReader,
     }).read();
 
-    expect(known).toEqual({ tokens: 200_000, origin: 'models.dev' });
-    expect(unknown).toEqual({ tokens: null, origin: 'unknown' });
+    expect(known).toEqual({ tokens: 200_000, origin: 'models.dev', check: 'checked' });
+    expect(unknown).toEqual({ tokens: null, origin: 'unknown', check: 'checked' });
   });
 
   it('never answers 4097, the value LangChain guesses for a model it does not recognise', async () => {
@@ -258,7 +266,7 @@ describe('EXT-168 — an empty resolution says so, instead of going quiet', () =
       resolveContextWindow({}, { providerId: 'groq', modelId: 'allam-2-7b', catalogReader }).read()
     );
 
-    expect(result).toEqual({ tokens: null, origin: 'unknown' });
+    expect(result).toEqual({ tokens: null, origin: 'unknown', check: 'checked' });
     const signals = signalsIn(lines);
     expect(signals).toHaveLength(1);
     // Both identifiers, and they are distinct strings — a line carrying only the model id would not
@@ -275,7 +283,7 @@ describe('EXT-168 — an empty resolution says so, instead of going quiet', () =
       resolveContextWindow({}, { providerId: 'groq', modelId: 'allam-2-7b', catalogReader }).read()
     );
 
-    expect(result).toEqual({ tokens: 4096, origin: 'models.dev' });
+    expect(result).toEqual({ tokens: 4096, origin: 'models.dev', check: 'checked' });
     expect(signalsIn(lines)).toEqual([]);
   });
 
@@ -291,7 +299,7 @@ describe('EXT-168 — an empty resolution says so, instead of going quiet', () =
       }).read()
     );
 
-    expect(result).toEqual({ tokens: 131_072, origin: 'profile' });
+    expect(result).toEqual({ tokens: 131_072, origin: 'profile', check: 'checked' });
     expect(signalsIn(lines)).toEqual([]);
   });
 
@@ -381,7 +389,7 @@ describe('EXT-185 — a cold catalog cache says so when the profile decides', ()
       }).read()
     );
 
-    expect(result).toEqual({ tokens: 262_000, origin: 'profile' });
+    expect(result).toEqual({ tokens: 262_000, origin: 'profile', check: 'unchecked' });
     const signals = coldSignalsIn(lines);
     expect(signals).toHaveLength(1);
     // The three things that make the line worth reading: which number is in force, whose table it
@@ -404,7 +412,7 @@ describe('EXT-185 — a cold catalog cache says so when the profile decides', ()
       }).read()
     );
 
-    expect(result).toEqual({ tokens: 262_000, origin: 'profile' });
+    expect(result).toEqual({ tokens: 262_000, origin: 'profile', check: 'checked' });
     expect(coldSignalsIn(lines)).toEqual([]);
   });
 
@@ -422,7 +430,7 @@ describe('EXT-185 — a cold catalog cache says so when the profile decides', ()
       }).read()
     );
 
-    expect(result).toEqual({ tokens: 16_384, origin: 'profile' });
+    expect(result).toEqual({ tokens: 16_384, origin: 'profile', check: 'uncheckable' });
     expect(coldSignalsIn(lines)).toEqual([]);
   });
 
@@ -441,7 +449,7 @@ describe('EXT-185 — a cold catalog cache says so when the profile decides', ()
       ).read()
     );
 
-    expect(result).toEqual({ tokens: null, origin: 'unknown' });
+    expect(result).toEqual({ tokens: null, origin: 'unknown', check: 'unchecked' });
     expect(coldSignalsIn(lines)).toEqual([]);
     expect(signalsIn(lines)).toHaveLength(1);
   });
@@ -458,5 +466,78 @@ describe('EXT-185 — a cold catalog cache says so when the profile decides', ()
     });
 
     expect(coldSignalsIn(lines)).toHaveLength(1);
+  });
+});
+
+/**
+ * [[EXT-187]] — **the reading itself says whether anything checked it.**
+ *
+ * [[EXT-185]] put the cold-cache fact in a `debugLog` and dropped it at the return, so `/status`
+ * and `/autocompact` could see a number and not whether a catalog had ever stood beside it. These
+ * cells are about the returned field, not the log — the log has its own cells above.
+ *
+ * **The discriminating shape this file already uses, one turn further.** Every cell below resolves
+ * the SAME profile window through the SAME tier, varying only what tier 2 was able to do. `tokens`
+ * and `origin` come out identical on all of them by construction, which is exactly the fact that
+ * made this node necessary — so an assertion on either of those would pass on every branch and pin
+ * nothing.
+ */
+describe('EXT-187 — a reading distinguishes a checked window from an unchecked one', () => {
+  /** One profile answer, resolved through a catalog in each of the three states it can be in. */
+  const resolveWithCatalog = (catalog: ProviderCatalog | null, providerId = 'openrouter') =>
+    resolveContextWindow(modelWithProfile(262_000), {
+      providerId,
+      modelId: 'qwen/qwen3-30b-a3b-thinking-2507',
+      catalogReader: vi.fn(async () => catalog),
+    }).read();
+
+  it('carries three distinct check states behind ONE tokens/origin pair', async () => {
+    const cold = await resolveWithCatalog(null);
+    const warm = await resolveWithCatalog(catalogWith({ 'some-other-model': 131_072 }));
+    // models.dev carries no slice for ollama at all, so this `null` is not a cold cache and no
+    // refresh would ever produce one.
+    const noCatalogExists = await resolveWithCatalog(null, 'ollama');
+
+    // **The control.** The two fields that existed before this node are byte-identical across all
+    // three resolutions. Any assertion written on them alone is vacuous here, and this line is what
+    // proves it rather than asserting it — if the tiers ever stop agreeing, the cells below stop
+    // being about what they claim to be about and this goes red first.
+    for (const reading of [warm, noCatalogExists]) {
+      expect({ tokens: reading.tokens, origin: reading.origin }).toEqual({
+        tokens: cold.tokens,
+        origin: cold.origin,
+      });
+    }
+
+    // And the field that does discriminate. Asserted as a SET of three distinct values rather than
+    // three separate equalities, so collapsing the distinction back to one value — the failure this
+    // node exists to prevent, and the one a `'profile'`-only reading already had — reds this cell
+    // whichever value the collapse picks, including dropping the field entirely.
+    expect(new Set([cold.check, warm.check, noCatalogExists.check]).size).toBe(3);
+    expect(cold.check).toBe('unchecked');
+    expect(warm.check).toBe('checked');
+    expect(noCatalogExists.check).toBe('uncheckable');
+  });
+
+  it('reports `uncheckable` when the caller named no provider to look a catalog up for', async () => {
+    // `resolveContextWindowSource(llm)` with no options is documented to consult ollama and the
+    // profile only, so tier 2 is never entered. Nothing checked the number and nothing on this path
+    // ever could — which is `'uncheckable'`, not the cold cache.
+    const reading = await resolveContextWindow(modelWithProfile(64_000)).read();
+    expect(reading).toEqual({ tokens: 64_000, origin: 'profile', check: 'uncheckable' });
+  });
+
+  it('says something for the state with a remedy, and nothing for the two without', () => {
+    // The ruling, pinned: a line is worth its space when the reader can act on it. `'uncheckable'`
+    // has no remedy to name — a warning there would be a permanent sentence on every ollama session
+    // about something the user cannot change, and one that suggested refreshing a catalog would be
+    // actively wrong. Written as an exhaustive walk so a fourth check state cannot be added without
+    // this cell forcing the decision.
+    const spoken = (['checked', 'unchecked', 'uncheckable'] as const).filter(
+      (check) => CONTEXT_WINDOW_CHECK_LABELS[check] !== null
+    );
+    expect(spoken).toEqual(['unchecked']);
+    // The remedy is the reason the line exists, so it has to be IN the line.
+    expect(CONTEXT_WINDOW_CHECK_LABELS.unchecked).toMatch(/gth models --refresh/);
   });
 });

@@ -92,8 +92,16 @@ describe('EXT-161 — the configured threshold is the one the guard enforces', (
     const messages = longHistory();
     const estimate = estimatePromptTokens(messages, 0);
 
-    const below = guardFor(estimate - 1, { tokens: 1_000_000, origin: 'models.dev' });
-    const above = guardFor(estimate + 1, { tokens: 1_000_000, origin: 'models.dev' });
+    const below = guardFor(estimate - 1, {
+      tokens: 1_000_000,
+      origin: 'models.dev',
+      check: 'checked',
+    });
+    const above = guardFor(estimate + 1, {
+      tokens: 1_000_000,
+      origin: 'models.dev',
+      check: 'checked',
+    });
 
     const folded = await runHook(below.middleware, messages);
     const untouched = await runHook(above.middleware, messages);
@@ -112,6 +120,7 @@ describe('EXT-161 — the configured threshold is the one the guard enforces', (
     const { controller, middleware, compact } = guardFor(estimate + 100_000, {
       tokens: 1_000_000,
       origin: 'models.dev',
+      check: 'checked',
     });
 
     expect(await runHook(middleware, messages)).toBeUndefined();
@@ -132,8 +141,8 @@ describe('EXT-161 — the configured threshold is the one the guard enforces', (
     // is 45× the estimate (so it does not). Derived from the estimate rather than written as a
     // literal, so the pair stays either side of it if the estimator's ratio ever changes.
     const window = estimate * 50;
-    const tight = guardFor('1%', { tokens: window, origin: 'models.dev' });
-    const loose = guardFor('90%', { tokens: window, origin: 'models.dev' });
+    const tight = guardFor('1%', { tokens: window, origin: 'models.dev', check: 'checked' });
+    const loose = guardFor('90%', { tokens: window, origin: 'models.dev', check: 'checked' });
 
     expect(Math.floor(window * 0.01)).toBeLessThan(estimate);
     expect(Math.floor(window * 0.9)).toBeGreaterThan(estimate);
@@ -152,7 +161,11 @@ describe('EXT-161 — the default-on path, and the one key that turns it off', (
     const messages = longHistory(40);
     const estimate = estimatePromptTokens(messages, 0);
     const window = estimate + RESERVE - 1;
-    const { middleware, compact } = guardFor(undefined, { tokens: window, origin: 'models.dev' });
+    const { middleware, compact } = guardFor(undefined, {
+      tokens: window,
+      origin: 'models.dev',
+      check: 'checked',
+    });
 
     // The reserve really is the flat one at this size, and the derived threshold really is under
     // the estimate — stated rather than assumed, so a change to either constant fails here loudly
@@ -173,7 +186,11 @@ describe('EXT-161 — the default-on path, and the one key that turns it off', (
   it('folds nothing when `autocompact: false`, while the same setup without it folds', async () => {
     const messages = longHistory();
     const estimate = estimatePromptTokens(messages, 0);
-    const reading: ContextWindowReading = { tokens: estimate - 1, origin: 'models.dev' };
+    const reading: ContextWindowReading = {
+      tokens: estimate - 1,
+      origin: 'models.dev',
+      check: 'checked',
+    };
 
     const off = guardFor(false, reading);
     const on = guardFor(undefined, reading);
@@ -198,6 +215,7 @@ describe('EXT-161 — the default-on path, and the one key that turns it off', (
     const reading: ContextWindowReading = {
       tokens: estimatePromptTokens(messages, 0) - 1,
       origin: 'models.dev',
+      check: 'checked',
     };
     const { middleware, compact } = guardFor({ enabled: false }, reading);
     expect(await runHook(middleware, messages)).toBeUndefined();
@@ -222,8 +240,12 @@ describe('EXT-161 — an unknown window folds nothing, and never guesses', () =>
     const messages = longHistory(40);
     const estimate = estimatePromptTokens(messages, 0);
 
-    const unknown = guardFor(undefined, { tokens: null, origin: 'unknown' });
-    const known = guardFor(undefined, { tokens: estimate - 1, origin: 'models.dev' });
+    const unknown = guardFor(undefined, { tokens: null, origin: 'unknown', check: 'checked' });
+    const known = guardFor(undefined, {
+      tokens: estimate - 1,
+      origin: 'models.dev',
+      check: 'checked',
+    });
 
     expect(await runHook(unknown.middleware, messages)).toBeUndefined();
     expect(unknown.compact).not.toHaveBeenCalled();
@@ -235,7 +257,11 @@ describe('EXT-161 — an unknown window folds nothing, and never guesses', () =>
   it('an ABSOLUTE configured threshold still protects a model whose window is unknown', async () => {
     const messages = longHistory();
     const estimate = estimatePromptTokens(messages, 0);
-    const { middleware, compact } = guardFor(estimate - 1, { tokens: null, origin: 'unknown' });
+    const { middleware, compact } = guardFor(estimate - 1, {
+      tokens: null,
+      origin: 'unknown',
+      check: 'checked',
+    });
     // The user named the number, so it needs no window — the one case where an unknown window
     // still leaves the session protected.
     expect(await runHook(middleware, messages)).toBeDefined();
@@ -246,7 +272,11 @@ describe('EXT-161 — an unknown window folds nothing, and never guesses', () =>
     // Sized past the 4097-fallback threshold for the same reason as the pair above: a small
     // history would decline to fold even if production HAD guessed a window.
     const messages = longHistory(40);
-    const { middleware, compact } = guardFor('1%', { tokens: null, origin: 'unknown' });
+    const { middleware, compact } = guardFor('1%', {
+      tokens: null,
+      origin: 'unknown',
+      check: 'checked',
+    });
     expect(await runHook(middleware, messages)).toBeUndefined();
     expect(compact).not.toHaveBeenCalled();
   });
@@ -283,6 +313,7 @@ describe('EXT-161 — the default-on path over provider-shaped histories', () =>
     const { middleware } = guardFor(undefined, {
       tokens: estimatePromptTokens(messages, 0) - 1,
       origin: 'models.dev',
+      check: 'checked',
     });
     const result = await runHook(middleware, messages);
     expect(result?.messages).toBeDefined();
@@ -324,6 +355,7 @@ describe('EXT-161 — the default-on path over provider-shaped histories', () =>
     const { middleware } = guardFor(undefined, {
       tokens: estimatePromptTokens(folded, 0) - 1,
       origin: 'models.dev',
+      check: 'checked',
     });
     const again = await runHook(middleware, folded);
     const twice = again?.messages ? again.messages.slice(1) : folded;
