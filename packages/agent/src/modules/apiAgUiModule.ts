@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import { EventEncoder } from '@ag-ui/encoder';
 import { EventType } from '@ag-ui/core';
-import { GthConfig } from '@gaunt-sloth/core/config.js';
+import { GthConfig, isUsableModel } from '@gaunt-sloth/core/config.js';
 import { GthAbstractAgent } from '@gaunt-sloth/core/core/GthAbstractAgent.js';
 import { GthLangChainAgent } from '@gaunt-sloth/core/core/GthLangChainAgent.js';
 import {
@@ -1082,8 +1082,49 @@ export async function startAgUiServer(
     }
   });
 
-  // Health check
+  // CFG-61 — did a model actually resolve? Both status endpoints answer from this rather than from
+  // the fact that a request arrived, which is the whole of what they used to report.
+  //
+  // The test is {@link isUsableModel}, core's own, imported rather than re-implemented: the loader
+  // asks it to decide whether the provider layer still has work to do, and this asks it to decide
+  // whether the server can answer a run. They are one question, and two copies of it would drift
+  // into the server calling a value a model that the loader would have sent away to be built.
+  //
+  // Importing a VALUE from core's config barrel costs this module nothing at load time, which is
+  // worth stating because `apiCommand` keeps its own import of this file lazy on purpose and a
+  // reader may reasonably wonder. `GthLangChainAgent` — constructed below, so unambiguously a
+  // runtime import — itself imports values from that barrel, so it was already evaluated in this
+  // module's graph before this line existed. Measured on the built output, not assumed.
+  //
+  // Asked here rather than as a guard above `agent.init`, for two reasons. Refusing the boot would
+  // put this server's answer where no client can read it — an embedder that starts the server to
+  // find out what it got would get an exception instead of an endpoint — and it would leave the
+  // unhealthy branch of both handlers unreachable, so no test could ever show them reporting
+  // anything but `ok`. It is also asked ONCE, above both handlers, so the two endpoints cannot
+  // contradict each other about the same config.
+  //
+  // `startAgUiServer` is an exported entry point, and its note on DEFAULT_AGUI_HOST says why that
+  // matters: an embedder calls it with a config that never went through the loader, so the server
+  // cannot assume the routing that would have built a raw `{ type, model }` spec ever ran.
+  const modelResolved = isUsableModel(config.llm);
+
+  // Health check.
+  //
+  // This is a readiness answer and its readers key on the HTTP code, not the body — a CI probe, a
+  // container orchestrator, a port smoke test. With no model every run this server exists to serve
+  // fails, so the honest code is 503: unavailable, not degraded. The body names the cause, because
+  // a bare code sends whoever reads it to the logs to find out which of a dozen things went wrong.
+  //
+  // The healthy answer is unchanged, `{ status: 'ok' }` with no added key, because clients and the
+  // AG-UI integration test already read it by exact shape. Only the branch that was lying moved.
   app.get('/health', (_req, res) => {
+    if (!modelResolved) {
+      res.status(503).json({
+        status: 'error',
+        reason: 'No model resolved: this server cannot answer a run.',
+      });
+      return;
+    }
     res.json({ status: 'ok' });
   });
 
@@ -1091,6 +1132,20 @@ export async function startAgUiServer(
   // lives in agUiCapabilities so this route and the capability declaration cannot describe the
   // same model differently.
   app.get('/info', (_req, res) => {
+    if (!modelResolved) {
+      // 200, unlike `/health`: the metadata request itself succeeded, and here the payload IS the
+      // answer rather than the code — a client asking what is serving it gets told, and told the
+      // truth. `status` carries it, and `provider`/`model` are null rather than echoed back from
+      // the config, because `modelDisplayName` and a raw spec's own `model` are both the name the
+      // user ASKED for. Reporting one names a model that was never built, which is the same false
+      // report as `ok` and harder to spot, since it reads exactly like a working server.
+      res.json({ status: 'error', provider: null, model: null });
+      return;
+    }
+    // The resolved branch reads through the shared helper rather than inline: it is the same read
+    // the capability declaration makes, so the two routes cannot describe a working model
+    // differently. The helper is the CFG-61 inline read unchanged, moved, not rewritten. What the
+    // guard above does NOT share with the declaration is documented on the helper itself.
     res.json({ status: 'ok', ...describeConfiguredModel(config) });
   });
 

@@ -1383,18 +1383,111 @@ describe('apiAgUiModule', () => {
 
   // ─── /health endpoint ──────────────────────────────────────────────────────
 
-  describe('/health', () => {
-    it('should respond with { status: ok }', async () => {
-      const { startAgUiServer } = await import('#src/modules/apiAgUiModule.js');
-      await startAgUiServer(baseConfig, 3000);
+  // CFG-61 — the two status endpoints answer from the resolved model, not from the arrival of a
+  // request. Every cell below is a PAIR run over the same handler: one config whose model
+  // resolved, one whose did not. A single-fixture cell cannot see the defect these pin, because a
+  // hardcoded literal and a derived value that happens to agree are the same observation.
+  //
+  // `resolvedConfig` carries the one thing that makes a value a model here — a callable `invoke` —
+  // plus the two fields `/info` reports off the artefact. `baseConfig` carries no `llm` at all,
+  // which is the shape a config reaches this server with when nothing resolved one.
+  const resolvedConfig = {
+    ...baseConfig,
+    llm: {
+      invoke: async () => ({}),
+      _llmType: () => 'ollama',
+      model: 'gemma4:12b',
+    },
+  } as Partial<GthConfig> as GthConfig;
 
-      // app.get('/health', handler) — first get() call
-      const getHandler = mockGetFn.mock.calls[0][1] as (_req: unknown, _res: unknown) => void;
+  /** The `/health` handler — `app.get('/health', handler)`, the first `get()` registration. */
+  function healthHandler() {
+    return mockGetFn.mock.calls[0][1] as (_req: unknown, _res: unknown) => void;
+  }
+
+  /** The `/info` handler — the second `get()` registration. */
+  function infoHandler() {
+    return mockGetFn.mock.calls[1][1] as (_req: unknown, _res: unknown) => void;
+  }
+
+  describe('/health', () => {
+    it('answers ok when a model resolved', async () => {
+      const { startAgUiServer } = await import('#src/modules/apiAgUiModule.js');
+      await startAgUiServer(resolvedConfig, 3000);
       const res = makeMockRes();
 
-      getHandler({}, res);
+      healthHandler()({}, res);
 
       expect(res.json).toHaveBeenCalledWith({ status: 'ok' });
+      // The healthy answer keeps the bare 200 express gives a `json()` with no `status()` call —
+      // an added code or key would break every client already reading this by exact shape.
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('answers 503 and not ok when no model resolved', async () => {
+      const { startAgUiServer } = await import('#src/modules/apiAgUiModule.js');
+      await startAgUiServer(baseConfig, 3000);
+      const res = makeMockRes();
+
+      healthHandler()({}, res);
+
+      expect(res.status).toHaveBeenCalledWith(503);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'error', reason: expect.stringContaining('model') })
+      );
+      // Named rather than implied by the `objectContaining` above: the defect this pins is a
+      // literal `ok`, so the assertion says out loud that the word cannot appear here.
+      expect(res.json).not.toHaveBeenCalledWith(expect.objectContaining({ status: 'ok' }));
+    });
+  });
+
+  // ─── /info endpoint ────────────────────────────────────────────────────────
+
+  describe('/info', () => {
+    it('reports the provider and model off the resolved model', async () => {
+      const { startAgUiServer } = await import('#src/modules/apiAgUiModule.js');
+      await startAgUiServer(resolvedConfig, 3000);
+      const res = makeMockRes();
+
+      infoHandler()({}, res);
+
+      expect(res.json).toHaveBeenCalledWith({
+        status: 'ok',
+        provider: 'ollama',
+        model: 'gemma4:12b',
+      });
+    });
+
+    it('answers error with both fields null when no model resolved', async () => {
+      const { startAgUiServer } = await import('#src/modules/apiAgUiModule.js');
+      await startAgUiServer(baseConfig, 3000);
+      const res = makeMockRes();
+
+      infoHandler()({}, res);
+
+      expect(res.json).toHaveBeenCalledWith({ status: 'error', provider: null, model: null });
+    });
+
+    it('does not name a model the config asked for but nothing built', async () => {
+      // The trap this cell exists for: `modelDisplayName` is config text, so an `/info` that
+      // reaches for it first will name a model on a server that has none — an answer that reads
+      // exactly like a working one. A raw `{ type, model }` spec is the shape that arrives here
+      // when no provider layer ran, and its own `model` field is the same config text.
+      const askedForButNeverBuilt = {
+        ...baseConfig,
+        llm: { type: 'openai', model: 'gpt-5.4' },
+        modelDisplayName: 'gpt-5.4',
+      } as Partial<GthConfig> as GthConfig;
+      const { startAgUiServer } = await import('#src/modules/apiAgUiModule.js');
+      await startAgUiServer(askedForButNeverBuilt, 3000);
+      const res = makeMockRes();
+
+      infoHandler()({}, res);
+
+      expect(res.json).toHaveBeenCalledWith({ status: 'error', provider: null, model: null });
+      expect(res.json).not.toHaveBeenCalledWith(
+        expect.objectContaining({ model: expect.stringContaining('gpt-5.4') })
+      );
     });
   });
 

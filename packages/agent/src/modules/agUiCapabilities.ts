@@ -117,6 +117,21 @@ function manifestAuthor(manifest: AgentPackageManifest): string | undefined {
  * than absent when nothing resolves, because `/info` has always answered that way and a caller
  * distinguishing "no model configured" from "key missing from the response" is reading the wrong
  * thing either way.
+ *
+ * ## The two routes agree only when a model resolved
+ *
+ * `/info` does not always reach this function. CFG-61 put an `isUsableModel(config.llm)` guard in
+ * front of it, so a server holding a raw unrouted `{ type, model }` spec answers `/info` with
+ * `{ status: 'error', provider: null, model: null }` while the capability declaration still reports
+ * the requested name — measured, not inferred: `/info` says `model: null` where `identity.metadata`
+ * says `"gemma4:12b"`. A config carrying no `llm` at all has both saying `null`, so the gap is
+ * specific to the raw-spec case.
+ *
+ * That is deliberate as far as the READINESS question goes: a capability declaration says what this
+ * agent is built to do, not whether it can serve a request this second, and `/health` is the
+ * endpoint that answers the latter. It is **not** settled for the model NAME, which is a statement
+ * of fact rather than of readiness. Do not close the gap by making this function readiness-aware —
+ * both callers read it, and that would make the declaration answer a question it is not asked.
  */
 export function describeConfiguredModel(config: GthConfig): {
   provider: string | null;

@@ -420,6 +420,30 @@ describe('apiAgUiModule capabilities endpoint', () => {
     expect(AgentCapabilitiesSchema.safeParse(body).success).toBe(true);
   });
 
+  it('answers a full declaration on a server whose model never resolved', async () => {
+    // Capability discovery is not a readiness check. CFG-61 made `/health` answer 503 and `/info`
+    // answer `{status:'error'}` when `isUsableModel(config.llm)` is false; this route deliberately
+    // does NOT follow, because the declaration says what this agent is built to do, not whether it
+    // can serve a request this second. So a raw, unrouted `{ type, model }` spec — the config an
+    // embedder reaches `startAgUiServer` with — still gets the normal body.
+    //
+    // What this cell does NOT pin is what `identity.metadata.model` says in that state; that one is
+    // open, and is recorded on `describeConfiguredModel`.
+    agentAdvertisedToolsMock.mockReturnValue(inventory(['read_file']));
+    const body = await capabilitiesOf({
+      ...baseConfig,
+      llm: { type: 'ollama', model: 'gemma4:12b' },
+      tools: [fakeTool('read_file', 'Read a file')],
+    } as unknown as Partial<GthConfig>);
+
+    expect(AgentCapabilitiesSchema.safeParse(body).success).toBe(true);
+    expect(body.status).toBeUndefined();
+    expect((body.tools as { items: { name: string }[] }).items.map((item) => item.name)).toEqual([
+      'read_file',
+    ]);
+    expect(body.transport).toEqual({ streaming: true });
+  });
+
   // ─── what is deliberately absent, and what is deliberately false ──────────
 
   it('leaves humanInTheLoop undeclared', async () => {

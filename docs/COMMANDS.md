@@ -1199,8 +1199,13 @@ gaunt-sloth-api ag-ui --port 4000 --config ./.gsloth.config.json
 | `POST` | `/agents/:agentId/run` | Run the agent; streams AG-UI SSE events |
 | `GET`  | `/agents/:agentId/capabilities` | What this server declares it can do, as AG-UI `AgentCapabilities` JSON |
 | `GET`  | `/agents/:agentId/run/capabilities` | The same declaration, on the path an ag-ui client derives from its run URL |
-| `GET`  | `/health`              | Health check — returns `{ "status": "ok" }` |
-| `GET`  | `/info`                | Which provider and model are serving — `{ "status": "ok", "provider": "…", "model": "…" }` |
+| `GET`  | `/health`              | Readiness. `200` with `{ "status": "ok" }` when a model resolved; `503` with `{ "status": "error", "reason": … }` when none did |
+| `GET`  | `/info`                | What is serving you: `{ "status": "ok", "provider": …, "model": … }`, or `{ "status": "error", "provider": null, "model": null }` when no model resolved |
+
+Both status endpoints answer from the model the config actually resolved, never from the fact that
+a request arrived. A server with no usable model can bind and accept connections but cannot answer
+a single run, so it reports itself unhealthy rather than `ok` — a probe that keys on `/health`'s
+status code catches that configuration instead of passing over it.
 
 ### Capability Discovery
 
@@ -1218,6 +1223,9 @@ The same declaration is also served at `/agents/:agentId/run/capabilities`. Use 
 client asks for: ag-ui's TypeScript client builds the URL by appending `/capabilities` to the run
 URL it was given, so pointing it at `http://localhost:3000/agents/default/run` is enough and no
 subclassing is needed.
+
+Capability discovery is **not** a readiness check. It describes what this agent is built to do, and
+it answers the same way whether or not a model resolved — ask `/health` for readiness.
 
 ### AG-UI Event Sequence
 
