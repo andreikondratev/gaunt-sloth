@@ -463,8 +463,63 @@ const CONTEXT_OVERFLOW_PATTERNS: readonly string[] = [
   // answers an oversized input `Request contains an invalid argument.` with no token-count prose
   // anywhere in the body. Neither prose nor structure can close it — `code: 400` /
   // `status: 'INVALID_ARGUMENT'` are byte for byte a rejected key — and matching 'invalid
-  // argument' would make every malformed request an overflow. [[EXT-176]] carries it; a negative
-  // control in `googleContextOverflow.spec.ts` pins it until then.
+  // argument' would make every malformed request an overflow.
+  //
+  // **[[EXT-176]] RULED THAT CASE NOT WORTH CLOSING, and this is the record of why.** Nothing was
+  // shipped for it; the negative control in `googleContextOverflow.spec.ts` is permanent rather
+  // than provisional. Re-measured live 2026-09-18 against Vertex project
+  // `gen-lang-client-0307038741`, location `global`, through this repo's own `providers/vertexai.js`
+  // — every URL confirmed to be `aiplatform.googleapis.com/...`, since an ambient `GOOGLE_API_KEY`
+  // outranks ADC (CFG-58) and would otherwise have measured express mode instead:
+  //
+  // | platform   | model                   | transport | `error.message`                                      | classified |
+  // |------------|-------------------------|-----------|------------------------------------------------------|------------|
+  // | Vertex     | `gemini-2.5-flash-image`| stream    | `Request contains an invalid argument.`               | NO         |
+  // | Vertex     | `gemini-2.5-flash-image`| invoke    | `...allowed 32768.`                                   | yes        |
+  // | Vertex     | `gemini-3.5-flash-lite` | stream    | `...allowed 1048576.`                                 | yes        |
+  // | AI Studio  | `gemini-2.5-flash-image`| stream    | `...allowed (32768).`                                 | yes        |
+  //
+  // **IT IS AN INTERACTION OF PLATFORM AND MODEL AND TRANSPORT, and that is the part everyone gets
+  // wrong on first reading.** "Vertex streaming loses the overflow message" is FALSE — row 3 streams
+  // the detailed sentence on the same platform. "The image model cannot report a count while
+  // streaming" is FALSE — row 4 does exactly that on AI Studio. "The model never reports a count" is
+  // FALSE — row 2 reports it on the same platform with the same payload. Only all three together
+  // reach the generic sentence, so a future arm must not generalise from any one of them.
+  //
+  // **Why it was not worth closing: nothing a `gth init` can produce lands in that cell.** `vertexai`
+  // carries `discovery: { kind: 'none' }`, so `buildModelList` returns only the curated
+  // `preferredModels` — `gemini-3.8-flash` and `gemini-3.5-flash-lite`, both of which classify on
+  // both transports. The first-run dialog offers free-text model entry ONLY when that list comes back
+  // empty, which for this provider it never does, and a bare `init vertexai` omits `model` entirely
+  // so it resolves through `getCuratedFallbackModel('vertexai')` to `gemini-3.8-flash`. Reaching the
+  // affected cell takes a hand-edited config naming an image-generation model as an agentic chat
+  // model. The consequence there is a worse DIAGNOSIS — `invalid_request` instead of
+  // `context_overflow`, so the [[EXT-160]] seam does not offer to compact — not lost data.
+  //
+  // **Why a `:countTokens` pre-flight was not the answer HERE.** A token count is only actionable
+  // against a window, and when the window is known the [[EXT-161]] preventive guard
+  // (`createContextGuardMiddleware`, `beforeModel`, compaction on by default) has already run before
+  // the call — read live from `https://models.dev/api.json` on 2026-09-18, its `google-vertex` slice
+  // carries this model at `{"context":32768}`, so that guard is armed for the affected cell too.
+  // (That is a reading off a catalog that refreshes, not a static property of the checkout: re-read
+  // it rather than assuming it, the way [[EXT-189]]'s table above dates its own measurements.)
+  // When the window is NOT known, a count has nothing to compare
+  // itself to and cannot classify either. What a real count WOULD buy is accuracy against
+  // `ESTIMATE_CHARS_PER_TOKEN`, whose pessimistic 3.5 can still read low on dense content — the
+  // [[EXT-189]] table above measures a 2.13× miss — and that is a GENERIC improvement to the
+  // estimator, for every provider and every model, not a classification arm for one model. It
+  // belongs with [[EXT-160]]/[[EXT-161]] if anyone wants it, and this ruling does not argue against
+  // it there; it argues against paying a per-turn network round trip on the hot path to improve one
+  // hand-configured cell's diagnosis.
+  //
+  // **Why a non-streaming re-issue was not the answer.** It has to be gated on something, and the
+  // only gate available is `category === 'invalid_request'` plus a 400 — which by this hole's own
+  // premise is exactly the population that CANNOT be narrowed: bad tool schemas, unsupported
+  // parameters, malformed payloads, and any auth failure whose prose misses the auth arms. So the
+  // second round trip is paid across all of them to serve one cell. The billing edge runs the
+  // opposite way to intuition: a re-issue genuinely over the window is rejected free, and it is the
+  // re-issue that SUCCEEDS that costs — a full generation billed and then discarded, because the
+  // seam only ever wanted the error message. On an image model that is a billed image.
   'exceeds the maximum number of tokens allowed',
   // [[EXT-164]] Load-bearing for openrouter, and for ONE of its upstreams. Measured 2026-09-17,
   // live OpenRouter through `@langchain/openrouter` 0.4.13, three deliberately-oversized requests:

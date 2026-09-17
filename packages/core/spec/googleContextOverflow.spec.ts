@@ -34,7 +34,10 @@
  * one arm covers them because it matches the tail of the sentence.
  *
  * One Vertex case is *not* covered — `gemini-2.5-flash-image` while streaming, which answers with no
- * token-count prose at all. It is pinned below as a negative control and carved out to [[EXT-176]].
+ * token-count prose at all. It is pinned below as a negative control, and that control is
+ * **permanent**: [[EXT-176]] re-measured the case live on 2026-09-18, ruled it not worth closing, and
+ * shipped nothing. The argument is at the seam, in `terminationReason.ts` beside the arm — read it
+ * there before proposing a matcher that reaches into this cell.
  *
  * **How the fixtures are driven.** Each cell replaces `apiClient.fetch` on a real `ChatGoogle` with
  * one that answers from the recorded bytes, so the real `RequestError.fromResponse` builds the real
@@ -600,9 +603,18 @@ describe('[[EXT-162]] the one vertex case the arm cannot reach', () => {
     // 'invalid argument' would close this case and classify every malformed request in the product
     // as a context overflow.
     //
-    // **It is expected to FLIP when [[EXT-176]] lands**, which closes the case by a route prose
-    // cannot take — a `:countTokens` pre-flight, or a non-streaming re-issue to disambiguate. A
-    // future lane should update this assertion then, and must NOT delete it as a stale one.
+    // **[[EXT-176]] RULED: NOT WORTH CLOSING — so this cell is PERMANENT, not provisional.** It was
+    // once described as "expected to flip when EXT-176 lands"; it is not. That node re-measured all
+    // four cells live on 2026-09-18, confirmed the bytes below verbatim, and shipped no detector.
+    // The full argument lives at the seam in `terminationReason.ts`, beside the
+    // 'exceeds the maximum number of tokens allowed' arm; in short, reaching this cell takes a
+    // hand-edited config naming an image-generation model as an agentic chat model (`vertexai` is a
+    // `discovery: { kind: 'none' }` provider, so init only ever offers the two curated models, which
+    // both classify), and both candidate remedies charge every turn or every 400 to improve that one
+    // cell's diagnosis.
+    //
+    // So this assertion stays `false` deliberately. **Do not flip it, and do not delete it as
+    // stale** — it is the guard that keeps the over-wide matcher out.
     const error = await thrownFor(
       RECORDED_VERTEX_STREAM_INVALID_ARGUMENT,
       400,
