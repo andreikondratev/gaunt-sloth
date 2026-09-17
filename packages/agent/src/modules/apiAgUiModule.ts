@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { type RequestHandler } from 'express';
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import { EventEncoder } from '@ag-ui/encoder';
@@ -1105,9 +1105,28 @@ export async function startAgUiServer(
   // The body is built per request rather than once at boot because the declaration is a snapshot of
   // the current state ("if tools are added, the next call reflects them"), and because building it
   // here would be the second source of truth agUiCapabilities.ts exists to avoid.
-  app.get('/agents/:agentId/capabilities', (_req, res) => {
+  //
+  // ## Two paths, ONE handler
+  //
+  // `/agents/:agentId/capabilities` is canonical: it is the shorter path and the one this server
+  // documents. `/agents/:agentId/run/capabilities` is an alias, and it exists because the ag-ui
+  // TypeScript client does not get told the URL — it DERIVES it. `ADKAgent.capabilitiesUrl()`
+  // appends `/capabilities` to the agent's own run URL, so a stock client pointed at our run
+  // endpoint asks for the longer path and would get a 404 from the canonical route alone.
+  //
+  // That method is `protected`, so a consumer can override it — but the reason for copying this
+  // convention at all is to be discoverable by a client written against any other ag-ui server, and
+  // an endpoint every consumer must subclass to find does not deliver that. The override stays
+  // possible; it stops being required.
+  //
+  // **One handler bound to both, deliberately.** Registering a second inline body here would put
+  // the second source of truth that `agUiCapabilities.ts` exists to remove one route registration
+  // away from it — and the copy that drifts is always the one nobody is reading.
+  const capabilitiesHandler: RequestHandler = (_req, res) => {
     res.json(buildAgUiCapabilities(config, agent));
-  });
+  };
+  app.get('/agents/:agentId/capabilities', capabilitiesHandler);
+  app.get('/agents/:agentId/run/capabilities', capabilitiesHandler);
 
   return new Promise<Server>((resolve, reject) => {
     let settled = false;

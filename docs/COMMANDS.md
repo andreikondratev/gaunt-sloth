@@ -1198,6 +1198,7 @@ gaunt-sloth-api ag-ui --port 4000 --config ./.gsloth.config.json
 |--------|------|-------------|
 | `POST` | `/agents/:agentId/run` | Run the agent; streams AG-UI SSE events |
 | `GET`  | `/agents/:agentId/capabilities` | What this server declares it can do, as AG-UI `AgentCapabilities` JSON |
+| `GET`  | `/agents/:agentId/run/capabilities` | The same declaration, on the path an ag-ui client derives from its run URL |
 | `GET`  | `/health`              | Health check — returns `{ "status": "ok" }` |
 | `GET`  | `/info`                | Which provider and model are serving — `{ "status": "ok", "provider": "…", "model": "…" }` |
 
@@ -1212,6 +1213,11 @@ the event-driven categories follow what the run path actually emits.
 **An absent category means undeclared, not unsupported** — the protocol's own rule. `humanInTheLoop`
 is absent for that reason: this server wires no tool-approval callback, so it declares nothing about
 approvals rather than promising a review nothing performs.
+
+The same declaration is also served at `/agents/:agentId/run/capabilities`. Use whichever your
+client asks for: ag-ui's TypeScript client builds the URL by appending `/capabilities` to the run
+URL it was given, so pointing it at `http://localhost:3000/agents/default/run` is enough and no
+subclassing is needed.
 
 ### AG-UI Event Sequence
 

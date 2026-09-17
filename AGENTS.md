@@ -133,7 +133,8 @@ Middleware provides hooks to intercept and control agent execution at critical p
 `startAgUiServer()` ([packages/agent/src/modules/apiAgUiModule.ts](packages/agent/src/modules/apiAgUiModule.ts))
 exposes the agent over the AG-UI protocol at `POST /agents/:agentId/run`,
 streaming typed SSE events, and declares what it can do at
-`GET /agents/:agentId/capabilities`.
+`GET /agents/:agentId/capabilities` — also served at `/agents/:agentId/run/capabilities`, the path
+an ag-ui client derives from its run URL, from the same handler so the two cannot diverge.
 
 **The capability declaration is derived, never written by hand**
 ([agUiCapabilities.ts](packages/agent/src/modules/agUiCapabilities.ts)): the tool list comes from the

@@ -173,6 +173,39 @@ describe('apiAgUiModule capabilities endpoint', () => {
     expect(written).not.toContain('langgraph');
   });
 
+  it('serves the ADK-derived alias path from the very same handler', async () => {
+    // `ADKAgent.capabilitiesUrl()` appends `/capabilities` to the RUN url, so a stock ag-ui client
+    // pointed at our run endpoint asks for `/agents/:agentId/run/capabilities`. That alias is
+    // registered so such a client finds us without subclassing; the shorter path stays canonical.
+    //
+    // The identity check is the load-bearing half. Two handlers built from the same builder would
+    // agree today and satisfy an equal-bodies assertion forever, which is precisely the
+    // second-source-of-truth failure this node exists to prevent — so this pins ONE function object
+    // bound twice, not two that happen to match.
+    const { startAgUiServer } = await import('#src/modules/apiAgUiModule.js');
+    await startAgUiServer(
+      { ...baseConfig, tools: [fakeTool('read_file', 'Read a file')] } as GthConfig,
+      3000
+    );
+
+    const canonical = handlerFor('/agents/:agentId/capabilities');
+    const alias = handlerFor('/agents/:agentId/run/capabilities');
+    expect(alias).toBe(canonical);
+
+    const viaCanonical = makeRes();
+    canonical({ params: { agentId: 'default' } }, viaCanonical);
+    const viaAlias = makeRes();
+    alias({ params: { agentId: 'default' } }, viaAlias);
+
+    expect(viaCanonical.json).toHaveBeenCalledTimes(1);
+    expect(viaAlias.json).toHaveBeenCalledTimes(1);
+    const canonicalBody = viaCanonical.json.mock.calls[0][0] as Record<string, unknown>;
+    expect(viaAlias.json.mock.calls[0][0]).toEqual(canonicalBody);
+    // Not two empty objects agreeing: the shared body is a real declaration.
+    expect((canonicalBody.tools as { items: unknown[] }).items).toHaveLength(1);
+    expect(AgentCapabilitiesSchema.safeParse(canonicalBody).success).toBe(true);
+  });
+
   it('serves the route under the default CORS headers, with no cors config at all', async () => {
     // The node's acceptance names reachability with the DEFAULT config, so `baseConfig` carries no
     // `cors` key: this is the untouched default path, not a widened one. Two things have to hold —
