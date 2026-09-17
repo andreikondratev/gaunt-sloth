@@ -35,6 +35,11 @@ import {
   type GthTerminationReason,
 } from '@gaunt-sloth/core/core/terminationReason.js';
 import { textToNativeToolCalls } from '@gaunt-sloth/core/core/toolCallRepair/index.js';
+import {
+  AGUI_AGENT_COMMAND,
+  buildAgUiCapabilities,
+  describeConfiguredModel,
+} from '#src/modules/agUiCapabilities.js';
 import { HumanMessage, AIMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
 import { MemorySaver } from '@langchain/langgraph';
 import { tool } from '@langchain/core/tools';
@@ -542,7 +547,7 @@ export async function startAgUiServer(
   // deciding what the client asks for first, which is [[GS2-106]]'s question rather than this one.
   const checkpointSaver = new MemorySaver();
   const agent = createConfiguredAgent(config);
-  await agent.init('api', config, checkpointSaver);
+  await agent.init(AGUI_AGENT_COMMAND, config, checkpointSaver);
 
   displayInfo(`AG-UI agent initialized`);
 
@@ -618,7 +623,7 @@ export async function startAgUiServer(
       tools: [...baseTools, ...clientStubs],
     } as GthConfig;
     const reqAgent = createConfiguredAgent(reqConfig);
-    await reqAgent.init('api', reqConfig, checkpointSaver);
+    await reqAgent.init(AGUI_AGENT_COMMAND, reqConfig, checkpointSaver);
     toolAgentCache.set(sig, reqAgent);
     displayInfo(
       `AG-UI: bound ${clientStubs.length} client tool(s): ${tools.map((t) => t.name).join(', ')}`
@@ -1082,23 +1087,26 @@ export async function startAgUiServer(
     res.json({ status: 'ok' });
   });
 
-  // Agent metadata — lets clients display which model/provider is serving them.
-  // provider is read from the LangChain model's _llmType() (e.g. "ollama",
-  // "anthropic"); model from config.modelDisplayName, falling back to the
-  // chat model's own `model` field.
+  // Agent metadata — lets clients display which model/provider is serving them. The read itself
+  // lives in agUiCapabilities so this route and the capability declaration cannot describe the
+  // same model differently.
   app.get('/info', (_req, res) => {
-    const llm = config.llm as { _llmType?: () => string; model?: string } | undefined;
-    let provider: string | null = null;
-    try {
-      provider = typeof llm?._llmType === 'function' ? llm._llmType() : null;
-    } catch {
-      provider = null;
-    }
-    res.json({
-      status: 'ok',
-      provider,
-      model: config.modelDisplayName ?? llm?.model ?? null,
-    });
+    res.json({ status: 'ok', ...describeConfiguredModel(config) });
+  });
+
+  // [[EXT-166]] — AG-UI capability discovery. The protocol defines the declaration's shape and the
+  // client hook and no transport for it, so this follows the ADK middleware's convention: JSON on a
+  // sibling path of the run endpoint, for a client to parse with `AgentCapabilitiesSchema`.
+  //
+  // `:agentId` is ignored here exactly as the run route above ignores it — one configured agent
+  // answers on every id, and a capability declaration that varied by a path segment the run route
+  // does not read would describe a routing this server does not do.
+  //
+  // The body is built per request rather than once at boot because the declaration is a snapshot of
+  // the current state ("if tools are added, the next call reflects them"), and because building it
+  // here would be the second source of truth agUiCapabilities.ts exists to avoid.
+  app.get('/agents/:agentId/capabilities', (_req, res) => {
+    res.json(buildAgUiCapabilities(config, agent));
   });
 
   return new Promise<Server>((resolve, reject) => {

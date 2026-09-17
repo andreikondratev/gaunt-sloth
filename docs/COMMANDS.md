@@ -1197,7 +1197,21 @@ gaunt-sloth-api ag-ui --port 4000 --config ./.gsloth.config.json
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/agents/:agentId/run` | Run the agent; streams AG-UI SSE events |
+| `GET`  | `/agents/:agentId/capabilities` | What this server declares it can do, as AG-UI `AgentCapabilities` JSON |
 | `GET`  | `/health`              | Health check — returns `{ "status": "ok" }` |
+| `GET`  | `/info`                | Which provider and model are serving — `{ "status": "ok", "provider": "…", "model": "…" }` |
+
+### Capability Discovery
+
+`GET /agents/:agentId/capabilities` answers with the AG-UI `AgentCapabilities` object, so a client
+can adapt before it starts a run instead of hard-coding assumptions about the server. Every value is
+read from the running server: `tools.items` is the live tool inventory the agent loaded (narrowed by
+`allowedTools` when you configure one), `identity` carries the version and the configured model, and
+the event-driven categories follow what the run path actually emits.
+
+**An absent category means undeclared, not unsupported** — the protocol's own rule. `humanInTheLoop`
+is absent for that reason: this server wires no tool-approval callback, so it declares nothing about
+approvals rather than promising a review nothing performs.
 
 ### AG-UI Event Sequence
 
@@ -1254,6 +1268,9 @@ gth -c ./my-project/.gsloth.config.json api ag-ui --port 3000
 ```bash
 # Test the health endpoint
 curl http://localhost:3000/health
+
+# Ask what the server can do before wiring a client to it
+curl http://localhost:3000/agents/default/capabilities
 
 # Send a run request
 curl -X POST http://localhost:3000/agents/default/run \

@@ -132,7 +132,16 @@ Middleware provides hooks to intercept and control agent execution at critical p
 
 `startAgUiServer()` ([packages/agent/src/modules/apiAgUiModule.ts](packages/agent/src/modules/apiAgUiModule.ts))
 exposes the agent over the AG-UI protocol at `POST /agents/:agentId/run`,
-streaming typed SSE events.
+streaming typed SSE events, and declares what it can do at
+`GET /agents/:agentId/capabilities`.
+
+**The capability declaration is derived, never written by hand**
+([agUiCapabilities.ts](packages/agent/src/modules/agUiCapabilities.ts)): the tool list comes from the
+agent's own advertised inventory, the identity from the package manifest, and the event-driven
+categories from the set of events the run path emits, which a spec holds equal to the run path's
+actual emission sites. A literal capability block is correct the day it is written and silently
+wrong from the first change to what it describes. The same file carries why `humanInTheLoop` is
+absent rather than `false`; read it before adding a category.
 
 **The endpoint is unauthenticated, so the bind is the only thing limiting who
 can run the agent.** It defaults to IPv4 loopback and widens only on an explicit
