@@ -190,10 +190,68 @@ export function createOllamaContextWindowSource(llm: OllamaLikeModel): ContextWi
  * diagnosable instead of mysterious. */
 export type ContextWindowOrigin = 'ollama' | 'models.dev' | 'profile' | 'unknown';
 
+/**
+ * [[EXT-187]] — **whether anything was in a position to contradict this resolution.**
+ *
+ * `origin` says which tier produced the number. It cannot say whether that tier answered against
+ * competition or alone, and on the profile tier those are materially different facts: the same
+ * `origin: 'profile'` covers a table a live catalog was read alongside and a table that decided
+ * unchallenged because no catalog slice was cached. [[EXT-185]] already computed that difference
+ * inside {@link resolveContextWindow} and spent it on one `debugLog`; this is the same fact carried
+ * to the caller, so `/status` and `/autocompact` can say which they are looking at.
+ *
+ * **Why a field beside `origin` rather than a fourth origin value.** A `'profile-unchecked'` member
+ * would not add a state, it would *redefine an existing one*: every `origin === 'profile'` test —
+ * ours and any embedder's, since `ContextWindowOrigin` is re-exported from the package barrel —
+ * would silently stop matching the cold-cache case, which is the very case this node exists to make
+ * visible. Widening the union is also a breaking change to a consumer switching exhaustively on it.
+ * The two facts are orthogonal — *which source* and *was it checked* — and modelling them as one
+ * value is how a reader comes to believe `origin` answers a question it does not.
+ *
+ * **Why three values and not a boolean.** A boolean would collapse "no catalog is cached" with "no
+ * catalog exists for this provider", and only the first has a remedy. Telling a user on ollama — or
+ * on any provider models.dev carries no slice for — to refresh a catalog that will never hold their
+ * model is a diagnostic that lies, which is the distinction [[EXT-185]] drew deliberately at the
+ * tier-2 seam and this type is not permitted to undo.
+ *
+ * The field describes the **resolution**, not only the number, so it is meaningful on an `unknown`
+ * reading too: an empty resolution reached over a cold cache is one a cached catalog might have
+ * answered, and that user has somewhere to go.
+ */
+export type ContextWindowCheck =
+  /**
+   * The number came from a source in a position to know it, or from a table a live catalog slice
+   * was read alongside and did not contradict.
+   *
+   * The ollama tier counts as knowing: it does not *claim* a window, it reports the one this
+   * session imposes — `numCtx` is the number the request will carry, capped by the model's own
+   * `context_length` read from the daemon, so there is nothing for a catalog to contradict.
+   * **Knowingly not modelled here:** a `/api/show` that failed leaves that cap unread, and the
+   * configured number then stands uncapped. Reporting it would need {@link ContextWindowSource} to
+   * carry more than `number | null` — a new contract for every source — to describe a narrower risk
+   * than the one this type is about, since ollama truncates rather than errors and `numCtx` is
+   * still the number sent.
+   */
+  | 'checked'
+  /**
+   * A compiled-in profile table decided alone: no models.dev slice is cached for this provider and
+   * the runtime reads the catalog cache-only. **The state with a remedy** — models.dev does carry
+   * this provider, so filling the cache puts a checker back in front of the table.
+   */
+  | 'unchecked'
+  /**
+   * Nothing checked it and nothing here can: models.dev has no slice for this provider at all, or
+   * the caller named no provider to look one up for. Distinct from `'unchecked'` precisely because
+   * there is no remedy to offer.
+   */
+  | 'uncheckable';
+
 /** A resolved window and its provenance. `tokens: null` means "not known", and never "zero". */
 export interface ContextWindowReading {
   tokens: number | null;
   origin: ContextWindowOrigin;
+  /** [[EXT-187]] — whether anything was in a position to contradict this resolution. */
+  check: ContextWindowCheck;
 }
 
 /** How each origin is described to a user, in a sentence that says where to go to change it. */
@@ -202,6 +260,29 @@ export const CONTEXT_WINDOW_ORIGIN_LABELS: Readonly<Record<ContextWindowOrigin, 
   'models.dev': 'the models.dev catalog',
   profile: "the provider package's built-in model profile",
   unknown: 'nowhere — no source knows this model, so nothing is compacted preventively',
+};
+
+/**
+ * [[EXT-187]] — what a surface says about each check state, or `null` for the states it says
+ * nothing about.
+ *
+ * **Only `'unchecked'` speaks, and the two `null`s are a ruling rather than an omission.** A
+ * warning is worth its space when the reader can act on it; `'uncheckable'` has no remedy to name,
+ * so a line for it would be a permanent sentence on every ollama session telling the user something
+ * they cannot change — the default-on noise [[EXT-168]] declined a notice over, and a line that
+ * suggested refreshing a catalog there would be actively wrong. `'checked'` is the ordinary case
+ * and needs no commentary.
+ *
+ * A total `Record` rather than a lookup with a fallback, so a fourth check state cannot be added
+ * without someone deciding on the spot what it tells a user.
+ */
+export const CONTEXT_WINDOW_CHECK_LABELS: Readonly<Record<ContextWindowCheck, string | null>> = {
+  checked: null,
+  unchecked:
+    'That number is unverified: no models.dev catalog is cached for this provider, so the ' +
+    "provider package's built-in table decided it alone. That table is measured to overstate " +
+    'some models. Run `gth models --refresh` to check it against the catalog.',
+  uncheckable: null,
 };
 
 /**
@@ -278,7 +359,11 @@ export interface ResolvedContextWindow {
 
 /**
  * **The one place a model is matched to a context window.** Tries ollama, then models.dev, then the
- * LangChain profile, and answers `{ tokens: null, origin: 'unknown' }` when none of them knows.
+ * LangChain profile, and answers `origin: 'unknown'` with `tokens: null` when none of them knows.
+ *
+ * Every answer also carries a {@link ContextWindowCheck} saying whether anything was in a position
+ * to contradict it ([[EXT-187]]) — the fact that separates a profile table a catalog stood beside
+ * from one that decided unchallenged.
  *
  * **There is deliberately no `?? DEFAULT` anywhere on this path.** One fallback turns every unknown
  * window into a confident wrong number, which is the 4097 failure this file opens by naming.
@@ -304,7 +389,17 @@ export function resolveContextWindow(
     // with the same `null` shape further down. Absent means no cached slice and a runtime that will
     // not fetch one; silent means the catalog answered and does not cover this id. Only the first
     // is the case the ruling at tier 3 is about.
-    let catalogWasAbsent = false;
+    //
+    // [[EXT-187]] — that fact is now CARRIED rather than spent on the log below. It was already
+    // computed exactly here and thrown away at the return, so a caller could not tell a profile
+    // answer that a catalog stood beside from one that decided unchallenged. One variable holds it
+    // for both uses on purpose: a log line and a returned field that could drift apart would be two
+    // descriptions of one event, and the log is the thing a user quotes when the field is wrong.
+    //
+    // It starts at `'uncheckable'` — the honest answer when tier 2 is never entered at all, which
+    // is the documented shape of `resolveContextWindowSource(llm)` with no provider or model to
+    // look one up for.
+    let check: ContextWindowCheck = 'uncheckable';
     // 1. Ollama — the number the request will actually carry. It is asked first and not merely
     //    preferred: models.dev deliberately has no ollama entry (local models have no catalog
     //    row), so for ollama there is nothing below this to fall through to.
@@ -312,7 +407,10 @@ export function resolveContextWindow(
       try {
         const tokens = await ollamaSource();
         if (tokens !== null && Number.isFinite(tokens) && tokens > 0) {
-          return { tokens, origin: 'ollama' };
+          // [[EXT-187]] — `'checked'` because this tier reports the window this session IMPOSES
+          // rather than claiming one: `numCtx` is the number the request carries. See the value's
+          // own docblock for the sub-case deliberately left unmodelled.
+          return { tokens, origin: 'ollama', check: 'checked' };
         }
       } catch {
         /* the ollama source is documented never to throw; a stub still might */
@@ -328,16 +426,24 @@ export function resolveContextWindow(
         // A `null` catalog for a provider models.dev does not carry at all (ollama, or any id
         // outside the key map) is not a cold cache and has no warm path — telling that user to
         // refresh a catalog that will never hold their model would be a diagnostic that lies.
-        catalogWasAbsent =
-          catalog === null && Boolean(MODELS_DEV_PROVIDER_KEY[providerId as ProviderId]);
+        const carried = Boolean(MODELS_DEV_PROVIDER_KEY[providerId as ProviderId]);
+        // A catalog that ANSWERED is `'checked'` whether or not it holds a row for this id: it was
+        // in a position to contradict the tier below and did not, which is the fact the field
+        // reports. A catalog that did not answer splits on whether one could ever exist.
+        check = catalog !== null ? 'checked' : carried ? 'unchecked' : 'uncheckable';
         const context = catalog?.models?.[modelId]?.limit?.context;
         if (typeof context === 'number' && Number.isFinite(context) && context > 0) {
-          return { tokens: context, origin: 'models.dev' };
+          return { tokens: context, origin: 'models.dev', check };
         }
       } catch {
         // `getProviderCatalog` never throws by contract (catalog availability must never block a
         // model), so this catches an injected stub only — but a resolution that fell over here
         // would take the profile backstop down with it, which is the opposite of degrading well.
+        //
+        // [[EXT-187]] — `check` is left at `'uncheckable'`: a reader that threw told us nothing
+        // about whether a slice exists, and claiming `'unchecked'` would point the user at a
+        // refresh for a failure a refresh has no bearing on. This also keeps the pre-existing
+        // behaviour exactly — the cold-cache line below did not fire on a throw either.
       }
     }
     // 3. The profile — a backstop, recorded as such so a wrong threshold is diagnosable.
@@ -372,10 +478,14 @@ export function resolveContextWindow(
     // line below already tells a maintainer to fill the catalog cache, and it is precisely the
     // cold-cache case that never reaches it, because the profile answered. So that case says so
     // here instead.
+    //
+    // [[EXT-187]] — and, now, the reading itself says so, via `check`. **The number is unchanged:**
+    // this node moved what a caller may CONCLUDE from a cold-cache profile answer, never what this
+    // tier does with one. The ruling above still stands in full.
     try {
       const profile = profileReader(llm);
       if (profile !== null && Number.isFinite(profile) && profile > 0) {
-        if (catalogWasAbsent) {
+        if (check === 'unchecked') {
           debugLog(
             `Context window ${profile} for provider '${providerId}' model '${modelId}' came from ` +
               "the provider package's built-in profile table: no models.dev slice is cached for " +
@@ -385,7 +495,7 @@ export function resolveContextWindow(
               '(gth models --refresh, or gth init) is what puts the catalog back in front of it.'
           );
         }
-        return { tokens: profile, origin: 'profile' };
+        return { tokens: profile, origin: 'profile', check };
       }
     } catch {
       /* see readProfileContextWindow: someone else's getter */
@@ -415,7 +525,11 @@ export function resolveContextWindow(
         'models.dev entry, filling the catalog cache (gth models --refresh, or gth init) is what ' +
         'makes the runtime read one.'
     );
-    return { tokens: null, origin: 'unknown' };
+    // [[EXT-187]] — `check` rides out on the empty resolution too. The field describes whether
+    // anything was in a position to answer, which an empty resolution has as much of an answer to
+    // as a full one: reached over a cold cache it is `'unchecked'`, and that user has the same
+    // remedy as the profile case above.
+    return { tokens: null, origin: 'unknown', check };
   };
 
   const read = (): Promise<ContextWindowReading> => (pending ??= resolve());

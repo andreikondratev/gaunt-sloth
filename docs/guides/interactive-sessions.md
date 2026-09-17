@@ -138,6 +138,11 @@ conversations that had room to spare. Set the number yourself if you hit this �
 below, or `/autocompact` for one session — or run `gth models` once to fill the catalog cache for
 your provider.
 
+**When the third source answers with no catalog cached to check it, `/status` and `/autocompact`
+call the window unverified.** Those built-in tables are measured to overstate some models, and an
+overstated window is one a `"80%"` threshold aims past — so the setting is honoured, and the
+uncertainty is on screen beside it. `gth models --refresh` fills the catalog and settles it.
+
 #### Setting it yourself: the `autocompact` key
 
 Fold once the prompt passes 300,000 tokens:

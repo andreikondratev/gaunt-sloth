@@ -192,6 +192,11 @@
       "arity": 0
     },
     {
+      "name": "ContextWindowCheck",
+      "file": "core/contextWindow.d.ts",
+      "arity": 0
+    },
+    {
       "name": "ContextWindowOrigin",
       "file": "core/contextWindow.d.ts",
       "arity": 0

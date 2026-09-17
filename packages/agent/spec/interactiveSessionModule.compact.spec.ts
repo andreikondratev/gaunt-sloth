@@ -254,6 +254,7 @@ describe('interactiveSessionModule — /autocompact (EXT-161)', () => {
     thresholdOrigin: 'config',
     window: 200_000,
     windowOrigin: 'models.dev',
+    windowCheck: 'checked',
     budget: { kind: 'tokens', tokens: 160_000 },
   };
 

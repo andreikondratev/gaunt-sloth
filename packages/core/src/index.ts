@@ -17,6 +17,7 @@ export type {
   ResolvedAutocompactConfig,
 } from '#src/core/compactionThreshold.js';
 export type {
+  ContextWindowCheck,
   ContextWindowOrigin,
   ContextWindowReading,
   ContextWindowResolutionOptions,
