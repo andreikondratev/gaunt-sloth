@@ -1389,6 +1389,18 @@ export class GthAgentRunner {
       } else {
         // Use non-streaming
         debugLog('Using non-streaming mode');
+        // [[EXT-184]] — **this branch is the whole difference, so both arms arm Esc.** The
+        // streaming arm above reaches `GthAbstractAgent.streamFromInput`, which arms the interrupt
+        // and threads an abort signal; `invoke` now does the same for itself, so a runaway model
+        // call is interruptible whichever way `streamOutput` is set. The affordance belongs in the
+        // agent rather than here because that is where the signal has somewhere to go — and it is
+        // deliberately NOT conditional on the command, since the gap was in this branch and so
+        // every verb run under `streamOutput: false` had it.
+        //
+        // A cancelled turn returns a notice instead of throwing, so it flows through the empty-turn
+        // check below as an ordinary non-empty answer rather than being reported as a model fault.
+        // The runner's own `noteCompleted` then records nothing new: the agent classified the
+        // cancellation first, and `getTerminationReason()` prefers the agent's reason.
         let result = await this.agent.invoke(messages, this.runConfig);
         // EXT-52 — the SAME interrupt drain the streaming branch does above. A gated
         // `run_shell_command` suspends the graph, so `invoke` returns with the tool-calling

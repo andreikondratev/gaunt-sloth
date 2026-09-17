@@ -2299,10 +2299,13 @@ describe('GthLangChainAgent', () => {
       };
       await agent.invoke([new HumanMessage('test message')], runConfig);
 
-      // Verify that agent.invoke was called with the correct parameters
+      // Verify that agent.invoke was called with the correct parameters.
+      // [[EXT-184]] — the run config reaches the graph with an abort signal added, which is what
+      // makes Esc during a non-streaming turn able to cancel it. Every field the caller set is
+      // still asserted; the signal is asserted on top of them rather than in place of them.
       expect(agentMock.invoke).toHaveBeenCalledWith(
         { messages: [expect.any(HumanMessage)] },
-        runConfig
+        expect.objectContaining({ ...runConfig, signal: expect.any(AbortSignal) })
       );
     });
 
@@ -2462,10 +2465,13 @@ describe('GthLangChainAgent', () => {
       };
       await agent.invoke([new HumanMessage('test message')], runConfig);
 
-      // Verify that agent.invoke was called with the correct parameters
+      // Verify that agent.invoke was called with the correct parameters.
+      // [[EXT-184]] — the run config reaches the graph with an abort signal added, which is what
+      // makes Esc during a non-streaming turn able to cancel it. Every field the caller set is
+      // still asserted; the signal is asserted on top of them rather than in place of them.
       expect(agentMock.invoke).toHaveBeenCalledWith(
         { messages: [expect.any(HumanMessage)] },
-        runConfig
+        expect.objectContaining({ ...runConfig, signal: expect.any(AbortSignal) })
       );
     });
 
@@ -2517,10 +2523,13 @@ describe('GthLangChainAgent', () => {
       };
       await agent.invoke([new HumanMessage('test message')], runConfig);
 
-      // Verify that agent.invoke was called with the correct parameters
+      // Verify that agent.invoke was called with the correct parameters.
+      // [[EXT-184]] — the run config reaches the graph with an abort signal added, which is what
+      // makes Esc during a non-streaming turn able to cancel it. Every field the caller set is
+      // still asserted; the signal is asserted on top of them rather than in place of them.
       expect(agentMock.invoke).toHaveBeenCalledWith(
         { messages: [expect.any(HumanMessage)] },
-        runConfig
+        expect.objectContaining({ ...runConfig, signal: expect.any(AbortSignal) })
       );
     });
 

@@ -154,6 +154,15 @@ export type GthTerminationSite =
   | 'agent.events-stop-metadata'
   /** A `ToolException` was turned into the turn's answer on the `invoke` path. */
   | 'agent.invoke-tool-exception'
+  /**
+   * [[EXT-184]] — the non-streaming `invoke` path ended on Esc / an abort.
+   *
+   * Its own site rather than sharing `agent.stream-cancelled`, because the two arms of the runner's
+   * `streamOutput` branch are exactly what a reader of this reason needs told apart: they cancel
+   * through different machinery and leave the turn holding different things (partial content on one
+   * arm, a notice on the other).
+   */
+  | 'agent.invoke-cancelled'
   /** The string-streaming path ended on Esc / an abort. */
   | 'agent.stream-cancelled'
   /** `streamWithEvents` ended on a suspend or an abort. */
