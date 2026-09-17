@@ -296,6 +296,46 @@ describe('singleShot', () => {
     expect(errorOutput).toContain('approvals.allow');
   });
 
+  /**
+   * EXT-186 — the CLI half of "a config with no model says so".
+   *
+   * The refusal is raised inside the agent's `getEffectiveConfig`, which `GthAgentRunner.init`
+   * calls without a catch of its own, so this runtime's catch is the only thing between it and the
+   * person who typed the verb. What that catch does to the message is the whole question: the node
+   * is about a failure that named nothing, and a wrapper that replaced the message with its own
+   * would put us back there while every other cell stayed green.
+   *
+   * The expected text is taken from PRODUCTION, not typed here: the real agent is asked to refuse a
+   * real model-less config, and the assertion is that what it said survives to `displayError`. A
+   * literal written into this file would still pass if the runtime substituted its own wording.
+   */
+  it('EXT-186: a config refused for naming no model reaches the user intact', async () => {
+    const { GthLangChainAgent } = await import('#src/core/GthLangChainAgent.js');
+    const modelLess = { ...mockConfig } as Partial<GthConfig>;
+    delete modelLess.llm;
+
+    let refusal: Error | undefined;
+    try {
+      new GthLangChainAgent(vi.fn()).getEffectiveConfig(modelLess as GthConfig, 'ask');
+    } catch (e) {
+      refusal = e as Error;
+    }
+    expect(refusal, 'the agent must refuse a config with no llm').toBeDefined();
+
+    gthAgentRunnerInstanceMock.init.mockRejectedValue(refusal);
+
+    const { runSingleShot } = await import('#src/runtime/singleShot.js');
+    const result = await runSingleShot('test-source', '', 'do it', { ...mockConfig });
+
+    // `ok: false` is what askCommand/execCommand turn into setExitCode(1).
+    expect(result.ok).toBe(false);
+    const errorOutput = consoleUtilsMock.displayError.mock.calls.map((c) => c[0]).join('\n');
+    expect(errorOutput).toContain(refusal?.message);
+    // Named, and named as config rather than as an internal property read.
+    expect(errorOutput).toContain('llm');
+    expect(errorOutput).not.toContain('bindTools');
+  });
+
   it('forwards the agentFactory to GthAgentRunner (B5)', async () => {
     const testConfig = { ...mockConfig } as GthConfig;
     const { runSingleShot } = await import('#src/runtime/singleShot.js');
