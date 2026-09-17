@@ -1362,6 +1362,7 @@ function buildSweep(
       // where a value declaring nothing at all cannot be told from an authoring slip.
       const notes = rawValue.notes;
       if (notes !== undefined) {
+        const seen = new Set<string>();
         for (const name of notes.omit) {
           if (!(RATER_PROMPT_NOTE_NAMES as string[]).includes(name)) {
             throw new Error(
@@ -1372,6 +1373,19 @@ function buildSweep(
                 'and would then remove nothing.'
             );
           }
+          // A repeated name is refused HERE rather than left to the arm, because the arm removes
+          // the block on the first pass and then cannot find it on the second — which it reports as
+          // a LEAK, i.e. as core and the arm having drifted apart. That diagnostic is true of a real
+          // drift and false of an authoring slip, and it would send the reader hunting a divergence
+          // that does not exist. The parse-time refusal says what actually happened.
+          if (seen.has(name)) {
+            throw new Error(
+              `Invalid eval suite${suffix}: sweep value "${axisName}=${valueName}" names rater ` +
+                `prompt note "${name}" twice in \`notes.omit\`. A note is omitted or it is not; ` +
+                'naming it again removes nothing and is a slip, not a stronger omission.'
+            );
+          }
+          seen.add(name);
         }
       }
       return {

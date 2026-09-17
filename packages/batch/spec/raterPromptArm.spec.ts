@@ -17,7 +17,7 @@ import type { RaterCallCapture } from '@gaunt-sloth/core/core/shell/approvalCapt
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 
 import type { ClassifyRequest } from '#src/evalTypes.js';
-import type { RaterPromptArm } from '#src/raterPromptArm.js';
+import type { RaterPromptArm, RaterPromptArmOutcome } from '#src/raterPromptArm.js';
 
 /**
  * [[BATCH-31]] — **the prompt arm: a note-on / note-off A/B expressed as ONE suite.**
@@ -141,6 +141,72 @@ describe('[[BATCH-31]] the rater prompt arm', () => {
       expect(armed).not.toContain(buildParserPreflightNote(NOTED) as string);
       // The command itself is untouched — an arm edits our own notes, never the rated text.
       expect(armed).toContain('<command_to_evaluate>');
+    });
+  });
+
+  /**
+   * **A real rating model is a CLASS; every fake above is an object literal.** A provider keeps its
+   * state behind private `#fields`, and reading one with a Proxy as the receiver throws — so a
+   * decorator that forwarded methods unbound would work perfectly against these fakes and break
+   * against `ChatOpenAI`. Worse, it would break QUIETLY: the one caller in the rating path,
+   * `raterModelLabel`, wraps its `_llmType()` call in a `try`/`catch` and records `undefined`, so
+   * the only visible symptom would be an archive that stopped naming the rater's provider.
+   */
+  describe('the decorated model is still the provider it wraps', () => {
+    /** State behind a `#private` field: reachable only with the instance itself as `this`. */
+    class PrivateStateModel {
+      readonly #type = 'private-provider';
+      readonly model = 'a-model-id';
+      readonly sent: string[] = [];
+      _llmType(): string {
+        return this.#type;
+      }
+      withStructuredOutput(): { invoke: (messages: unknown) => Promise<unknown> } {
+        return {
+          invoke: async (messages: unknown) => {
+            const [, user] = messages as { content: string }[];
+            this.sent.push(user.content);
+            return { outcome: FAIL_CLOSED_VERDICT.outcome, reason: 'recorded' };
+          },
+        };
+      }
+    }
+
+    it('forwards a method call with the provider, not the proxy, as `this`', async () => {
+      const { armRaterModel } = await import('#src/raterPromptArm.js');
+      const provider = new PrivateStateModel();
+      const outcome: RaterPromptArmOutcome = {
+        invoked: false,
+        removed: [],
+        absent: [],
+        leaked: [],
+      };
+
+      const armed = armRaterModel(
+        provider as unknown as BaseChatModel,
+        NOTED,
+        OMIT_COMPOSED,
+        outcome
+      ) as unknown as PrivateStateModel;
+
+      expect(armed._llmType()).toBe('private-provider');
+      // The other half of what `raterModelLabel` reads: a plain property, forwarded untouched.
+      expect(armed.model).toBe('a-model-id');
+    });
+
+    it('omits the note through the real gate when the model is such a class', async () => {
+      const { buildRaterClassifier } = await import('#src/raterTarget.js');
+      const provider = new PrivateStateModel();
+
+      const classify = await buildRaterClassifier({ type: 'rater', rung: 'assisted' }, configOf(), {
+        model: provider as unknown as BaseChatModel,
+        notes: OMIT_COMPOSED,
+      });
+      await classify(requestOf(NOTED));
+
+      expect(provider.sent).toHaveLength(1);
+      expect(provider.sent[0]).not.toContain(COMPOSED_OPEN_WORLD_PREAMBLE);
+      expect(provider.sent[0]).toContain('<command_to_evaluate>');
     });
   });
 
@@ -306,6 +372,17 @@ describe('[[BATCH-31]] the `notes:` sweep axis', () => {
     await expect(parse(armSweep('notes: { omit: [open-world-floor] }'))).rejects.toThrow(
       /omits unknown rater prompt note "open-world-floor"/
     );
+  });
+
+  /**
+   * A slip the arm itself would mis-diagnose: it removes the block on the first pass, fails to find
+   * it on the second, and reports that as a LEAK — core and the arm having drifted. Refusing the
+   * duplicate at parse time is what keeps the leak diagnostic meaning only the thing it names.
+   */
+  it('rejects a note named twice, rather than letting it surface as a leak', async () => {
+    await expect(
+      parse(armSweep('notes: { omit: [composed-open-world, composed-open-world] }'))
+    ).rejects.toThrow(/names rater prompt note "composed-open-world" twice/);
   });
 
   it('rejects the axis on a target that runs an agent', async () => {

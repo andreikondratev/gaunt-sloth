@@ -70,6 +70,16 @@
  * runner pass a suppression flag and see that spec go red. A test that merely asserted something
  * about this package's barrel exports would pass while proving nothing about the hazard.
  *
+ * ## Where the route is held, end to end
+ *
+ * Three specs, one per link, because a facility can be perfectly built and still measure nothing:
+ * `packages/batch/spec/raterPromptArm.spec.ts` (parse, expand, arm, reconcile),
+ * `packages/core/spec/raterPromptNotesNotSuppressible.spec.ts` (leg 1 above — the session's gate),
+ * and `packages/app/spec/evalCommandRaterArm.spec.ts`, which runs the A/B suite through the `eval`
+ * command itself. The last one exists because the hand-off in `evalCommand.ts` is the single line
+ * that connects the other two: cut it and every arm silently sends the same prompt, the comparison
+ * table honestly reports the note changing nothing, and both of the other specs stay green.
+ *
  * ## Shapes rejected
  *
  * - **A `notes:` option on `rateShellCommand` / `buildRaterPrompt`.** This is the naive fix and it
@@ -355,6 +365,9 @@ export function reconcileArmedCapture(
     );
   }
   if (outcome.leaked.length > 0) {
+    // This sentence names a DRIFT between core and the arm, and it is allowed to, because the one
+    // authoring slip that could otherwise reach it — the same note named twice, where the second
+    // pass finds the block the first already removed — is refused when the suite is parsed.
     throw new Error(
       `eval: the prompt arm could not remove [${outcome.leaked.join(', ')}] from the rating ` +
         `prompt for "${command}" — core builds that note for this command but it was not found in ` +
