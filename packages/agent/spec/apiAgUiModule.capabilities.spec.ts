@@ -231,13 +231,18 @@ describe('apiAgUiModule capabilities endpoint', () => {
     expect(headers['Access-Control-Allow-Methods']).toContain('GET');
     expect(headers['Access-Control-Allow-Origin']).toBeTruthy();
 
-    const capIndex = mockGetFn.mock.calls.findIndex(
-      ([path]) => path === '/agents/:agentId/capabilities'
-    );
-    expect(capIndex).toBeGreaterThanOrEqual(0);
-    expect(mockUseFn.mock.invocationCallOrder[corsIndex]).toBeLessThan(
-      mockGetFn.mock.invocationCallOrder[capIndex]
-    );
+    // BOTH paths, not just the canonical one. The alias is the path a stock ag-ui client derives,
+    // and that client is a browser — so it is the registration whose CORS reachability actually
+    // matters. Checking only the canonical path would stay green through a regression that moved
+    // the alias registration above the middleware.
+    for (const path of ['/agents/:agentId/capabilities', '/agents/:agentId/run/capabilities']) {
+      const capIndex = mockGetFn.mock.calls.findIndex(([registered]) => registered === path);
+      expect(capIndex, `no GET route registered at ${path}`).toBeGreaterThanOrEqual(0);
+      expect(
+        mockUseFn.mock.invocationCallOrder[corsIndex],
+        `CORS middleware is registered after ${path}`
+      ).toBeLessThan(mockGetFn.mock.invocationCallOrder[capIndex]);
+    }
   });
 
   it('answers the same declaration whatever :agentId is asked for', async () => {
