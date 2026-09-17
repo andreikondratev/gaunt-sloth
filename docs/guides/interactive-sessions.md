@@ -102,6 +102,12 @@ there opens a searchable command menu. A few worth knowing:
 A pasted filesystem path such as `/usr/local/bin` is not swallowed as a command — only a line with
 no further `/` after the leading one is parsed as one.
 
+Typed out with arguments, a command needs its exact name. A prefix works only in the TUI's menu,
+which runs the name it highlights: `/approval` and Enter run `/approvals`, but typing the space in
+`/approval auto` closes the menu, and that line is an unknown command. When what you typed is close
+to a real command the reply says which one, so you can retype it in full — on a session without the
+menu, that reply is the only shortcut there is.
+
 ### When the session compacts without being asked
 
 `/compact` is the deliberate version of something the session does on its own, **on by default**.

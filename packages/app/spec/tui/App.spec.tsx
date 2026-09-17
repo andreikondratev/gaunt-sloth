@@ -278,6 +278,44 @@ describe('tui <App>', () => {
     unmount();
   });
 
+  /**
+   * TUI-C96 — Andrew's reported sequence, driven end to end on the real surface: `/approval` is a
+   * unique prefix the menu resolves, but the space closes the menu and dispatch matches names
+   * exactly, so this line is an unknown command. The registry here is the one <App> builds for
+   * itself (createCommandRegistry), not a fixture, because a fixture is what would let the menu's
+   * resolution and the dispatcher's drift apart again.
+   */
+  it('/approval auto is unknown, and the notice names the command that was meant (TUI-C96)', async () => {
+    let turnsRun = 0;
+    const agent: TuiAgent = {
+      async *runTurn() {
+        turnsRun += 1;
+        yield { type: 'text', delta: 'nope' };
+      },
+    };
+    const { stdin, frames, lastFrame, unmount } = render(<App {...baseProps} agent={agent} />);
+
+    await vi.waitFor(() => expect(lastFrame()).toContain('>'));
+    stdin.write('/approval auto');
+    await vi.waitFor(() => expect(lastFrame()).toContain('/approval auto'));
+    stdin.write('\r');
+
+    await vi.waitFor(() => {
+      const all = frames.join('\n');
+      expect(all).toContain('Unknown command: /approval');
+      expect(all).toContain('Did you mean /approvals?');
+      expect(all).toContain('/approvals auto');
+      // THIS surface has the menu, so it is the surface whose notice may name one. The readline
+      // twin of this case asserts the opposite wording, and that the menu is not mentioned there.
+      expect(all).toContain('A prefix only works in the menu');
+    });
+    // Suggested, never run: the posture is untouched and the line never reached the model.
+    expect(frames.join('\n')).not.toContain('Approvals: Auto');
+    expect(turnsRun).toBe(0);
+
+    unmount();
+  });
+
   // CFG-27 — a posture stub standing in for the runner: it lands the requested rung, exactly as
   // GthAgentRunner.setSessionApprovalRung does.
   //

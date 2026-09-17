@@ -182,6 +182,22 @@ export interface SlashCommandContext {
    * GS2-87: the divergence is deliberate and stated, never accidental.
    */
   keyBindings?: readonly KeyBindingGroup[];
+  /**
+   * TUI-C96 — whether THIS surface has the slash-command menu, which is the other half of the
+   * unknown-command notice's explanation of why a shortened name failed.
+   *
+   * Supplied by the surface for the same reason {@link SlashCommandContext.keyBindings} is: the
+   * registry is shared, the surfaces are not. `slashMenuQuery` is consumed by the Ink
+   * `<PromptInput>` alone, so on the readline session a prefix resolves nowhere at all, and copy
+   * telling that user a prefix "works in the menu" sends them looking for something that does not
+   * exist. The suggestion itself is identical on both surfaces — only the explanatory sentence
+   * varies.
+   *
+   * Absent means NO menu, so a surface that says nothing is never made to promise one. That is the
+   * safe direction: the cost of omitting it is a sentence that is merely less specific, while the
+   * cost of defaulting the other way is a sentence that is false.
+   */
+  hasSlashMenu?: boolean;
 }
 
 /**
@@ -2037,6 +2053,74 @@ export function formatHelp(
   };
 }
 
+/** How many near-miss candidates the unknown-command notice names before it stops listing. */
+const NEAR_MISS_LIMIT = 3;
+
+/**
+ * The notice for a name no command in the registry answers to, naming the near misses when there
+ * are any (TUI-C96).
+ *
+ * THE SUGGESTION IS COMPUTED WITH {@link filterSlashCommands} — the same ranking the slash menu
+ * filters with — so the name offered here is the name the menu highlights for that query, and the
+ * two cannot drift apart as commands are added.
+ *
+ * WHY A SUGGESTION AND NOT RESOLUTION. Two resolvers meet here and they are deliberately
+ * different. The menu resolves a unique prefix: `/approval` with the menu open runs `/approvals`,
+ * because Enter submits the highlighted command's full name. Dispatch matches the name exactly, so
+ * the moment an argument is typed the menu closes and `/approval auto` lands in this branch. The
+ * difference is SURFACED in the copy below rather than hidden. This is not a half-finished attempt
+ * at resolving prefixes at dispatch: do not "finish" it by running the candidate from here, which
+ * would change what a keystroke does — a prefix that is unique today stops being unique the moment
+ * a command is added, and `/debug` is already both an exact name and a prefix of `debug-dump`.
+ *
+ * NOR IS IT AN ALIAS. An alias would fix one spelling silently while every other prefix went on
+ * failing, and would leave the user believing in a vocabulary the registry does not have — the
+ * same reason the retired approval-mode spellings are refused. This names the real command and
+ * leaves the user to type it. A retired name that is a prefix of a live one (`/mode` → `/model`)
+ * is therefore offered too: the menu already highlights `/model` for that query and Enter already
+ * runs it, so the suggestion states behaviour that exists rather than inventing a mapping.
+ *
+ * ONLY THE EXPLANATORY SENTENCE IS PER-SURFACE ({@link SlashCommandContext.hasSlashMenu}); the
+ * suggestion above it is one computation for both. A surface without the menu is not told a prefix
+ * "works in the menu", because there it works nowhere.
+ */
+function unknownCommandNotice(
+  parsed: ParsedSlashCommand,
+  registry: SlashCommand[],
+  hasSlashMenu: boolean
+): SlashCommandNotice {
+  const candidates = filterSlashCommands(registry, parsed.name).slice(0, NEAR_MISS_LIMIT);
+  if (candidates.length === 0) {
+    return {
+      title: `Unknown command: /${parsed.name}`,
+      lines: ["That isn't a recognized slash command.", 'Run /help to see everything available.'],
+      tone: 'warn',
+    };
+  }
+  const names = candidates.map((c) => `/${c.name}`);
+  const list =
+    names.length === 1
+      ? names[0]
+      : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`;
+  // The corrected line is only offered when ONE candidate stands: with several, the user picks,
+  // and a line that quietly picked for them would be resolution wearing a suggestion's clothes.
+  const corrected =
+    candidates.length === 1 && parsed.args.length > 0
+      ? ` The whole line would be: /${candidates[0].name} ${parsed.args.join(' ')}`
+      : '';
+  return {
+    title: `Unknown command: /${parsed.name}`,
+    lines: [
+      `Did you mean ${list}?${corrected}`,
+      hasSlashMenu
+        ? 'A prefix only works in the menu, which runs the name it highlights — typed out, a command needs its exact name.'
+        : 'Commands match on the exact name, so a shortened one is never recognised.',
+      'Run /help to see everything available.',
+    ],
+    tone: 'warn',
+  };
+}
+
 /**
  * Dispatch a parsed command against a registry. Unknown commands return a friendly hint
  * rather than throwing, so the component can render it as a system line and never forward
@@ -2060,13 +2144,11 @@ export function dispatchSlashCommand(
   }
   const command = registry.find((c) => c.name === parsed.name);
   if (!command) {
-    return {
-      notice: {
-        title: `Unknown command: /${parsed.name}`,
-        lines: ["That isn't a recognized slash command.", 'Run /help to see everything available.'],
-        tone: 'warn',
-      },
-    };
+    // TUI-C96 — exact equality here is the dispatcher's whole resolution rule; the near misses go
+    // into the notice, never into this lookup. See {@link unknownCommandNotice}. The menu flag
+    // reaches it the way `/help`'s key bindings reach formatHelp below: from the surface, never
+    // from a constant in this shared module.
+    return { notice: unknownCommandNotice(parsed, registry, ctx.hasSlashMenu === true) };
   }
   if (options.duringRun && !command.availableDuringRun) {
     return {

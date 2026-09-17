@@ -1294,6 +1294,10 @@ export function App(props: TuiAppProps): React.ReactElement {
             conversationId: conversationIdRef.current,
             toolsExpanded: toolsExpandedRef.current,
             debugVisible: debugVisibleRef.current,
+            // TUI-C96 — this surface has the slash-command menu (<PromptInput> renders it
+            // unconditionally), so the unknown-command notice may explain a shortened name by
+            // pointing at it. The readline surface says false and gets the other sentence.
+            hasSlashMenu: true,
             // TUI-C37 — undefined (not false) when this surface has no mouse layer, so `/mouse`
             // says it is unavailable rather than silently reporting "off".
             mouseEnabled: props.mouseEnabled === undefined ? undefined : mouseEnabledRef.current,

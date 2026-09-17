@@ -779,6 +779,11 @@ export async function createInteractiveSession(
             // below rather than vanishing from the catalog.
             toolsExpanded: false,
             debugVisible: false,
+            // TUI-C96 — and no slash-command menu either: `slashMenuQuery` is read by the Ink
+            // <PromptInput> alone, so a prefix resolves nowhere here. Stated rather than left to
+            // the default, because the unknown-command notice explains a shortened name in
+            // whichever of the two ways is true of the surface the user is looking at.
+            hasSlashMenu: false,
             // CFG-25 — pass the session command so the panel prints the EFFECTIVE per-command
             // filesystem value (e.g. `all` for `code`), not the top-level default.
             configSummary: formatConfigSummary(config, sessionConfig.mode),

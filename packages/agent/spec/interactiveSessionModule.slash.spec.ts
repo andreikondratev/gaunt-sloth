@@ -332,6 +332,33 @@ describe('interactiveSessionModule shared slash-command registry (GS2-8)', () =>
     expect(runnerInstanceMock.processMessages).not.toHaveBeenCalled();
   });
 
+  /**
+   * TUI-C96 — the near-miss suggestion is built inside dispatchSlashCommand, the one site both
+   * surfaces share, so this surface gets it without a second copy of the copy. The case is here to
+   * PROVE that single site rather than assert it in a comment: a suggestion added to the Ink
+   * surface alone would leave this green only by accident, and it reds if someone moves the
+   * notice up into the TUI.
+   *
+   * This surface has NO slash menu — `slashMenuQuery` is read by the Ink `<PromptInput>` alone —
+   * so the explanatory sentence is the one that does not mention one. Asserting its absence is the
+   * point of the case: copy telling this user that a prefix "works in the menu" would send them
+   * looking for something that does not exist here, and a case checking only the TUI's wording
+   * would stay green with that bug in place.
+   */
+  it('an unknown command close to a real one suggests it here too, and never resolves it', async () => {
+    await runSession('/approval auto', 'exit');
+    const out = allOutput();
+    expect(out).toContain('Unknown command: /approval');
+    expect(out).toContain('Did you mean /approvals?');
+    expect(out).toContain('The whole line would be: /approvals auto');
+    expect(out).toContain(
+      'Commands match on the exact name, so a shortened one is never recognised.'
+    );
+    expect(out).not.toContain('A prefix only works in the menu');
+    expect(runnerInstanceMock.setSessionApprovalRung).not.toHaveBeenCalled();
+    expect(runnerInstanceMock.processMessages).not.toHaveBeenCalled();
+  });
+
   // CFG-27 — `/approvals <rung>` is the whole surface. `/auto-approve` and `/bypass-approve`
   // went with the three-mode vocabulary that named them: "auto-approve off" had to mean one of
   // two different rungs, so neither could be mapped onto the ladder honestly.

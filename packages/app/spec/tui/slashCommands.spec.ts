@@ -591,6 +591,189 @@ describe('tui/slashCommands dispatchSlashCommand', () => {
     expect(result.exit).toBeUndefined();
   });
 
+  /**
+   * TUI-C96 — the reported sequence, end to end and through the REAL registry: the menu resolves
+   * the unique prefix `/approval`, dispatch requires the exact name, and `/approval auto` is the
+   * line where the two disagree. A fixture list here is exactly what would let them drift apart
+   * again, so every case below builds the registry the surfaces build.
+   */
+  it('/approval auto names the command the user meant, and the corrected line', async () => {
+    const { createCommandRegistry, dispatchSlashCommand, parseSlashCommand } =
+      await import('@gaunt-sloth/agent/modules/slashCommands.js');
+    const registry = createCommandRegistry();
+    expect(registry.some((c) => c.name === 'approval')).toBe(false); // not an alias, still
+    const result = dispatchSlashCommand(parseSlashCommand('/approval auto')!, registry, ctx);
+    expect(result.notice?.title).toBe('Unknown command: /approval');
+    expect(result.notice?.tone).toBe('warn');
+    const body = result.notice?.lines.join('\n') ?? '';
+    expect(body).toContain('Did you mean /approvals?');
+    expect(body).toContain('The whole line would be: /approvals auto');
+    expect(result.approvals).toBeUndefined(); // suggested, never resolved
+  });
+
+  /**
+   * Acceptance §4 — the two resolvers differ BY DESIGN and the difference is stated in the copy the
+   * user actually sees. WHICH difference is true depends on the surface: only the Ink TUI has the
+   * menu (`slashMenuQuery` is read by `<PromptInput>` alone), so on the readline session a prefix
+   * resolves nowhere and copy about a menu would send that user looking for something that is not
+   * there. The SUGGESTION is shared; only this sentence varies — which is why the absence
+   * assertion below matters as much as the presence one.
+   */
+  it('the explanatory sentence follows the surface, and only that sentence does', async () => {
+    const { createCommandRegistry, dispatchSlashCommand, parseSlashCommand } =
+      await import('@gaunt-sloth/agent/modules/slashCommands.js');
+    const parsed = parseSlashCommand('/approval auto')!;
+    const withMenu = dispatchSlashCommand(parsed, createCommandRegistry(), {
+      ...ctx,
+      hasSlashMenu: true,
+    }).notice;
+    const noMenu = dispatchSlashCommand(parsed, createCommandRegistry(), {
+      ...ctx,
+      hasSlashMenu: false,
+    }).notice;
+
+    expect(withMenu?.lines[1]).toBe(
+      'A prefix only works in the menu, which runs the name it highlights — typed out, a command needs its exact name.'
+    );
+    expect(noMenu?.lines[1]).toBe(
+      'Commands match on the exact name, so a shortened one is never recognised.'
+    );
+    // The whole claim on the menu-less surface: nothing in the notice mentions one.
+    expect(noMenu?.lines.join('\n')).not.toContain('menu');
+
+    // Everything else is one computation for both — same title, same suggestion, same tone.
+    expect(noMenu?.title).toBe(withMenu?.title);
+    expect(noMenu?.lines[0]).toBe(withMenu?.lines[0]);
+    expect(noMenu?.lines[0]).toBe(
+      'Did you mean /approvals? The whole line would be: /approvals auto'
+    );
+    expect(noMenu?.tone).toBe(withMenu?.tone);
+  });
+
+  /**
+   * The default is the SAFE direction: a surface that declares nothing is never made to promise a
+   * menu it may not have. A context with the flag absent is exactly what an extension-built or
+   * future surface hands in.
+   */
+  it('a surface that says nothing about a menu is not told it has one', async () => {
+    const { createCommandRegistry, dispatchSlashCommand, parseSlashCommand } =
+      await import('@gaunt-sloth/agent/modules/slashCommands.js');
+    expect('hasSlashMenu' in ctx).toBe(false);
+    const notice = dispatchSlashCommand(
+      parseSlashCommand('/approval auto')!,
+      createCommandRegistry(),
+      ctx
+    ).notice;
+    expect(notice?.lines.join('\n')).not.toContain('menu');
+  });
+
+  /**
+   * The anti-drift case, and the one that discriminates: the suggestion is read out of the
+   * registry that was passed in, so a hardcoded table of near misses fails here. An extension
+   * command the built-in registry has never heard of is the only way to prove that.
+   */
+  it('the suggestion is computed from the registry, not a table of known spellings', async () => {
+    const { createCommandRegistry, dispatchSlashCommand, filterSlashCommands, parseSlashCommand } =
+      await import('@gaunt-sloth/agent/modules/slashCommands.js');
+    const registry = createCommandRegistry();
+    registry.push({
+      name: 'approval-audit',
+      description: 'extension command',
+      run: () => ({ message: 'audited' }),
+    });
+    const body =
+      dispatchSlashCommand(parseSlashCommand('/approval auto')!, registry, ctx).notice?.lines.join(
+        '\n'
+      ) ?? '';
+    expect(body).toContain('/approvals');
+    expect(body).toContain('/approval-audit');
+    // Two candidates now stand, so nothing picks for the user.
+    expect(body).not.toContain('The whole line would be');
+    // And the order is the menu's own ranking, because it IS the menu's own function.
+    expect(filterSlashCommands(registry, 'approval').map((c) => c.name)).toEqual([
+      'approvals',
+      'approval-audit',
+    ]);
+  });
+
+  it('a genuine typo with no near miss keeps the plain copy — no suggestion is invented', async () => {
+    const { createCommandRegistry, dispatchSlashCommand, parseSlashCommand } =
+      await import('@gaunt-sloth/agent/modules/slashCommands.js');
+    const registry = createCommandRegistry();
+    // Matches no name as a prefix and no name as a substring, so there is nothing to suggest.
+    expect(registry.filter((c) => c.name.includes('zzzz'))).toEqual([]);
+    const result = dispatchSlashCommand(parseSlashCommand('/zzzz now')!, registry, ctx);
+    expect(result.notice?.title).toBe('Unknown command: /zzzz');
+    expect(result.notice?.lines).toEqual([
+      "That isn't a recognized slash command.",
+      'Run /help to see everything available.',
+    ]);
+    expect(result.notice?.lines.join(' ')).not.toContain('Did you mean');
+  });
+
+  /**
+   * CFG-26/CFG-27's anti-alias pin, restated for the suggestion: a RETIRED spelling that no live
+   * command starts with or contains gets no near miss, so nothing in the copy points at a
+   * replacement behaviour.
+   */
+  it('the retired /auto-approve and /bypass-approve get no suggestion', async () => {
+    const { createCommandRegistry, dispatchSlashCommand, parseSlashCommand } =
+      await import('@gaunt-sloth/agent/modules/slashCommands.js');
+    for (const command of ['/auto-approve', '/bypass-approve']) {
+      const result = dispatchSlashCommand(
+        parseSlashCommand(command)!,
+        createCommandRegistry(),
+        ctx
+      );
+      expect(result.notice?.lines.join(' ')).not.toContain('Did you mean');
+    }
+  });
+
+  /**
+   * The defect is general — approvals is only where it was noticed. `/mou on` is the same failure,
+   * and several candidates are listed rather than one being chosen.
+   */
+  it('several near misses are all named, and none is picked for the user', async () => {
+    const { createCommandRegistry, dispatchSlashCommand, parseSlashCommand } =
+      await import('@gaunt-sloth/agent/modules/slashCommands.js');
+    const one =
+      dispatchSlashCommand(
+        parseSlashCommand('/mou on')!,
+        createCommandRegistry(),
+        ctx
+      ).notice?.lines.join('\n') ?? '';
+    expect(one).toContain('Did you mean /mouse?');
+    expect(one).toContain('The whole line would be: /mouse on');
+
+    const many =
+      dispatchSlashCommand(
+        parseSlashCommand('/mo on')!,
+        createCommandRegistry(),
+        ctx
+      ).notice?.lines.join('\n') ?? '';
+    expect(many).toContain('/mouse');
+    expect(many).toContain('/model');
+    expect(many).not.toContain('The whole line would be');
+  });
+
+  /**
+   * The list is capped, and the cap is load-bearing: a one- or two-letter name matches most of the
+   * registry by substring, and a notice that listed all of them would be a worse answer than the
+   * unknown-command line it replaces. Counting the names is what makes this fail if the cap is
+   * dropped — a `toContain` on three of them would pass an uncapped list just as happily.
+   */
+  it('an over-matching query names at most three commands, not the whole registry', async () => {
+    const { createCommandRegistry, dispatchSlashCommand, filterSlashCommands, parseSlashCommand } =
+      await import('@gaunt-sloth/agent/modules/slashCommands.js');
+    const registry = createCommandRegistry();
+    // The premise: `e` really does over-match, so an uncapped notice would list a dozen commands.
+    expect(filterSlashCommands(registry, 'e').length).toBeGreaterThan(3);
+    const suggestion =
+      dispatchSlashCommand(parseSlashCommand('/e now')!, registry, ctx).notice?.lines[0] ?? '';
+    expect(suggestion).toBe('Did you mean /exit, /help or /clear?');
+    expect((suggestion.match(/\//g) ?? []).length).toBe(3);
+  });
+
   it('registry is a fresh array each call so extensions can append (EXT-5)', async () => {
     const { createCommandRegistry, dispatchSlashCommand, parseSlashCommand } =
       await import('@gaunt-sloth/agent/modules/slashCommands.js');

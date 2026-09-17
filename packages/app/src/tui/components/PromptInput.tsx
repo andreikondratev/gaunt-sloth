@@ -654,10 +654,15 @@ export function PromptInput({
       } else if (key.escape) {
         setMenu({ forEdit: bufferRef.current.edits, dismissed: true, index: 0 });
       } else if (key.return) {
-        // With the menu open, Enter dispatches the HIGHLIGHTED command (so "/mo"+Enter runs
-        // "/mode") rather than the typed text. The parent's handler parses + dispatches through
-        // the registry either way, so fully-typed dispatch is unchanged. <PromptEditor> stands
-        // down from Enter while `menuActive`, so this is the only claimant.
+        // With the menu open, Enter dispatches the HIGHLIGHTED command (so "/approval"+Enter runs
+        // "/approvals") rather than the typed text. The parent's handler parses + dispatches
+        // through the registry either way, so fully-typed dispatch is unchanged. <PromptEditor>
+        // stands down from Enter while `menuActive`, so this is the only claimant.
+        //
+        // TUI-C96 — this is one half of an asymmetry, deliberately kept: a prefix resolves HERE
+        // and never at dispatch, which matches names exactly. The moment a space is typed this
+        // menu is closed, so "/approval auto" goes out as typed and comes back as an unknown
+        // command that names the near miss. See unknownCommandNotice in slashCommands.ts.
         submit(`/${matches[selectedIndex].name}`);
       }
     },
