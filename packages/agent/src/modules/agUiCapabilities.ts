@@ -4,6 +4,7 @@ import type { AgentCapabilities, Tool } from '@ag-ui/core';
 import type { BaseToolkit, StructuredToolInterface } from '@langchain/core/tools';
 import { isClientFulfilledTool } from '@gaunt-sloth/core/core/GthAbstractAgent.js';
 import type { GthAbstractAgent } from '@gaunt-sloth/core/core/GthAbstractAgent.js';
+import { isUsableModel } from '@gaunt-sloth/core/config.js';
 import type { GthConfig } from '@gaunt-sloth/core/config.js';
 import { z } from 'zod';
 
@@ -118,20 +119,19 @@ function manifestAuthor(manifest: AgentPackageManifest): string | undefined {
  * distinguishing "no model configured" from "key missing from the response" is reading the wrong
  * thing either way.
  *
- * ## The two routes agree only when a model resolved
+ * ## This function reports the REQUESTED name, so both callers guard it
  *
- * `/info` does not always reach this function. CFG-61 put an `isUsableModel(config.llm)` guard in
- * front of it, so a server holding a raw unrouted `{ type, model }` spec answers `/info` with
- * `{ status: 'error', provider: null, model: null }` while the capability declaration still reports
- * the requested name — measured, not inferred: `/info` says `model: null` where `identity.metadata`
- * says `"gemma4:12b"`. A config carrying no `llm` at all has both saying `null`, so the gap is
- * specific to the raw-spec case.
+ * `modelDisplayName` and a raw spec's own `model` are the name the user asked for, which is not
+ * evidence anything was built from it. Neither caller may publish that name unguarded, and neither
+ * does — but they guard it in different places and for different reasons, so do not "simplify" this
+ * by moving the test in here. Making this function readiness-aware would make it answer a question
+ * it is not asked, and would put the same branch in two callers that need different answers.
  *
- * That is deliberate as far as the READINESS question goes: a capability declaration says what this
- * agent is built to do, not whether it can serve a request this second, and `/health` is the
- * endpoint that answers the latter. It is **not** settled for the model NAME, which is a statement
- * of fact rather than of readiness. Do not close the gap by making this function readiness-aware —
- * both callers read it, and that would make the declaration answer a question it is not asked.
+ * - **`/info`** short-circuits *before* calling this, answering
+ *   `{ status: 'error', provider: null, model: null }` — a status endpoint, so it reports the state.
+ * - **{@link buildAgUiCapabilities}** calls this and then **omits** `identity.metadata.model` — a
+ *   declaration, so an unknown model is undeclared rather than declared absent. The reasoning is
+ *   recorded at that seam.
  */
 export function describeConfiguredModel(config: GthConfig): {
   provider: string | null;
@@ -323,10 +323,27 @@ export function buildAgUiCapabilities(
       // The sanctioned free-form slot, and where the model belongs: `identity.provider` above is
       // the organisation maintaining the agent, not the LLM vendor serving it. `command` is what a
       // consumer branches on to know which gaunt-sloth verb it is talking to.
+      //
+      // ## `model` is OMITTED when nothing resolved — not nulled, not annotated
+      //
+      // `describeConfiguredModel` reports the name the user ASKED for: `modelDisplayName`, falling
+      // back to a raw spec's own `model` field. On a server where `isUsableModel(config.llm)` is
+      // false that name was never built, so declaring it is a false statement of fact — the exact
+      // report CFG-61 removed from `/info`, which used to answer `ok` with the requested name. It
+      // would be re-introduced one door down if this endpoint kept it.
+      //
+      // **Omitted rather than `null`, on this file's own rule: absent means undeclared.** It is what
+      // justifies leaving `humanInTheLoop` out, and it applies here unchanged — no model resolved
+      // means the model is undeclared, and `null` would be a declaration that the server has no
+      // model, which is a different and equally wrong claim about a misconfigured one.
+      //
+      // **And no readiness flag.** A `modelResolved` marker here would make the declaration
+      // readiness-aware, and this object says what the agent is built to do, not whether it can
+      // serve a request this second. `/health` answers that, honestly, with a 503.
       metadata: {
         command: AGUI_AGENT_COMMAND,
         llmProvider,
-        model,
+        ...(isUsableModel(config.llm) ? { model } : {}),
       },
     },
     // The run route streams: it takes its content type from the `EventEncoder` and writes each

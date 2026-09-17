@@ -141,8 +141,10 @@ an ag-ui client derives from its run URL, from the same handler so the two canno
 agent's own advertised inventory, the identity from the package manifest, and the event-driven
 categories from the set of events the run path emits, which a spec holds equal to the run path's
 actual emission sites. A literal capability block is correct the day it is written and silently
-wrong from the first change to what it describes. The same file carries why `humanInTheLoop` is
-absent rather than `false`; read it before adding a category.
+wrong from the first change to what it describes. **Absent means undeclared, not unsupported** — the
+same file carries why `humanInTheLoop` is absent rather than `false`, and why
+`identity.metadata.model` is omitted rather than nulled when no model resolved. Read it before
+adding a category or filling one in.
 
 **The endpoint is unauthenticated, so the bind is the only thing limiting who
 can run the agent.** It defaults to IPv4 loopback and widens only on an explicit

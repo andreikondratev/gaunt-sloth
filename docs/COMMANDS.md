@@ -1212,20 +1212,25 @@ status code catches that configuration instead of passing over it.
 `GET /agents/:agentId/capabilities` answers with the AG-UI `AgentCapabilities` object, so a client
 can adapt before it starts a run instead of hard-coding assumptions about the server. Every value is
 read from the running server: `tools.items` is the live tool inventory the agent loaded (narrowed by
-`allowedTools` when you configure one), `identity` carries the version and the configured model, and
-the event-driven categories follow what the run path actually emits.
+`allowedTools` when you configure one), `identity` carries the version and the model that actually
+resolved, and the event-driven categories follow what the run path actually emits.
 
 **An absent category means undeclared, not unsupported** — the protocol's own rule. `humanInTheLoop`
 is absent for that reason: this server wires no tool-approval callback, so it declares nothing about
 approvals rather than promising a review nothing performs.
+
+`identity.metadata.model` follows the same rule. If no model resolved, the key is **omitted** rather
+than set to the name you configured — that name was never built, and reporting it would describe a
+server that does not exist.
 
 The same declaration is also served at `/agents/:agentId/run/capabilities`. Use whichever your
 client asks for: ag-ui's TypeScript client builds the URL by appending `/capabilities` to the run
 URL it was given, so pointing it at `http://localhost:3000/agents/default/run` is enough and no
 subclassing is needed.
 
-Capability discovery is **not** a readiness check. It describes what this agent is built to do, and
-it answers the same way whether or not a model resolved — ask `/health` for readiness.
+Capability discovery is **not** a readiness check. It describes what this agent is built to do, so it
+answers `200` with a full declaration even on a server that cannot serve a run, and it carries no
+readiness field — ask `/health` for that.
 
 ### AG-UI Event Sequence
 

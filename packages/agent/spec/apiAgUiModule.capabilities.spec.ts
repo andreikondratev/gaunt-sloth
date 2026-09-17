@@ -292,16 +292,18 @@ describe('apiAgUiModule capabilities endpoint', () => {
   // ─── derived from the live configuration ──────────────────────────────────
 
   it('reports the model and provider the config resolves, not a fixed pair', async () => {
-    // Keyed on a pure config read with no mocked intermediary: two configs, two answers.
+    // Keyed on a pure config read with no mocked intermediary: two configs, two answers. Both
+    // fixtures carry an `invoke`, because that is what `isUsableModel` tests and a model that never
+    // resolved has its name omitted — see the omission cell below.
     const ollama = await capabilitiesOf({
       ...baseConfig,
-      llm: { _llmType: () => 'ollama', model: 'gemma4:12b' },
-    } as Partial<GthConfig>);
+      llm: { invoke: () => undefined, _llmType: () => 'ollama', model: 'gemma4:12b' },
+    } as unknown as Partial<GthConfig>);
     const anthropic = await capabilitiesOf({
       ...baseConfig,
-      llm: { _llmType: () => 'anthropic' },
+      llm: { invoke: () => undefined, _llmType: () => 'anthropic' },
       modelDisplayName: 'claude-sonnet-5',
-    } as Partial<GthConfig>);
+    } as unknown as Partial<GthConfig>);
 
     const identityOf = (body: Record<string, unknown>) =>
       (body.identity as { metadata: Record<string, unknown> }).metadata;
@@ -447,6 +449,40 @@ describe('apiAgUiModule capabilities endpoint', () => {
       'read_file',
     ]);
     expect(body.transport).toEqual({ streaming: true });
+  });
+
+  it('omits the model entirely when none resolved, rather than declaring a name nothing built', async () => {
+    // `modelDisplayName` and a raw spec's `model` are the name the user ASKED for. On a server where
+    // `isUsableModel(config.llm)` is false nothing was built from it, so declaring it would be a
+    // false statement of fact — the report CFG-61 removed from `/info`, one door down. Absent means
+    // undeclared, the same rule that leaves `humanInTheLoop` out, so the key goes rather than
+    // turning null.
+    //
+    // The CONTROL is the second half: the identical config with a usable `llm` must still declare
+    // the model, or this cell would pass just as well against a build that never emits the key.
+    const withoutModel = await capabilitiesOf({
+      ...baseConfig,
+      llm: { type: 'ollama', model: 'gemma4:12b' },
+      modelDisplayName: 'gemma4:12b',
+    } as unknown as Partial<GthConfig>);
+    const withModel = await capabilitiesOf({
+      ...baseConfig,
+      llm: { invoke: () => undefined, _llmType: () => 'ollama', model: 'gemma4:12b' },
+      modelDisplayName: 'gemma4:12b',
+    } as unknown as Partial<GthConfig>);
+
+    const metadataOf = (body: Record<string, unknown>) =>
+      (body.identity as { metadata: Record<string, unknown> }).metadata;
+
+    expect('model' in metadataOf(withoutModel)).toBe(false);
+    expect(Object.keys(metadataOf(withoutModel))).not.toContain('model');
+    // Not silently replaced by a readiness marker either: this object says what the agent is built
+    // to do, and `/health` is what answers whether it can serve right now.
+    expect(Object.keys(metadataOf(withoutModel))).not.toContain('modelResolved');
+
+    expect(metadataOf(withModel).model).toBe('gemma4:12b');
+    expect(metadataOf(withoutModel)).not.toEqual(metadataOf(withModel));
+    expect(AgentCapabilitiesSchema.safeParse(withoutModel).success).toBe(true);
   });
 
   // ─── what is deliberately absent, and what is deliberately false ──────────
