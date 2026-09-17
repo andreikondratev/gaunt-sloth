@@ -1085,6 +1085,12 @@ export async function startAgUiServer(
   // whether the server can answer a run. They are one question, and two copies of it would drift
   // into the server calling a value a model that the loader would have sent away to be built.
   //
+  // Importing a VALUE from core's config barrel costs this module nothing at load time, which is
+  // worth stating because `apiCommand` keeps its own import of this file lazy on purpose and a
+  // reader may reasonably wonder. `GthLangChainAgent` — constructed below, so unambiguously a
+  // runtime import — itself imports values from that barrel, so it was already evaluated in this
+  // module's graph before this line existed. Measured on the built output, not assumed.
+  //
   // Asked here rather than as a guard above `agent.init`, for two reasons. Refusing the boot would
   // put this server's answer where no client can read it — an embedder that starts the server to
   // find out what it got would get an exception instead of an endpoint — and it would leave the
