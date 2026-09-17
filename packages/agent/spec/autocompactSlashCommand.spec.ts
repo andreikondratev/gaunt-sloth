@@ -484,4 +484,50 @@ describe('EXT-187 — an unverified window says so', () => {
     expect(lines).not.toContain('undefined');
     expect(lines).toContain('Automatic compaction is ON');
   });
+
+  /**
+   * The note is written ABOUT a number — "that number is unverified", decided by a "built-in table".
+   * Both halves are false on the empty resolution, where there is no number and the table had no
+   * entry either. This is not a hypothetical pairing: `contextWindowSources.spec.ts` pins that
+   * `resolveContextWindow` returns `{ tokens: null, origin: 'unknown', check: 'unchecked' }` when a
+   * cold catalog cache is followed by a profile table that does not know the model — the stale
+   * `@langchain/groq` shape — and `status()` forwards it verbatim.
+   */
+  const noWindow = (over: Partial<AutocompactStatus> = {}) =>
+    unchecked({
+      window: null,
+      windowOrigin: 'unknown',
+      thresholdTokens: null,
+      thresholdOrigin: 'none',
+      budget: null,
+      ...over,
+    });
+
+  it('says nothing unverified when there is no window to be unverified about', () => {
+    const lines = autocompactLines(noWindow()).join(' ');
+    expect(lines).not.toMatch(UNVERIFIED);
+    expect(lines).not.toMatch(REMEDY);
+    // Discriminating halves: the branch DID render, and it rendered the sentence this one would
+    // otherwise have contradicted — so the silence is the window gate and not an empty return.
+    expect(lines).toContain("This model's context window is not known to any source we have.");
+    expect(lines).toContain('Automatic compaction is on, but nothing will trigger it.');
+  });
+
+  it('CONTROL: the same check state with a window present still says it', () => {
+    // The only difference from the cell above is that a number exists. If this went quiet too, the
+    // gate would be suppressing the note for every unchecked status rather than for the one where
+    // the sentence is untrue, and the node's whole surface would be dead.
+    const lines = autocompactLines(noWindow({ window: 262_000, windowOrigin: 'profile' })).join(
+      ' '
+    );
+    expect(lines).toMatch(UNVERIFIED);
+    expect(lines).toMatch(REMEDY);
+  });
+
+  it('holds on the compaction-off branch, which prints the window line too', () => {
+    const lines = autocompactLines(noWindow({ enabled: false })).join(' ');
+    expect(lines).toContain('OFF');
+    expect(lines).not.toMatch(UNVERIFIED);
+    expect(lines).not.toMatch(REMEDY);
+  });
 });

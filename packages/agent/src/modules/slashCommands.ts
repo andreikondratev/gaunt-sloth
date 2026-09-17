@@ -1533,10 +1533,29 @@ export function compactionFailedNotice(reason: string): SlashCommandNotice {
  * where that ruling lives. Compared by exact value rather than by "not checked", so a status from
  * an older or hand-built fixture that carries no `windowCheck` at all renders exactly as it did
  * before this node instead of printing a warning nobody can act on.
+ *
+ * **Silent too when there is no window at all, which is not a presentational nicety.** `'unchecked'`
+ * is reachable with `window === null`: a cold catalog cache sets the check state on the models.dev
+ * tier, the profile tier then also fails to know the model, and the state rides out on the empty
+ * resolution (`contextWindow.ts`, the `origin: 'unknown'` return). That is a real first-session
+ * shape for a provider whose compiled-in profile table has gone stale — the `@langchain/groq`
+ * measurement quoted there is exactly it. The note is written about a number: it says "that number
+ * is unverified" and that the built-in table "decided it alone". On the empty resolution there is
+ * no number, and the table did not decide it — it had no entry either. Printing it directly under
+ * "this model's context window is not known to any source we have" would contradict the line above
+ * it and offer a remedy for the wrong problem. **The sentence has to be true on every branch it can
+ * reach**, and gating on the window is what makes that so.
+ *
+ * Deliberately not solved by writing a second, window-less variant of the note. The absent window is
+ * [[OPS-125]]'s subject, and this node's own scope excludes it in those words — the surface here is
+ * a window that is *present, wrong and confident*. A remedy sentence for the unknown-window user is
+ * worth having, but it belongs to the node that owns that branch, phrased against what that branch
+ * actually knows, not bolted on from here where it would be the second renderer describing the same
+ * state in different words.
  */
 function windowCheckLines(status: AutocompactStatus): string[] {
   const note = CONTEXT_WINDOW_CHECK_LABELS[status.windowCheck];
-  if (status.windowCheck !== 'unchecked' || !note) return [];
+  if (status.windowCheck !== 'unchecked' || status.window === null || !note) return [];
   const thresholdRestsOnWindow =
     status.enabled &&
     status.thresholdTokens !== null &&
