@@ -1760,7 +1760,20 @@ export function resolveConfig(
   }
 
   if (commandLineConfigOverrides.verbose !== undefined) {
-    mergedConfig.llm.verbose = commandLineConfigOverrides.verbose;
+    // EXT-186 — a config layer with no `llm` reaches here (a `configure()` module that defines
+    // everything but the model, or a programmatic partial), and an unguarded assignment threw
+    // `TypeError: Cannot set properties of undefined (setting 'verbose')` — the same defect as the
+    // `bindTools` dereference, on the same config, reachable with nothing more than `gth --verbose`.
+    //
+    // The guard is "stop crashing", NOT a second refusal, and that is the point: the refusal for a
+    // model-less config lives at the agent's `getEffectiveConfig` funnel, which every door reaches
+    // and which can therefore hold the one message. Refusing here as well would put a second
+    // message on a second path that can drift from it, and would break `gth config print`, whose
+    // whole job is to print what was actually read — including a config that turns out to have no
+    // model. There is no model to make verbose, so there is nothing to do.
+    if (mergedConfig.llm) {
+      mergedConfig.llm.verbose = commandLineConfigOverrides.verbose;
+    }
   }
 
   if (commandLineConfigOverrides.writeOutputToFile !== undefined) {

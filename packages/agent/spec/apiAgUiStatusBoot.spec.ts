@@ -138,15 +138,39 @@ describe('the boundary: which no-model configs reach these endpoints at all', ()
    * know it will "simplify" `unresolvedConfig` to an absent `llm` and turn six assertions into a
    * crash — which vitest reports as a failure of the endpoint, naming a file that is not at fault.
    *
-   * An absent `llm` never reaches a bound socket: the agent dereferences `config.llm` on the way
-   * up and throws before `listen`. That is a separate defect with a message naming nothing, and it
-   * is deliberately NOT fixed here — this cell records the boundary, it does not bless it. What
-   * matters for this node is the consequence: a config that supplies no model AND still binds is
-   * one that got an object there, which is what the fixtures above use.
+   * An absent `llm` never reaches a bound socket: the agent refuses the config on the way up and
+   * throws before `listen`. EXT-186 is what makes that refusal say so — it used to be
+   * `TypeError: Cannot read properties of undefined (reading 'bindTools')`, a message naming
+   * neither the config nor the key — and this cell is the AG-UI half of that node's acceptance, as
+   * well as the boundary it always was.
+   *
+   * Both halves of the boundary are asserted, and they must stay that way: an absent `llm` is
+   * refused, and `unresolvedConfig` (`llm: {}`) is NOT — the control cell below says so directly,
+   * and the six endpoint assertions above depend on it. That pair is what forbids keying the
+   * refusal on whether the model is USABLE: `isUsableModel` is false for `llm: {}` and false for
+   * the raw `{ type, model }` spec in `askedForButNeverBuilt`, so a usability-keyed refusal would
+   * take down every cell in this file.
    */
-  it('a config with no llm key at all never binds, so it can never answer either endpoint', async () => {
+  it('a config with no llm key at all never binds, and says which key is missing', async () => {
+    const { startAgUiServer } = await import('#src/modules/apiAgUiModule.js');
+    const { isConfigDiscoveryError } = await import('#src/config.js');
+
+    const failure = await startAgUiServer(baseConfig, 0).then(
+      () => undefined,
+      (e: unknown) => e
+    );
+
+    expect(isConfigDiscoveryError(failure)).toBe(true);
+    expect((failure as Error).message).toContain('has no llm');
+    expect((failure as Error).message).toContain('llm.type');
+    expect((failure as Error).message).not.toContain('bindTools');
+  });
+
+  it('CONTROL: an llm that is merely unusable still binds, which is what the cells above need', async () => {
     const { startAgUiServer } = await import('#src/modules/apiAgUiModule.js');
 
-    await expect(startAgUiServer(baseConfig, 0)).rejects.toThrow(/bindTools/);
+    running = await startAgUiServer(unresolvedConfig, 0);
+
+    expect(running.address()).not.toBeNull();
   });
 });

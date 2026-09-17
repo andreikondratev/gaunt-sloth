@@ -25,6 +25,7 @@ import {
   finalizeRunStats,
   type RunStatsAccumulator,
 } from '#src/core/runStats.js';
+import { ConfigDiscoveryError } from '#src/config/configDiscovery.js';
 import type { GthOutputHeaderRung } from '#src/config/schema.js';
 import type { DeclaredToolAnnotations } from '#src/core/approvals/annotations.js';
 import { collectDeclaredMcpToolAnnotations } from '#src/core/approvals/toolAnnotationSources.js';
@@ -2008,6 +2009,61 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
 
   getEffectiveConfig(config: GthConfig, command: GthCommand | undefined): GthConfig {
     debugLog(`Getting effective config for command: ${command || 'default'}`);
+    // EXT-186 — a config with NO `llm` key at all is refused here, by name, instead of throwing
+    // `TypeError: Cannot read properties of undefined (reading 'bindTools')` on the next line.
+    //
+    // THE SEAM WAS A CHOICE, AND THE REJECTED SHAPE IS NAMED. The other candidate was to refuse at
+    // config-read time, in `initConfig`/`resolveConfig`, so that nothing downstream ever sees a
+    // model-less config. Rejected, for three reasons:
+    //
+    //   1. The loader is not the only door. `startAgUiServer` and this agent are exported entry
+    //      points an embedder calls with a config it built itself, which never went through the
+    //      loader at all — `apiAgUiModule` says so in its own words above its `isUsableModel`
+    //      check, and CFG-61's defect arrived through exactly that door. A refusal in the loader
+    //      cannot see those configs. `getEffectiveConfig` is the single funnel every verb passes
+    //      through (see the `warnScopedPromptsUnusable` docblock below for why that matters), and
+    //      it is reached from every door, so one refusal here covers all of them.
+    //   2. `gth config print` calls `initConfig` and needs no model. It is the command a person
+    //      runs to find out what was actually read, and refusing at the read site would make it
+    //      fail with the very error they are trying to diagnose.
+    //   3. The read paths that CAN name a source already refuse there: the project JSON layer and
+    //      the global layer both raise a `ConfigDiscoveryError` naming the file and `llm.type`.
+    //      What is left over is the module/programmatic config, which reaches here with no source
+    //      label to name — so a second read-site message would be a message that could drift from
+    //      this one, not a message that says more.
+    //
+    // WHY A REFUSAL AND NOT THE GUARDED DEREFERENCE `shell/alignment.ts` performs. That one reads
+    // `if (!model || typeof model.bindTools !== 'function')` and degrades to a fail-closed
+    // decision, which is right there: the alignment check is an optional sub-check with a correct
+    // conservative answer available. Here there is no degraded answer — every verb needs the model
+    // — and degrading would route the absent case into `Model does not seem to support tools.`,
+    // which is FALSE: there is no model to lack the capability. `2.0` is deliberately breaking for
+    // config, so inventing a default `llm` is not available either.
+    //
+    // THE TEST IS ABSENCE, NOT USABILITY, and the difference is the whole node. `isUsableModel`
+    // (core's own, exported for CFG-61) asks whether the value can answer a call, and it is FALSE
+    // for a raw `{ type, model }` spec — which is precisely the config that today warns, inits,
+    // boots and answers 503 from the AG-UI status endpoints. Keying this refusal on
+    // `!isUsableModel(config.llm)` would convert that shipped behaviour into a throw. So it is the
+    // wrong instrument here, and the guard asks the one question this node is about: is there an
+    // `llm` key at all? The `llm: {}` cell in the spec is the control that holds the two apart.
+    //
+    // WHY THIS DOES NOT CONVERGE WITH CFG-61's 503, deliberately. `apiAgUiModule` argues in-code
+    // against guarding above `agent.init`, because refusing the boot denies an embedder the
+    // endpoint it started the server to read. That argument is about a server that CAN boot: a
+    // present-but-unusable `llm` is a runtime capability shortfall, and reporting it over HTTP is
+    // the useful answer. An ABSENT `llm` is a different class — the config does not satisfy its own
+    // declared type (`GthConfig.llm: BaseChatModel`), so there is no server to speak of and nothing
+    // for a run to call. `gth api ag-ui` now prints this message and exits 1 instead of dying on a
+    // `TypeError` before `listen`, which is what the CLI's config-error guard already does for
+    // every other member of this class.
+    if (config.llm == null) {
+      throw new ConfigDiscoveryError(
+        'Gaunt Sloth configuration has no llm: no model is defined, so there is nothing to run ' +
+          'this command on. Add an llm block (at minimum llm.type) to your Gaunt Sloth config, ' +
+          'or supply one in the config passed to the agent.'
+      );
+    }
     const supportsTools = !!config.llm.bindTools;
     if (!supportsTools) {
       this.statusUpdate(StatusLevel.WARNING, 'Model does not seem to support tools.');

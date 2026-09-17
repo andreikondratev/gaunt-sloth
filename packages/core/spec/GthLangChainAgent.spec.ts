@@ -4152,5 +4152,61 @@ describe('GthLangChainAgent', () => {
         'Model does not seem to support tools.'
       );
     });
+
+    /**
+     * EXT-186 — the absent case and the present-but-unusable case are ONE LINE apart in the source,
+     * and before this node they were one line apart in behaviour too: the same dereference served
+     * the good case and threw a `TypeError` naming nothing on the other.
+     *
+     * These three cells are a set and only mean something together:
+     *
+     *   - no `llm` key at all           -> refused by name, as a `ConfigDiscoveryError`
+     *   - `llm: {}`                     -> NOT refused; the tools warning, exactly as before
+     *   - `llm` with `bindTools` unset  -> NOT refused; the tools warning (the cell above)
+     *
+     * The middle one is the CONTROL, and it is the reason the guard is written as an absence test.
+     * `llm: {}` is not a usable model — `isUsableModel` is false for it and for every raw
+     * `{ type, model }` spec — so a refusal keyed on usability would throw here and silently
+     * reverse CFG-61, whose whole ruling is that such a server boots and answers 503. An assertion
+     * that fires for both cases is not testing this node.
+     */
+    it('should refuse a config with no llm at all, naming the key rather than throwing TypeError', async () => {
+      const { isConfigDiscoveryError } = await import('#src/config/configDiscovery.js');
+      const agent = new GthLangChainAgent(statusUpdateCallback);
+      const config = { ...mockConfig } as Partial<GthConfig>;
+      delete config.llm;
+
+      let thrown: unknown;
+      try {
+        agent.getEffectiveConfig(config as GthConfig, 'code');
+      } catch (e) {
+        thrown = e;
+      }
+
+      // The class matters as much as the text: the CLI's top-level config guard prints exactly
+      // this class and exits 1, which is what turns a crash into a message a person can act on.
+      expect(isConfigDiscoveryError(thrown)).toBe(true);
+      expect((thrown as Error).message).toContain('has no llm');
+      expect((thrown as Error).message).toContain('llm.type');
+      // and NOT the neighbouring case's message, which would be false here: there is no model to
+      // lack the capability.
+      expect(statusUpdateCallback).not.toHaveBeenCalledWith(
+        StatusLevel.WARNING,
+        'Model does not seem to support tools.'
+      );
+    });
+
+    it('should NOT refuse an llm that is present but unusable — that stays the tools warning', () => {
+      const agent = new GthLangChainAgent(statusUpdateCallback);
+      // An empty object: present, so the config satisfies its own shape, and unusable, so
+      // `isUsableModel` is false. This is the discriminator between the two candidate guards.
+      const config = { ...mockConfig, llm: {} } as unknown as GthConfig;
+
+      expect(() => agent.getEffectiveConfig(config, 'code')).not.toThrow();
+      expect(statusUpdateCallback).toHaveBeenCalledWith(
+        StatusLevel.WARNING,
+        'Model does not seem to support tools.'
+      );
+    });
   });
 });
