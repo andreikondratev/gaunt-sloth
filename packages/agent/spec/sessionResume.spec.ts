@@ -22,8 +22,8 @@ import {
   listResumeCandidates,
   parseResumeId,
   resolveResumeTarget,
+  resumableConversationsNotice,
   resumedConversationNotice,
-  resumePickerNotice,
   resumeRefusalNotice,
   resumeSameConversationNotice,
   type ResumeTarget,
@@ -443,13 +443,13 @@ describe('sessionResume — the banner and the picker', () => {
     expect(empty.lines[2]).toContain('No turns were recorded yet');
   });
 
-  it('the picker lists the candidates with their ids, or says there are none', () => {
-    const notice = resumePickerNotice([target.summary]);
+  it('the text list names the candidates by id, or says there are none', () => {
+    const notice = resumableConversationsNotice([target.summary]);
     expect(notice.title).toBe('Conversations you can resume');
     expect(notice.lines[0]).toContain('#12');
     expect(notice.lines[0]).toContain('[code]');
     expect(notice.lines.at(-1)).toContain('/resume <id>');
-    const none = resumePickerNotice([]);
+    const none = resumableConversationsNotice([]);
     expect(none.title).toBe('No other conversation can be resumed');
     expect(none.lines.join(' ')).toContain('Nothing was changed.');
     expect(resumeSameConversationNotice(12).title).toBe('Already in conversation #12');

@@ -27,6 +27,7 @@ import type {
 } from '@gaunt-sloth/core/core/types.js';
 import type { LiveNegotiationRound } from '@gaunt-sloth/core/core/shell/negotiation.js';
 import type { ApprovalRung } from '@gaunt-sloth/core/config.js';
+import type { ConversationSummary } from '@gaunt-sloth/core/history/historyStore.js';
 import { buildRejectionMessage } from '@gaunt-sloth/core/core/shell/rejection.js';
 import { ApprovalStopError } from '@gaunt-sloth/core/core/shell/approvalStop.js';
 import { shouldAnnounceTermination } from '@gaunt-sloth/core/core/terminationNotice.js';
@@ -81,15 +82,16 @@ import {
   toolsToggleNotice,
 } from '@gaunt-sloth/agent/modules/slashCommands.js';
 import {
+  resumableConversationsNotice,
   resumedConversationNotice,
   resumeFailedNotice,
-  resumePickerNotice,
   resumeRefusalNotice,
   resumeSameConversationNotice,
   resumeUnavailableNotice,
   type ResumeTarget,
 } from '@gaunt-sloth/agent/modules/sessionResume.js';
 import { ApprovalsPicker } from '#src/tui/components/ApprovalsPicker.js';
+import { ResumePicker, resumeCancelledNotice } from '#src/tui/components/ResumePicker.js';
 import type { CommandNoticeTone } from '#src/tui/components/CommandNotice.js';
 import { TerminalSizeProvider, useTerminalSize } from '#src/tui/useTerminalSize.js';
 import { findMatches, scrollOffsetForLine, stepMatch } from '#src/tui/debugSearch.js';
@@ -254,6 +256,11 @@ export function App(props: TuiAppProps): React.ReactElement {
   // chrome: unlike the status notice it is never committed to the transcript, and it owns the
   // keyboard while mounted (the prompt is suspended below, as it is for a pending approval).
   const [approvalsPicker, setApprovalsPicker] = useState<ApprovalPostureChoice[] | null>(null);
+  // GS2-112 — the open bare-`/resume` picker's candidates, or null when none is showing. Transient
+  // chrome on the same terms as the approvals picker above: never committed to the transcript, and
+  // it owns the keyboard while mounted. The list is the snapshot taken when the picker opened; a
+  // landed resume replaces the screen, so the picker is closed before the choice is applied.
+  const [resumePicker, setResumePicker] = useState<ConversationSummary[] | null>(null);
   // Whether to show the post-`/clear` "history cleared" banner. Hidden again the moment the next
   // user turn starts so it doesn't linger above a fresh conversation.
   const [clearedBanner, setClearedBanner] = useState(false);
@@ -369,10 +376,11 @@ export function App(props: TuiAppProps): React.ReactElement {
   // inside <PromptInput>, where it lives.
   const promptHandleRef = useRef<PromptInputHandle | null>(null);
   // TUI-C51 — the one thing about the prompt that has to outlive it: the message a command was
-  // dispatched beside. The prompt is unmounted in four states below, and one of them (`/approvals`
-  // opening its picker) is entered by a command dispatched FROM the prompt — so the draft is put
-  // here, where nothing unmounts, and the prompt takes it back when it returns. It stays a slot
-  // rather than state: nothing here renders it, and the prompt empties it as soon as it has it.
+  // dispatched beside. The prompt is unmounted in five states below, and two of them (`/approvals`
+  // and a bare `/resume` opening their pickers) are entered by a command dispatched FROM the
+  // prompt — so the draft is put here, where nothing unmounts, and the prompt takes it back when
+  // it returns. It stays a slot rather than state: nothing here renders it, and the prompt empties
+  // it as soon as it has it.
   const promptDraftCarryRef = useRef<EditorState | null>(null);
   // TUI-C79 — set the moment a teardown starts, so a second `quit()` can tell "leaving" from
   // "already leaving" and skip straight to the unmount. See `quit()`.
@@ -949,7 +957,31 @@ export function App(props: TuiAppProps): React.ReactElement {
   // replaces the screen: the transcript on it belonged to the conversation being left, and the
   // model is now continuing another one, so the banner and the restored turns take its place —
   // the same wipe `/clear` does, without the cleared banner, because nothing was discarded (the
-  // conversation left keeps everything recorded under it). Bare, it lists what could be resumed.
+  // conversation left keeps everything recorded under it). Bare, this surface offers the picker
+  // below; the readline session prints the list.
+  //
+  // GS2-112 — **why the interactive picker is one branch here and not a new protocol field.**
+  //
+  // `/resume` returns `resume?: { id?: number }`, and the missing id is not an omission to be
+  // filled in later: the command is pure and cannot reach the store or the runner, so the no-id
+  // case has always meant *the surface fulfils this*, which is what every other surface already
+  // does with it. The Ink TUI can show a list and read arrow keys; the readline session can print
+  // one; a server surface has no user at a keyboard at all. Choosing is therefore the surface's
+  // answer to the same request, and nothing in the request needs to change for this surface to
+  // give a better one.
+  //
+  // The alternative was weighed and rejected rather than overlooked. A cross-package chooser — a
+  // new result field carrying candidates, or a `chooseConversation` callback threaded from the
+  // agent down into the component — would put a widget's contract in the module both surfaces
+  // read from, to serve one surface, and would still leave this branch deciding when to open it.
+  // It buys nothing: the candidates are already here (`props.listResumeCandidates`, wired in
+  // `tuiSessionModule`), and the id the user picks re-enters the with-id path below, which is the
+  // same code `--resume <id>` runs at boot. One branch, one new component, no new protocol.
+  //
+  // **The readline surface keeps the printed list deliberately.** It is not a fallback that has
+  // been left behind: with no Ink tree there is nothing to arrow through, and the printed ids
+  // remain the only way in on that surface — so `resumableConversationsNotice` stays its list
+  // builder, and no picker wording is allowed to leak into it (pinned by a spec).
   const applyResume = useCallback(
     async (id?: number): Promise<void> => {
       const commit = (notice: { title: string; lines: string[]; tone?: CommandNoticeTone }) =>
@@ -960,11 +992,23 @@ export function App(props: TuiAppProps): React.ReactElement {
           tone: notice.tone ?? 'info',
         });
       if (id === undefined) {
+        // A session with no store behind it cannot list anything, let alone offer it: this prop is
+        // wired only where history is on and a store opened, so its absence is the same "resume is
+        // unavailable here" the with-id path reports below.
         if (!props.listResumeCandidates) {
           commit(resumeUnavailableNotice());
           return;
         }
-        commit(resumePickerNotice(props.listResumeCandidates()));
+        const candidates = props.listResumeCandidates();
+        // With nothing to offer, say so and open nothing. An empty <SelectList> renders a "no
+        // matches" line and its Enter is inert, so a picker here would be a modal the user can
+        // only escape from — strictly worse than the sentence, which also explains what makes a
+        // conversation resumable.
+        if (candidates.length === 0) {
+          commit(resumableConversationsNotice(candidates));
+          return;
+        }
+        setResumePicker(candidates);
         return;
       }
       if (!agent.resumeConversation) {
@@ -1480,13 +1524,19 @@ export function App(props: TuiAppProps): React.ReactElement {
     //     bare `exit` keyword all take it too).
     //
     // **The modal states are answered first, and they exit.** While an attack banner, an approval
-    // prompt or the approvals picker owns the keyboard, a turn IS in flight, so rung 2 would read
-    // "stop the turn" where the banner's own controls line says `Ctrl+C exits gth` and the user is
-    // looking for the way out of an irreversible action. So it exits, as the screen promises — and
-    // it goes through `quit()`, which resolves both bridges fail-closed on the way out rather than
-    // leaving the halt unanswered.
+    // prompt or one of the pickers (`/approvals`, bare `/resume`) owns the keyboard, the prompt is
+    // unmounted, so rung 1 has no buffer to scrap; and where that modal state was reached during a
+    // turn, rung 2 would read "stop the turn" while the banner's own controls line says `Ctrl+C
+    // exits gth` and the user is looking for the way out of an irreversible action. So it exits, as
+    // the screen promises — and it goes through `quit()`, which resolves both bridges fail-closed
+    // on the way out rather than leaving the halt unanswered.
+    //
+    // GS2-112 — the resume picker is in this set for coherence rather than for a case it changes
+    // today: `/resume` is idle-only and the prompt is unmounted while its picker is up, so no turn
+    // can be started under it and the ladder would fall to rung 3 and exit anyway. Naming it here
+    // is what keeps that answer from depending on which rung happens to catch it.
     if (key.ctrl && input === 'c') {
-      if (pendingAttack || pendingApproval || approvalsPicker) {
+      if (pendingAttack || pendingApproval || approvalsPicker || resumePicker) {
         quit();
         return;
       }
@@ -1619,11 +1669,11 @@ export function App(props: TuiAppProps): React.ReactElement {
       return;
     }
 
-    // CFG-39 — while the `/approvals` picker is open it OWNS the keyboard, exactly as a pending
-    // approval does. <SelectList> is a useInput subscriber too and Ink runs every subscriber, so
-    // without this the arrow keys would also scroll the transcript and Esc would both cancel the
-    // picker and jump to the newest output. Returning here leaves the picker the only claimant.
-    if (approvalsPicker) return;
+    // CFG-39, GS2-112 — while a picker is open it OWNS the keyboard, exactly as a pending approval
+    // does. <SelectList> is a useInput subscriber too and Ink runs every subscriber, so without
+    // this the arrow keys would also scroll the transcript and Esc would both cancel the picker and
+    // jump to the newest output. Returning here leaves the picker the only claimant.
+    if (approvalsPicker || resumePicker) return;
 
     if (key.escape && runningRef.current) {
       abortRef.current?.abort();
@@ -2079,6 +2129,27 @@ export function App(props: TuiAppProps): React.ReactElement {
                 onCancel={() => setApprovalsPicker(null)}
               />
             ) : null}
+            {/* GS2-112 — the bare-`/resume` picker, in the same dock slot and on the same terms as
+          the approvals picker above: it owns the keyboard, and a pending tool approval or an attack
+          halt outranks it. Neither picker can be reached while the other is up (the prompt is
+          unmounted, so no second command can be typed), and the guard says so rather than relying
+          on it. */}
+            {resumePicker && !approvalsPicker && !pendingApproval && !pendingAttack ? (
+              <ResumePicker
+                candidates={resumePicker}
+                onSelect={(id) => {
+                  // Close BEFORE applying: a landed resume replaces the transcript and re-keys its
+                  // ids, and this list is a snapshot of the conversations as they were before it.
+                  setResumePicker(null);
+                  void applyResume(id);
+                }}
+                onCancel={() => {
+                  setResumePicker(null);
+                  const notice = resumeCancelledNotice();
+                  push({ kind: 'notice', title: notice.title, lines: notice.lines, tone: 'info' });
+                }}
+              />
+            ) : null}
             {/* TUI-C91 — the dock opens on air: a blank row, then its opening rule, so the rule
           separates the controls from the conversation instead of reading as the top edge of the
           status bar. It belongs to the DOCK rather than to the tail of the viewport — at the tail
@@ -2117,15 +2188,20 @@ export function App(props: TuiAppProps): React.ReactElement {
               }
             />
             {/* The prompt stays mounted while a turn streams (EXT-12), so the user can run mid-turn
-          slash commands like /approvals; handleSubmit + dispatch gate what's allowed then. It
-          is suspended only when the debug panel is focused or a tool approval owns the keyboard. */}
-            {!debugFocused && !pendingApproval && !pendingAttack && !approvalsPicker ? (
+          slash commands like /approvals; handleSubmit + dispatch gate what's allowed then. It is
+          suspended only when the debug panel is focused or something else owns the keyboard: an
+          attack halt, a pending tool approval, or one of the pickers. */}
+            {!debugFocused &&
+            !pendingApproval &&
+            !pendingAttack &&
+            !approvalsPicker &&
+            !resumePicker ? (
               // TUI-C90 — the input line gets a row of air on each side, so the thing the user is
               // typing into reads as its own block rather than as the next line of the status bar.
               // Both rows are INSIDE the conditional: the prompt stands down for the approval
-              // prompt, the attack banner, the approvals picker and a focused debug panel, and a
-              // pair of blank rows left behind would be two rows of nothing between the status bar
-              // and the hint in every one of those states.
+              // prompt, the attack banner, either picker and a focused debug panel, and a pair of
+              // blank rows left behind would be two rows of nothing between the status bar and the
+              // hint in every one of those states.
               <>
                 <BlankRow />
                 <PromptInput

@@ -50,9 +50,9 @@ import {
   applyResumeTarget,
   listResumeCandidates,
   resolveResumeTarget,
+  resumableConversationsNotice,
   resumedConversationNotice,
   resumeFailedNotice,
-  resumePickerNotice,
   resumeRefusalNotice,
   resumeSameConversationNotice,
   type ResumeTarget,
@@ -873,7 +873,9 @@ export async function createInteractiveSession(
             // left keeps everything recorded under it; nothing is deleted by moving away.
             const { id } = result.resume;
             if (id === undefined) {
-              printNotice(resumePickerNotice(listResumeCandidates(config, conversationId)));
+              printNotice(
+                resumableConversationsNotice(listResumeCandidates(config, conversationId))
+              );
             } else if (id === conversationId) {
               printNotice(resumeSameConversationNotice(id));
             } else {

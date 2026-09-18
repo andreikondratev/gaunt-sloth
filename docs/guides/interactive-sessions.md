@@ -61,9 +61,12 @@ there opens a searchable command menu. A few worth knowing:
   session stays compacted
 - `/resume <id>` — move this session onto a recorded conversation and continue it: the screen shows
   the conversation's banner and its recorded turns, the model picks up with the state it had, and
-  the approvals you granted in it are in force again. `/resume` alone lists the conversations that
-  can be resumed. The same thing from a shell is `gth chat --resume <id>`, `gth code --resume <id>`
-  or `gth history resume <id>` — see [Resuming a conversation](../COMMANDS.md#resuming-a-conversation)
+  the approvals you granted in it are in force again. `/resume` alone offers the conversations that
+  can be resumed — in the full-screen TUI you move through them with the arrow keys and press Enter
+  to resume the highlighted one (Esc leaves the session where it is); on the plain terminal surface
+  they are printed and you resume one by id. The same thing from a shell is `gth chat --resume <id>`,
+  `gth code --resume <id>` or `gth history resume <id>` — see
+  [Resuming a conversation](../COMMANDS.md#resuming-a-conversation)
 - `/autocompact` — show the size the conversation is folded at automatically, and where that number
   came from. With an argument it moves the threshold for this session: `/autocompact 300000`,
   `/autocompact 300K`, `/autocompact 0.9M`, or `/autocompact 80%` for a share of the model's

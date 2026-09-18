@@ -313,8 +313,18 @@ export function resumeRefusalNotice(
   }
 }
 
-/** A bare `/resume`: the conversations this session could move to, and how. */
-export function resumePickerNotice(candidates: ConversationSummary[]): SlashCommandNotice {
+/**
+ * A bare `/resume`: the conversations this session could move to, and how — as text.
+ *
+ * This is the **readline** session's answer, and the empty case for every surface. It is not a
+ * picker and must not describe one: the Ink TUI offers an arrow-key list instead (GS2-112), and a
+ * sentence about moving a highlight or pressing Enter would be false on the surface this builder
+ * actually serves, which has neither. Ids are how a conversation is named here, which is why the
+ * closing line names the commands that take one.
+ */
+export function resumableConversationsNotice(
+  candidates: ConversationSummary[]
+): SlashCommandNotice {
   if (candidates.length === 0) {
     return {
       title: 'No other conversation can be resumed',

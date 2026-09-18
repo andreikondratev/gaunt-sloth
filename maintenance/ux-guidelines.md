@@ -196,6 +196,28 @@ unambiguous meaning — and there is no per-prompt "turn the gate down from here
 - **Session-scoped, reversible, never persisted** — nothing is written to config, and the notice
   says so.
 
+## `/resume` with no id (DL-9 keyboard-first, DL-3 preserve the user's context)
+
+- **Choosing is a picker on the Ink surface, a text list off it.** A bare `/resume` opens
+  `ResumePicker` in the TUI — the resumable conversations as rows, arrow keys to move, Enter to
+  resume the highlighted one. The readline session prints the same conversations as text and takes
+  an id, because it has nothing to arrow through. **An id read off the screen and typed back is not
+  an interaction the Ink surface has any reason to ask for**, and the pattern is the one
+  `/approvals` already set.
+- **The request does not change shape for it.** `/resume` returns `resume?: { id?: number }` and the
+  no-id case means *this surface fulfils it*; the candidates and the choosing stay on the surface
+  that has a keyboard. A copy of the picker's wording must not reach the shared text builder
+  (`resumableConversationsNotice`), which serves a surface with no picker in it.
+- **Never open an empty picker (DL-1).** With nothing to offer, the TUI commits the same "no other
+  conversation can be resumed" notice the plain surface prints, which also says what makes a
+  conversation resumable. A `SelectList` with no rows is a modal whose Enter does nothing.
+- **Esc is a true no-op, and says so (DL-3).** It closes the picker, leaves the transcript and the
+  conversation exactly as they were, and commits a short notice — a silent dismissal would leave the
+  user unsure whether a resume had been attempted. The picker turns type-to-filter off precisely so
+  that the first Esc cancels rather than clearing a filter.
+- **Close the picker before applying the choice.** A landed resume replaces the screen and re-keys
+  the transcript, and the open list is a snapshot of the conversations as they were before it.
+
 ## Abstentions the agent resolves (DL-4 transparency, DL-1 nothing important is silent, EXT-65)
 
 When the approvals gate cannot statically read a command — it composes, substitutes or redirects —
@@ -766,8 +788,10 @@ their config has a problem.
     `Esc` pressed to dismiss the menu while a turn is streaming closes the menu **and** stops the
     turn. Anything that advertises `Esc` as the way out of that menu has to say so.
 - **`Ctrl+C`** — on the TUI, one key with three meanings, resolved most-local-first: a **modal state**
-  (attack banner, pending approval, approvals picker) leaves, because that is what those screens
-  promise and the run is blocked on an answer nobody is at the keyboard to give; else a **typed
+  (attack banner, pending approval, either picker — `/approvals` and bare `/resume`) leaves, because
+  that is what those screens promise, the prompt is unmounted under them so there is no typed
+  message to scrap, and where one of them halted a run it is blocked on an answer nobody is at the
+  keyboard to give; else a **typed
   message** is scrapped into the kill slot, recoverable with `Ctrl+Y`; else a **turn in flight** is
   stopped, exactly as `Esc` stops it; else the session **exits**. (The bare `exit` keyword, `/exit`
   and `/quit` exit unconditionally.) Two reflexes meet on this key — *scrap this line* and *stop what

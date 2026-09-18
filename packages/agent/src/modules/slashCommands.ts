@@ -481,9 +481,13 @@ export interface SlashCommandResult {
    * GS2-20 — a request from `/resume` to re-enter a stored conversation. With an `id` the surface
    * resolves and applies it through the one seam in `sessionResume.ts` — the same two calls
    * `--resume <id>` makes at boot — and commits the resumed-conversation banner and the restored
-   * turns, or the refusal. With no `id` the surface lists the conversations that can be resumed,
-   * leaving out the one it is in. The command itself stays pure: it cannot reach the store or the
-   * runner, so it states the request.
+   * turns, or the refusal. With no `id` the surface offers the conversations that can be resumed,
+   * leaving out the one it is in, **in whatever way that surface can**: the Ink TUI opens a
+   * keyboard-navigable picker and resumes the chosen one directly (GS2-112), the readline session
+   * prints the list and takes an id. That is why the no-id case carries no candidates and no
+   * callback — fulfilling it is the surface's, and a surface with no user at a keyboard has a third
+   * answer again. The command itself stays pure: it cannot reach the store or the runner, so it
+   * states the request.
    */
   resume?: { id?: number };
   /** When true, the component quits the app (runs `onExit`). */
@@ -1785,7 +1789,7 @@ export function createCommandRegistry(): SlashCommand[] {
       name: 'resume',
       description:
         'Pick up a saved conversation where it left off (/resume <id>, the number from ' +
-        '`gth history list` or /history; no id lists the ones that can be resumed)',
+        '`gth history list` or /history; no id offers the ones that can be resumed)',
       // Idle-only, like /clear and /compact: it moves the session onto another thread, and a turn
       // in flight would be writing to the one being left. The surface resolves and applies it
       // through the shared seam and commits what landed; the id is validated here so a typo is
@@ -1799,7 +1803,7 @@ export function createCommandRegistry(): SlashCommand[] {
               title: `Not a conversation id: ${args.join(' ')}`,
               lines: [
                 'Usage: /resume [<id>] — the id is the number `gth history list` prints; with no ' +
-                  'id it lists the conversations that can be resumed.',
+                  'id it offers the conversations that can be resumed.',
               ],
               tone: 'warn',
             },

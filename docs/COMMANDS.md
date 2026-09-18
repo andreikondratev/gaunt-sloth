@@ -365,8 +365,10 @@ from where it stopped. Three spellings do the same thing:
 - `gth chat --resume <id>` / `gth code --resume <id>` / `gth --resume <id>` — start a session inside
   that conversation, in the mode you name;
 - `gth history resume <id>` — the same, in the mode the conversation was recorded under;
-- `/resume <id>` inside a running session — move this session onto that conversation
-  (`/resume` alone lists the ones that can be resumed).
+- `/resume <id>` inside a running session — move this session onto that conversation. **`/resume`
+  alone offers the ones that can be resumed**: in the full-screen TUI as a list you move through
+  with the arrow keys — Enter resumes the highlighted conversation, Esc leaves the session where it
+  is — and on the plain terminal surface as a printed list you pick an id from.
 
 A resumed session shows a banner naming the conversation (its id, when it started, how many turns it
 holds and which command and model recorded it), replays the recorded turns, and then continues: the
