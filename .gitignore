@@ -1,5 +1,10 @@
 /node_modules/
 /dist/
+# Where vitest's configured v8 coverage reporters write. eslint's globalIgnores and
+# pnpmOverridesGate's SKIP_DIRS already treat it as generated output; git did not, which matters
+# now that the repository-wide gates cover untracked files (OPS-105) — an unignored generated tree
+# is one they would judge, so a local coverage run would have made them report files nobody wrote.
+/coverage/
 .npmrc
 .npmrc.bk
 /packages/*/dist/
