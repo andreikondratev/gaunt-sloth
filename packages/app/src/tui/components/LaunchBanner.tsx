@@ -8,8 +8,9 @@ import { useTerminalSize } from '#src/tui/useTerminalSize.js';
 
 /**
  * TUI-C33 — the ASCII-art launch banner at the top of an interactive TUI session: a magenta sloth
- * face beside the `GAUNT SLOTH` wordmark, the version, the model/provider and the working
- * directory. It is an INTRO, not a fixture: `<App>` renders it under the same `showIntro` condition
+ * face beside the `GAUNT SLOTH` wordmark, the version, the model/provider and where the session is
+ * (TUI-C74 — plus the config root, when that is somewhere else). It is an INTRO, not a fixture:
+ * `<App>` renders it under the same `showIntro` condition
  * as the ready message, so it disappears once the first exchange is underway and stops padding the
  * dock.
  *
@@ -46,8 +47,8 @@ export function LaunchBanner({
   // shared subscription. Recomputing is only string maths, so this stays cheap.
   const { columns: liveColumns } = useTerminalSize();
 
-  // Version / project dir / home dir are fixed for the life of the session, so resolve them once
-  // (the version read touches the filesystem).
+  // Version / working dir / config root / home dir are fixed for the life of the session, so
+  // resolve them once (the version read touches the filesystem).
   const fields = useMemo(() => launchBannerFields(model, provider), [model, provider]);
 
   // TUI-C40 — the animation is a swap of the face only; every other input to the geometry is
@@ -66,7 +67,8 @@ export function LaunchBanner({
   return (
     <Box flexDirection="column" ref={ref}>
       {rows.map((row, index) =>
-        // Row index is a stable key: the banner is always the same seven rows in the same order.
+        // Row index is a stable key: the banner is the same rows in the same order for the life of
+        // the session (seven, or eight when TUI-C74's config-root row is drawn).
         // TUI-C36's blank padding rows are rendered as an explicit one-line-high box rather than an
         // empty <Text>: a <Text> with no content measures zero-high in Yoga and the padding row
         // simply vanishes, whereas a sized box is a real line and needs no whitespace to hold it

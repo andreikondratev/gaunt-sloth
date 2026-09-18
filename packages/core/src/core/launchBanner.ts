@@ -1,7 +1,7 @@
 /**
  * TUI-C33 — the welcoming ASCII-art launch banner shown at the top of an INTERACTIVE session
  * (`gth chat` / `gth code`): a sloth face on the left, the `GAUNT SLOTH` wordmark plus three live
- * fields (version, model/provider, working directory) on the right.
+ * fields (version, model/provider, location) on the right.
  *
  *
  *      ▄█▀▀▀▀▀▀▀▀█▄       ┏┓         ┏┓┓   ┓
@@ -19,15 +19,41 @@
  * The banner has to render IDENTICALLY on two surfaces that share no rendering code — the Ink TUI
  * (`packages/app/src/tui/components/LaunchBanner.tsx`) and the plain `--no-tui` readline session
  * (`packages/agent/src/modules/interactiveSessionModule.ts`). So all the geometry lives here as
- * pure functions of `{ version, model, provider, directory, homeDir, columns, colour }`
+ * pure functions of `{ version, model, provider, workDir, projectDir, homeDir, columns, colour }`
  * ({@link launchBannerRows} / {@link launchBannerText}), and the surfaces differ only in how they
  * EMIT: one string through `displayLaunchBanner`, or one `<Text>` per row. That is the same split
  * `Rule.tsx` uses (pure `ruleWidth` + a thin React component), including its
  * `columns === undefined → 80` convention for a non-TTY / test stdout.
  *
  * The one impure function is {@link launchBannerFields} at the bottom, which reads the live
- * version / project dir / home dir. It is shared for the same reason: both surfaces must read the
- * same sources rather than each inventing its own.
+ * version / working dir / config root / home dir. It is shared for the same reason: both surfaces
+ * must read the same sources rather than each inventing its own.
+ *
+ * ## Why the location is up to TWO rows, and which value is which
+ *
+ * The session has two directories, and they are not the same thing. The **working directory** is
+ * where the session is — what the shell and file tools resolve a relative path against. The
+ * **config root** is the directory of the discovered project config, i.e. whose guidelines, prompts
+ * and `.gsloth-settings` are in force; config discovery walks UP from the working directory, so it
+ * is that directory or an ancestor of it.
+ *
+ * The banner reports the working directory, because that is the question a location on screen
+ * answers — *where is this thing allowed to touch files*. Reporting the config root under that
+ * heading is wrong in exactly the case the user most needs it right (a session opened in a
+ * subdirectory of a configured project), and it is silently wrong, because the tools go on using
+ * the real cwd while the display says otherwise.
+ *
+ * The config root is worth saying too, so it gets its **own row — but only when the two differ**.
+ * A second row costs banner height, which TUI-C36 spends deliberately, and when discovery matched
+ * at the working directory (the common case) that row would print the same path twice and say
+ * nothing. When both rows are drawn they are LABELLED (`cwd:` / `config:`), because two bare paths
+ * stacked are exactly the ambiguity this arrangement exists to remove; a single row stays
+ * unlabelled, since a label is there to tell two things apart and there is only one.
+ *
+ * `cwd:` rather than the run header's `Workdir:` for the same value: this field's budget starts at
+ * 24 columns, the label is spent from it, and three columns is a meaningful share of a path. The
+ * banner also carries no other label, so the register here is terse and lower-case. Both surfaces
+ * name `getCurrentWorkDir()`, which is the agreement that matters.
  *
  * ## Why the right column is a slice at a fixed column, not a glyph classifier
  *
@@ -58,15 +84,16 @@
  * A wrapped line SHATTERS the art: the continuation starts back at column 0 and collides with the
  * face, so the sloth grows an extra row of model id. Wrapping is therefore not allowed to happen at
  * all, and each field is bounded by what is left of the terminal on its own line — `columns - 21`
- * for the model/provider and directory lines, `columns - 43` for the version.
+ * for the model/provider and location lines, `columns - 43` for the version. A location row's label
+ * is spent from that same budget, so a labelled row is never wider than an unlabelled one.
  *
  * Those budgets are TERMINAL COLUMNS, and every measurement and cut in this module goes through
  * `#src/utils/displayWidth.js` for that reason. A CJK ideograph or an emoji is one code point in
  * two columns, so a `.length`-style count would let a path or model id containing either measure
  * short, slip past its budget and wrap — the very failure above.
  *
- * The model/provider and directory lines TRUNCATE to that budget: a clipped model id or path is
- * still honest, it visibly ends in `…`. The directory is truncated from the LEFT
+ * The model/provider and location lines TRUNCATE to that budget: a clipped model id or path is
+ * still honest, it visibly ends in `…`. A path is truncated from the LEFT
  * (`…/dev/takahe`), because the leaf directory is the informative end; the model keeps its head and
  * loses its tail.
  *
@@ -82,11 +109,12 @@
  * @module
  */
 import { homedir } from 'node:os';
+import { resolve } from 'node:path';
 import { ELLIPSIS, ELLIPSIS_WIDTH } from '#src/core/toolDisplay.js';
 import { modelProviderLabel } from '#src/core/modelLabel.js';
 import { ANSI_COLORS } from '#src/utils/consoleUtils.js';
 import { displayWidth, sliceEndToWidth, sliceToWidth } from '#src/utils/displayWidth.js';
-import { getProjectDir, getSlothVersion } from '#src/utils/systemUtils.js';
+import { getCurrentWorkDir, getSlothVersion, peekProjectDir } from '#src/utils/systemUtils.js';
 
 /**
  * The sloth face, columns 0–15. Lines 1 and 5 are 14 columns, lines 2–4 are 16 — the face field is
@@ -272,9 +300,20 @@ export interface LaunchBannerInput {
   model?: string;
   /** `config.modelProviderType`. */
   provider?: string;
-  /** Working directory to report (`getProjectDir()`), before the home-prefix collapse. */
-  directory?: string;
-  /** The user's home dir; when `directory` sits under it the prefix collapses to `~`. */
+  /**
+   * TUI-C74 — where the session IS: the working directory the agent's shell and file tools resolve
+   * against (`getCurrentWorkDir()`), before the home-prefix collapse. Never the config root, which
+   * is `projectDir` below and is an ancestor of this whenever the two differ.
+   */
+  workDir?: string;
+  /**
+   * TUI-C74 — the directory of the DISCOVERED project config (`peekProjectDir()`), i.e. whose
+   * guidelines, prompts and `.gsloth-settings` this session is running under. `undefined` when
+   * discovery found no project config. Rendered on its own labelled row, and only when it differs
+   * from `workDir` — see the module docs on why the common case stays one unlabelled row.
+   */
+  projectDir?: string;
+  /** The user's home dir; when a reported path sits under it the prefix collapses to `~`. */
   homeDir?: string;
   /** Live `stdout.columns`; `undefined` (non-TTY / tests) falls back to `DEFAULT_COLUMNS`. */
   columns?: number;
@@ -301,7 +340,7 @@ export interface LaunchBannerRow {
    * Empty on the two blank padding rows, which carry nothing at all.
    */
   face: string;
-  /** Columns 21+: wordmark, version, model/provider or directory. Default foreground, no colour. */
+  /** Columns 21+: wordmark, version, model/provider or a location. Default foreground, no colour. */
   right: string;
 }
 
@@ -380,6 +419,63 @@ function collapseHomePrefix(directory: string, homeDir: string | undefined): str
 }
 
 /**
+ * TUI-C74 — the labels the two location rows carry WHEN BOTH ARE DRAWN. A single location row is
+ * unlabelled, exactly as it has always been: a label is there to tell two paths apart, and one path
+ * under the model line has never needed telling apart from anything.
+ */
+const WORK_DIR_LABEL = 'cwd: ';
+const CONFIG_DIR_LABEL = 'config: ';
+
+/**
+ * TUI-C74 — are these two paths the same directory?
+ *
+ * Both values arrive resolved ({@link launchBannerFields} runs them through `resolve`, and
+ * `setProjectDir` resolves its own), so this is a string comparison with one tolerance: a trailing
+ * separator, which an environment-supplied `INIT_CWD` may carry. Deliberately NOT case-folded —
+ * a case-insensitive filesystem needs the platform's own rules, and half-applying them would
+ * collapse two genuinely different directories into one, which is the failure this whole pair of
+ * rows exists to undo.
+ */
+function samePath(left: string, right: string): boolean {
+  const trimmed = (path: string): string =>
+    path.length > 1 && (path.endsWith('/') || path.endsWith('\\')) ? path.slice(0, -1) : path;
+  return trimmed(left) === trimmed(right);
+}
+
+/**
+ * TUI-C74 — the location row (or rows) the banner ends with, in order.
+ *
+ * One row when there is one directory to report — no config was discovered, or it was discovered AT
+ * the working directory, where a second row would print the same path twice. Two labelled rows when
+ * they genuinely differ, which is the case the banner used to report wrongly.
+ *
+ * The label is spent from the SAME budget as the path, so a labelled row cannot be wider than an
+ * unlabelled one and nothing can wrap into the face. `budget` is the field budget, never below
+ * {@link MIN_FIELD_BUDGET} (24) on this path, so a label of 8 columns always leaves a path to draw;
+ * the `undefined` filter keeps the function total rather than guarding a reachable case.
+ */
+function locationRows(input: LaunchBannerInput, budget: number): string[] {
+  const workDir = input.workDir?.trim();
+  const projectDir = input.projectDir?.trim();
+  const row = (label: string, directory: string): string | undefined => {
+    const path = truncateHead(
+      collapseHomePrefix(directory, input.homeDir),
+      budget - displayWidth(label)
+    );
+    return path === undefined ? undefined : label + path;
+  };
+  const drawn = (...rows: (string | undefined)[]): string[] =>
+    rows.filter((row): row is string => row !== undefined);
+
+  // Nothing known about where the session is. The config root is still worth reporting, but only
+  // under its own label: an unlabelled path on this row reads as "where you are", which is exactly
+  // the conflation this node removed.
+  if (!workDir) return projectDir ? drawn(row(CONFIG_DIR_LABEL, projectDir)) : [];
+  if (!projectDir || samePath(workDir, projectDir)) return drawn(row('', workDir));
+  return drawn(row(WORK_DIR_LABEL, workDir), row(CONFIG_DIR_LABEL, projectDir));
+}
+
+/**
  * The shared `model (provider)` spelling, re-exported so this module stays the documented home of
  * the banner's fields. It lives in `modelLabel.ts` because the agent renders it too and must not
  * import this module's console/filesystem graph to do so.
@@ -421,9 +517,6 @@ export function launchBannerRows(input: LaunchBannerInput): LaunchBannerRow[] {
     : undefined;
   const model = modelProviderLabel(input.model, input.provider);
   const modelLine = model ? truncateTail(model, fieldBudget) : undefined;
-  const directory = input.directory?.trim()
-    ? truncateHead(collapseHomePrefix(input.directory.trim(), input.homeDir), fieldBudget)
-    : undefined;
 
   const rightLines = [
     WORDMARK_LINES[0],
@@ -432,12 +525,23 @@ export function launchBannerRows(input: LaunchBannerInput): LaunchBannerRow[] {
       : WORDMARK_LINES[1],
     WORDMARK_LINES[2],
     modelLine ?? '',
-    directory ?? '',
+    // TUI-C74 — one row, or two when the config root is somewhere other than where the session is.
+    ...locationRows(input, fieldBudget),
   ];
 
+  // The art is five rows and the right column normally fits inside them; a second location row is
+  // the one thing that can make the right column the taller half.
+  const rowCount = Math.max(face.length, rightLines.length);
+
   return withPaddingRows(
-    face.map((line, index) => {
+    Array.from({ length: rowCount }, (_, index) => {
       const right = rightLines[index] ?? '';
+      const line = face[index];
+      // A row the art does not reach carries a blank face field padded to the split column, so its
+      // field starts at the same place as every other one. It exists only to hold that field: with
+      // nothing to hold it would be a lone margin, i.e. trailing whitespace.
+      if (line === undefined)
+        return right ? { face: padToWidth(PAD, RIGHT_COLUMN), right } : blankRow();
       const padded = PAD + line;
       // Pad the face out to the split column only when something follows it, so a row whose field
       // was omitted (or truncated away) does not end in a run of spaces.
@@ -476,11 +580,11 @@ export function launchBannerText(input: LaunchBannerInput): string {
 /** The process-resolved half of {@link LaunchBannerInput} — everything but the geometry. */
 export type LaunchBannerFields = Pick<
   LaunchBannerInput,
-  'version' | 'model' | 'provider' | 'directory' | 'homeDir'
+  'version' | 'model' | 'provider' | 'workDir' | 'projectDir' | 'homeDir'
 >;
 
 /**
- * Read the live fields off the process, so both surfaces report the same three values from the same
+ * Read the live fields off the process, so both surfaces report the same values from the same
  * sources instead of each picking its own. `model`/`provider` come from the caller because only it
  * has the resolved config (`config.modelDisplayName` / `config.modelProviderType`); the rest are
  * process-global.
@@ -496,5 +600,18 @@ export function launchBannerFields(model?: string, provider?: string): LaunchBan
   } catch {
     /* no install dir (embedded/test) — the banner simply shows no version */
   }
-  return { version, model, provider, directory: getProjectDir(), homeDir: homedir() };
+  const projectDir = peekProjectDir();
+  return {
+    version,
+    model,
+    provider,
+    // TUI-C74 — where the session actually is, the same value the shell and file tools resolve
+    // against. NOT `getProjectDir()`, which answers a different question (see the module docs).
+    workDir: resolve(getCurrentWorkDir()),
+    // …and the config root RAW: `peekProjectDir` is `undefined` when discovery found nothing, where
+    // `getProjectDir` would hand back the cwd and the banner would report a project root that does
+    // not exist. Resolved so the two are compared as paths rather than as strings.
+    projectDir: projectDir === undefined ? undefined : resolve(projectDir),
+    homeDir: homedir(),
+  };
 }

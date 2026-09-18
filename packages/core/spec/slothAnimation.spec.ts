@@ -18,7 +18,7 @@ const allFaces = (): readonly (readonly string[])[] => [
   ...SLOTH_ANIMATIONS.flatMap((name) => SLOTH_ANIMATION_STEPS[name].map((step) => step.face)),
 ];
 
-const fields = { version: '2.0.0', model: 'gemini', provider: 'google', directory: '/tmp/x' };
+const fields = { version: '2.0.0', model: 'gemini', provider: 'google', workDir: '/tmp/x' };
 
 describe('sloth animation frames', () => {
   it('has exactly the four animations the art was drawn for', () => {

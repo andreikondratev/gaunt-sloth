@@ -1,5 +1,6 @@
+import { join, resolve, sep } from 'node:path';
 import stringWidth from 'string-width';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * TUI-C33 — geometry tests for the interactive launch banner. Everything here goes through the
@@ -72,7 +73,7 @@ describe('core/launchBanner', () => {
       version: '2.0.0-alpha.25',
       model: 'gemini-3.1-pro',
       provider: 'google-genai',
-      directory: '/home/mari/dev/takahe',
+      workDir: '/home/mari/dev/takahe',
       homeDir: '/home/mari',
       columns: 120,
     };
@@ -105,7 +106,7 @@ describe('core/launchBanner', () => {
       version: '2.0.0-alpha.25',
       model: 'gemini-3.1-pro',
       provider: 'google-genai',
-      directory: '/home/mari/dev/takahe',
+      workDir: '/home/mari/dev/takahe',
       homeDir: '/home/mari',
       columns: 120,
     };
@@ -168,7 +169,7 @@ describe('core/launchBanner', () => {
     const { launchBannerRows } = await import('#src/core/launchBanner.js');
     const columns = 50;
     const right = launchBannerRows({
-      directory: '/home/mari/dev/takahe/_worktrees/TUI-C33/gaunt-sloth',
+      workDir: '/home/mari/dev/takahe/_worktrees/TUI-C33/gaunt-sloth',
       columns,
     })[ART + 4].right;
 
@@ -201,7 +202,7 @@ describe('core/launchBanner', () => {
     const rows = launchBannerRows({
       version: '2.0.0-alpha.25',
       model: 'some-absurdly-long-model-identifier',
-      directory: '/home/mari/dev/takahe/packages/core',
+      workDir: '/home/mari/dev/takahe/packages/core',
       homeDir: '/home/mari',
       columns: MIN_COLUMNS,
     });
@@ -218,8 +219,8 @@ describe('core/launchBanner', () => {
     it('truncates a CJK directory to its real column budget', async () => {
       const { launchBannerRows } = await import('#src/core/launchBanner.js');
       // 22 code points, 30 columns — a 24-column budget it only appears to fit.
-      const directory = '/home/mari/開発/深層/作業/設定';
-      const rows = launchBannerRows({ directory, columns: MIN_COLUMNS });
+      const workDir = '/home/mari/開発/深層/作業/設定';
+      const rows = launchBannerRows({ workDir, columns: MIN_COLUMNS });
 
       // `…` (1 column) + `ari/開発/深層/作業/設定` (23 columns) = exactly the 24-column budget.
       // The literal pins BOTH bounds at once: anything wider over-runs the terminal, anything
@@ -260,7 +261,7 @@ describe('core/launchBanner', () => {
         version: '2.0.0-alpha.27',
         model: 'gemini-3.1-pro-🚀🚀',
         provider: '深層プロバイダー',
-        directory: '/home/mari/開発/深層/作業/設定/更に深い階層',
+        workDir: '/home/mari/開発/深層/作業/設定/更に深い階層',
         homeDir: '/home/mari',
       };
       // What the two truncating fields would render as if nothing were clipped — the directory
@@ -304,7 +305,7 @@ describe('core/launchBanner', () => {
       const rows = launchBannerRows({
         version: '2.0.0-alpha.25',
         model: 'gemini-3.1-pro',
-        directory: '/home/mari/dev/takahe',
+        workDir: '/home/mari/dev/takahe',
         homeDir: '/home/mari',
         columns: 80,
         face: WIDE_FACE,
@@ -330,7 +331,7 @@ describe('core/launchBanner', () => {
       const rows = launchBannerRows({
         model: 'gpt-5',
         provider: 'openai',
-        directory: '/home/mari/dev',
+        workDir: '/home/mari/dev',
         homeDir: '/home/mari',
         columns: 120,
         face: OVER_WIDE_FACE,
@@ -361,7 +362,7 @@ describe('core/launchBanner', () => {
       version: '2.0.0',
       model: 'gpt-5',
       provider: 'openai',
-      directory: '/home/mari/dev',
+      workDir: '/home/mari/dev',
       homeDir: '/home/mari',
       columns: MIN_COLUMNS - 1,
     };
@@ -394,8 +395,8 @@ describe('core/launchBanner', () => {
 
   it('collapses the home prefix to ~ only on a path boundary, on both separators', async () => {
     const { launchBannerRows } = await import('#src/core/launchBanner.js');
-    const dir = (directory: string, homeDir: string): string =>
-      launchBannerRows({ directory, homeDir, columns: 200 })[ART + 4].right;
+    const dir = (workDir: string, homeDir: string): string =>
+      launchBannerRows({ workDir, homeDir, columns: 200 })[ART + 4].right;
 
     expect(dir('/home/mari/dev/takahe', '/home/mari')).toBe('~/dev/takahe');
     expect(dir('/home/mari', '/home/mari')).toBe('~');
@@ -412,7 +413,7 @@ describe('core/launchBanner', () => {
     const input = {
       version: '2.0.0',
       model: 'gpt-5',
-      directory: '/home/mari',
+      workDir: '/home/mari',
       homeDir: '/home/mari',
       columns: 120,
       colour: true,
@@ -450,7 +451,7 @@ describe('core/launchBanner', () => {
       version: '2.0.0',
       model: 'gpt-5',
       provider: 'openai',
-      directory: '/home/mari/dev',
+      workDir: '/home/mari/dev',
       homeDir: '/home/mari',
       columns: 120,
     });
@@ -469,7 +470,7 @@ describe('core/launchBanner', () => {
 
   it('resolves the live fields fail-soft, dropping the version when no install dir is set', async () => {
     const { launchBannerFields } = await import('#src/core/launchBanner.js');
-    const { getProjectDir } = await import('#src/utils/systemUtils.js');
+    const { getCurrentWorkDir, peekProjectDir } = await import('#src/utils/systemUtils.js');
 
     // getSlothVersion() throws without an install dir (nothing calls setEntryPoint under test);
     // that must degrade to "no version label", never to a failed session start.
@@ -477,7 +478,174 @@ describe('core/launchBanner', () => {
     expect(fields.version).toBeUndefined();
     expect(fields.model).toBe('gpt-5');
     expect(fields.provider).toBe('openai');
-    expect(fields.directory).toBe(getProjectDir());
+    // TUI-C74 — the working directory comes from the cwd the tools resolve against, and the config
+    // root from the RAW discovered dir: undefined here, because nothing has run discovery.
+    expect(fields.workDir).toBe(resolve(getCurrentWorkDir()));
+    expect(fields.projectDir).toBe(peekProjectDir());
+    expect(fields.projectDir).toBeUndefined();
     expect(fields.homeDir).toBeTruthy();
+  });
+
+  /**
+   * TUI-C74 — the banner reports where the session IS, and the config root only when that is
+   * somewhere else.
+   *
+   * Every case here is set up with cwd **≠** the discovered project dir. With the two equal, every
+   * rendering passes whether or not the fix is present, and the assertion is worth nothing — which
+   * is the shape this defect hid inside: `getProjectDir()` falls back to the cwd when discovery
+   * found nothing, so the wrong value looked right everywhere anyone happened to look.
+   *
+   * The divergence is real rather than stubbed. `setProjectDir` is what config discovery itself
+   * calls when it matches a config up-tree, and `getCurrentWorkDir()` reads `INIT_CWD` ahead of
+   * `process.cwd()`. Both are process globals, so both are put back after every case.
+   */
+  describe('TUI-C74 — the working directory, and the config root when it differs', () => {
+    // Absolute and synthetic, built through `resolve`/`join` so the literals asserted below are the
+    // platform's own (`C:\…` under win32). A POSIX path literal compared by equality is the
+    // recurring way a spec here passes everywhere except the Windows cell.
+    const PROJECT = resolve(`${sep}gth-tui-c74-project`);
+    const CWD = join(PROJECT, 'packages', 'core');
+
+    let initCwd: string | undefined;
+
+    beforeEach(async () => {
+      const { setProjectDir } = await import('#src/utils/systemUtils.js');
+      initCwd = process.env.INIT_CWD;
+      process.env.INIT_CWD = CWD;
+      // What discovery does when it finds the project config in an ANCESTOR of the cwd.
+      setProjectDir(PROJECT);
+    });
+
+    afterEach(async () => {
+      const { setProjectDir } = await import('#src/utils/systemUtils.js');
+      setProjectDir(undefined);
+      if (initCwd === undefined) delete process.env.INIT_CWD;
+      else process.env.INIT_CWD = initCwd;
+    });
+
+    it('renders the working directory and the config root as two labelled rows', async () => {
+      const { launchBannerFields, launchBannerText } = await import('#src/core/launchBanner.js');
+
+      const input = { ...launchBannerFields('gpt-5', 'openai'), columns: 120 };
+      // The premise, asserted rather than assumed: the session is in the subdirectory and the
+      // config root is the ancestor, so a row carrying the ancestor is a row reporting the wrong
+      // place.
+      expect(input.workDir).toBe(CWD);
+      expect(input.projectDir).toBe(PROJECT);
+
+      const lines = launchBannerText(input).split('\n');
+      // Eight lines: the blank row, the five art rows, the config row the art does not reach, and
+      // the closing blank row.
+      expect(lines).toHaveLength(8);
+      expect(columnsFrom(lines[ART + 4], RIGHT)).toBe(`cwd: ${CWD}`);
+      expect(columnsFrom(lines[ART + 5], RIGHT)).toBe(`config: ${PROJECT}`);
+      // The extra row's field still starts at the split column, over blank columns rather than a
+      // lone margin (which would be trailing whitespace on a row the art never reaches).
+      expect([...lines[ART + 5]].slice(0, RIGHT).join('')).toBe(' '.repeat(RIGHT));
+      expect(lines[7]).toBe('');
+      // The closing padding row is still the last thing, so the new row is INSIDE the block.
+      expect(lines[lines.length - 1]).toBe('');
+    });
+
+    it('prints one unlabelled row when the config was discovered AT the working directory', async () => {
+      const { setProjectDir } = await import('#src/utils/systemUtils.js');
+      const { launchBannerFields, launchBannerText } = await import('#src/core/launchBanner.js');
+      // Discovery matched right where the session is — the common case.
+      setProjectDir(CWD);
+
+      const input = { ...launchBannerFields('gpt-5', 'openai'), columns: 120 };
+      expect(input.projectDir).toBe(CWD);
+
+      const text = launchBannerText(input);
+      const lines = text.split('\n');
+      // Seven lines, and the one location row is the bare path it has always been: printing the
+      // same directory twice, under two labels, says nothing twice and costs a row.
+      expect(lines).toHaveLength(7);
+      expect(columnsFrom(lines[ART + 4], RIGHT)).toBe(CWD);
+      expect(text).not.toContain('config:');
+      expect(text).not.toContain('cwd:');
+    });
+
+    it('prints one unlabelled row when no project config was discovered at all', async () => {
+      const { setProjectDir } = await import('#src/utils/systemUtils.js');
+      const { launchBannerFields, launchBannerText } = await import('#src/core/launchBanner.js');
+      setProjectDir(undefined);
+
+      const input = { ...launchBannerFields('gpt-5', 'openai'), columns: 120 };
+      // Undefined, not the cwd: there is no project root to report, and a banner that named one
+      // would be inventing it.
+      expect(input.projectDir).toBeUndefined();
+      expect(input.workDir).toBe(CWD);
+
+      const text = launchBannerText(input);
+      expect(text.split('\n')).toHaveLength(7);
+      expect(columnsFrom(text.split('\n')[ART + 4], RIGHT)).toBe(CWD);
+      expect(text).not.toContain('config:');
+    });
+
+    it('spends the label from the field budget and truncates the PATH from the left', async () => {
+      const { launchBannerRows } = await import('#src/core/launchBanner.js');
+      const rows = launchBannerRows({
+        workDir: '/home/mari/dev/takahe/_worktrees/TUI-C74/gaunt-sloth',
+        projectDir: '/home/mari/dev/takahe',
+        homeDir: '/home/mari',
+        columns: MIN_COLUMNS,
+      });
+
+      // 24 columns of field. The label is inside that budget, and what gives way is the path's
+      // HEAD — the same rule the single row has always followed, so the leaf survives on both.
+      expect(rows[ART + 4].right).toBe('cwd: …UI-C74/gaunt-sloth');
+      expect(rows[ART + 5].right).toBe('config: ~/dev/takahe');
+      for (const row of rows) {
+        expect(stringWidth(row.face + row.right)).toBeLessThanOrEqual(MIN_COLUMNS);
+      }
+    });
+
+    it('labels the config root even when nothing is known about the working directory', async () => {
+      const { launchBannerRows } = await import('#src/core/launchBanner.js');
+      // An unlabelled path on this row reads as "where you are", so the one thing that must not
+      // happen is the config root quietly taking the working directory's place.
+      const rows = launchBannerRows({
+        projectDir: '/home/mari/dev/takahe',
+        homeDir: '/home/mari',
+        columns: 120,
+      });
+
+      expect(rows).toHaveLength(7);
+      expect(rows[ART + 4].right).toBe('config: ~/dev/takahe');
+    });
+
+    it('never lets the second location row push a row past the terminal, at any width', async () => {
+      const { launchBannerRows } = await import('#src/core/launchBanner.js');
+      // The oracle is `string-width` itself, not the module's own primitive — measuring the output
+      // with the function that produced it would make a broken ruler agree with itself.
+      const displayWidth = stringWidth;
+      const input = {
+        version: '2.0.0-alpha.27',
+        model: 'gemini-3.1-pro-🚀🚀',
+        provider: '深層プロバイダー',
+        workDir: '/home/mari/開発/深層/作業/設定/更に深い階層',
+        projectDir: '/home/mari/開発/深層',
+        homeDir: '/home/mari',
+      };
+
+      for (let columns = MIN_COLUMNS - 4; columns <= 140; columns++) {
+        const rows = launchBannerRows({ ...input, columns });
+        for (const row of rows) {
+          expect(displayWidth(row.face + row.right)).toBeLessThanOrEqual(columns);
+        }
+        if (columns < MIN_COLUMNS) {
+          // Below the threshold the right column goes entirely, second location row included.
+          expect(rows).toHaveLength(7);
+          expect(rows.map((row) => row.right).join('')).toBe('');
+          continue;
+        }
+        // The lower bound, which is what stops the upper bound being satisfied by drawing nothing:
+        // above the threshold both rows are present and both carry their label.
+        expect(rows).toHaveLength(8);
+        expect(rows[ART + 4].right.startsWith('cwd: ')).toBe(true);
+        expect(rows[ART + 5].right.startsWith('config: ')).toBe(true);
+      }
+    });
   });
 });

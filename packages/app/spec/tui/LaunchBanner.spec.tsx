@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { join, resolve, sep } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { render } from 'ink-testing-library';
+import { setProjectDir } from '@gaunt-sloth/core/utils/systemUtils.js';
 import { LaunchBanner } from '#src/tui/components/LaunchBanner.js';
 
 /**
@@ -96,5 +98,58 @@ describe('tui <LaunchBanner>', () => {
 
     unmount();
     expect(stdout.listenerCount('resize')).toBe(0);
+  });
+
+  /**
+   * TUI-C74 — the config-root row is the only row the five-line face does not reach, so Ink is the
+   * only place its rendering can be proved: a row the component never emits, or one that measures
+   * zero-high, looks exactly like a correct banner from core's side of the split.
+   *
+   * The divergence is genuine — the config root is an ANCESTOR of the working directory, as it is
+   * whenever a session opens inside a configured project. With the two equal, every rendering of
+   * this component passes and the assertion proves nothing.
+   */
+  describe('TUI-C74 — the config root gets its own row when it is not the working directory', () => {
+    // Built through `resolve`/`join`, so the literals are the platform's own under win32.
+    const PROJECT = resolve(`${sep}gth-tui-c74-tui`);
+    const CWD = join(PROJECT, 'packages', 'app');
+    let initCwd: string | undefined;
+
+    beforeEach(() => {
+      initCwd = process.env.INIT_CWD;
+      process.env.INIT_CWD = CWD;
+      setProjectDir(PROJECT); // what config discovery does on an up-tree match
+    });
+
+    afterEach(() => {
+      setProjectDir(undefined);
+      if (initCwd === undefined) delete process.env.INIT_CWD;
+      else process.env.INIT_CWD = initCwd;
+    });
+
+    it('paints eight rows: the working directory, then the config root, then the padding', () => {
+      const { lastFrame, unmount } = render(<LaunchBanner model="gemini-3.1-pro" columns={120} />);
+
+      const lines = (lastFrame() ?? '').split('\n');
+      expect(lines).toHaveLength(8);
+      expect([...lines[ART + 4]].slice(RIGHT).join('')).toBe(`cwd: ${CWD}`);
+      expect([...lines[ART + 5]].slice(RIGHT).join('')).toBe(`config: ${PROJECT}`);
+      // The closing padding row still closes the block, so the extra row is inside it.
+      expect(lines[7]).toBe('');
+
+      unmount();
+    });
+
+    it('paints seven rows with one bare path when the config sits AT the working directory', () => {
+      setProjectDir(CWD);
+      const { lastFrame, unmount } = render(<LaunchBanner model="gemini-3.1-pro" columns={120} />);
+
+      const frame = lastFrame() ?? '';
+      expect(frame.split('\n')).toHaveLength(7);
+      expect([...frame.split('\n')[ART + 4]].slice(RIGHT).join('')).toBe(CWD);
+      expect(frame).not.toContain('config:');
+
+      unmount();
+    });
   });
 });

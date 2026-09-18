@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionConfig } from '#src/modules/interactiveSessionModule.js';
 
@@ -31,7 +32,12 @@ vi.mock('@gaunt-sloth/core/utils/systemUtils.js', () => ({
   createInterface: vi.fn(() => ({ question: rlQuestionMock, close: vi.fn() })),
   error: vi.fn(),
   exit: vi.fn(),
+  // TUI-C74 — the banner's location fields: where the session IS, and the config root discovered
+  // ABOVE it. They are deliberately different here, because equal values make the banner's
+  // rendering the same whichever one it reports.
+  getCurrentWorkDir: vi.fn(() => '/home/mari/dev/takahe/packages/core'),
   getProjectDir: vi.fn(() => '/home/mari/dev/takahe'),
+  peekProjectDir: vi.fn(() => '/home/mari/dev/takahe'),
   getUseColour: vi.fn(() => false),
   refStdin: vi.fn(),
   setRawMode: vi.fn(),
@@ -136,15 +142,20 @@ describe('interactiveSessionModule launch banner (TUI-C33)', () => {
     expect(displayLaunchBannerMock).toHaveBeenCalledTimes(1);
     const banner = displayLaunchBannerMock.mock.calls[0][0] as string;
     const lines = banner.split('\n');
-    // Seven lines: TUI-C36's blank padding row, the five art rows, and the closing padding row.
-    expect(lines).toHaveLength(7);
+    // Eight lines: TUI-C36's blank padding row, the five art rows, TUI-C74's config-root row, and
+    // the closing padding row.
+    expect(lines).toHaveLength(8);
     expect(lines[0]).toBe('');
-    expect(lines[6]).toBe('');
+    expect(lines[7]).toBe('');
     expect(lines[ART]).toContain('┏┓         ┏┓┓   ┓'); // the wordmark
     expect(lines[ART + 3]).toContain('gemini-3.1-pro (google-genai)'); // config-driven, not hardcoded
-    // getProjectDir() — reported as-is here because the real homedir() is not its prefix; the
-    // home-to-`~` collapse itself is pinned in packages/core/spec/launchBanner.spec.ts.
-    expect(lines[ART + 4]).toContain('/home/mari/dev/takahe');
+    // TUI-C74 — the working directory the tools resolve against, and the config root above it,
+    // each under its own label. Reported as-is here because the real homedir() is not their
+    // prefix; the home-to-`~` collapse itself is pinned in packages/core/spec/launchBanner.spec.ts.
+    // The expectations go through `resolve` because the banner's fields do: a POSIX literal here
+    // would pass on this machine and fail the Windows cell.
+    expect(lines[ART + 4]).toContain(`cwd: ${resolve('/home/mari/dev/takahe/packages/core')}`);
+    expect(lines[ART + 5]).toContain(`config: ${resolve('/home/mari/dev/takahe')}`);
 
     // The ready message is untouched, and the banner was emitted BEFORE it.
     expect(displayMock).toHaveBeenCalledWith('\nGaunt Sloth is ready to chat. Type your prompt.');

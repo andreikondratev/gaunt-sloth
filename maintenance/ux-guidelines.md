@@ -376,7 +376,7 @@ Two consequences worth stating rather than rediscovering:
 ## Launch banner (DL-6 cross-surface consistency, DL-7 graceful degradation, TUI-C33)
 
 Interactive sessions (`chat`, `code`) open with an ASCII-art banner — a magenta sloth face beside the
-`GAUNT SLOTH` wordmark, the version, the model/provider and the working directory — printed **above**
+`GAUNT SLOTH` wordmark, the version, the model/provider and where the session is — printed **above**
 the ready message.
 
 - **Interactive only, TTY only.** `chat` and `code`, and only when `stdout.isTTY`. The one-shot verbs
@@ -389,9 +389,22 @@ the ready message.
   `@gaunt-sloth/core/core/launchBanner.js`; the TUI maps its rows to `<Text>` and the plain surface
   emits its string through `displayLaunchBanner`. The two surfaces cannot drift, and the column maths
   is unit-tested without a terminal — the same split as `ruleWidth` vs `Rule`.
+- **The location is where the session IS, and the config root is a separate fact (DL-4, TUI-C74).**
+  The banner's location row reports the working directory the shell and file tools resolve against.
+  It is **not** the discovered config root: those coincide only when the config was found in the
+  directory the session opened in, and reporting the root under a location heading tells a user
+  working inside a configured project that the session is scoped to the parent while every tool goes
+  on using the real cwd — a disagreement between the display and the behaviour, where the display is
+  the half the user reasons from. The config root is worth stating too, since it is what says whose
+  guidelines, prompts and `.gsloth-settings` are in force, so it gets **its own row — but only when
+  it differs**, and then both rows are **labelled** (`cwd:` / `config:`). A row of banner height is
+  spent only when there is a second thing to say (DL-10), and two bare paths stacked would be the
+  ambiguity the labels exist to remove; one row stays unlabelled, because a label is there to tell
+  two things apart.
 - **Nothing may wrap (DL-7).** A wrapped line restarts at column 0 and collides with the face, so
-  every dynamic field is bounded by the width left on its own line. The model/provider and directory
-  lines **truncate** with `…` (the directory from the *left*, keeping the informative leaf); the
+  every dynamic field is bounded by the width left on its own line. The model/provider and location
+  lines **truncate** with `…` (a path from the *left*, keeping the informative leaf, and a location
+  row's label spent from the same budget so a labelled row is never wider); the
   **version is dropped instead of truncated**, because `v2.0…` reads as a real, different version
   rather than as a clipped one, and a wrong version in a bug report costs more than an absent one.
   Below 45 columns the right-hand column is dropped and the face prints alone; an unknown width falls
