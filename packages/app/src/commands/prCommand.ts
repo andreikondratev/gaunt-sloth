@@ -17,6 +17,7 @@ import { runPrDiscovery } from '#src/commands/prDiscovery.js';
 
 import { readMultipleFilesFromProjectDir } from '@gaunt-sloth/review/utils/fileUtils.js';
 import { extractChangedPathsFromDiff } from '@gaunt-sloth/review/utils/diffPaths.js';
+import { writeReviewFailureReport } from '@gaunt-sloth/review/modules/reviewFailureReport.js';
 
 interface PrCommandOptions {
   file?: string[];
@@ -69,6 +70,25 @@ export function prCommand(
       );
       const contentSource = getEffectiveContentSource('pr', config);
 
+      // REL-20 — the label `review()` would have used, hoisted because the failure report has to
+      // land at the same path the successful run would have written.
+      const reportSource = prId ? `PR-${prId}` : 'PR-discovery';
+
+      /**
+       * REL-20 — every exit from this action that happens BEFORE `review()` runs goes through
+       * here, so a caller that asked for a report file gets one saying why there is none of the
+       * usual content in it. The exit code is unchanged: the run still failed.
+       *
+       * This is an enumeration of exits, which is exactly the shape that rots by omission — a new
+       * guard added below without this call silently reopens the hole for one more input. Anything
+       * here that `return`s before the `review()` call must call this first.
+       */
+      const failBeforeReview = (message: string): void => {
+        displayError(message);
+        writeReviewFailureReport(config, reportSource, 'pr', message);
+        setExitCode(1);
+      };
+
       if (options.file) {
         content.push(readMultipleFilesFromProjectDir(options.file));
       }
@@ -88,12 +108,11 @@ export function prCommand(
         contentSource === 'github' && Boolean(prId) && !requirementsId && !/^\d+$/.test(prId);
 
       if (looksLikeRequirementsOnlyMode) {
-        displayError(
+        failBeforeReview(
           `Unsupported PR command arguments: "${prId}" was provided as the pull request ID. ` +
             '`gth pr <requirementsId>` requirements-only mode is not supported. ' +
             'Use `gth pr` with no arguments to discover change requirements automatically, or provide both a numeric PR ID and requirements ID: `gth pr <prId> <requirementsId>`.'
         );
-        setExitCode(1);
         return;
       }
 
@@ -102,19 +121,17 @@ export function prCommand(
       // depth), but reject garbage upfront with a clear error instead of a downstream warning.
       // Non-GitHub content sources (file/text) accept arbitrary content ids and stay untouched.
       if (contentSource === 'github' && prId && !/^\d+$/.test(prId)) {
-        displayError(
+        failBeforeReview(
           `Invalid pull request ID "${prId}"; expected a numeric PR number, e.g. \`gth pr 42\`.`
         );
-        setExitCode(1);
         return;
       }
 
       if (isDiscovery) {
         if (config.commands?.pr?.discovery?.enabled === false) {
-          displayError(
+          failBeforeReview(
             'Change requirements discovery is disabled. Provide a pull request ID to run `gth pr`.'
           );
-          setExitCode(1);
           return;
         }
 
@@ -126,10 +143,9 @@ export function prCommand(
             );
           }
           if (!discoveryResult.diff) {
-            displayError(
+            failBeforeReview(
               'Change requirements discovery did not produce a diff. Cannot continue with review.'
             );
-            setExitCode(1);
             return;
           }
           changedPaths = extractChangedPathsFromDiff(discoveryResult.diff);
@@ -143,10 +159,15 @@ export function prCommand(
             for (const row of approvalStopRows(error.parts, { columns: stdout.columns })) {
               displayError(row);
             }
+            // REL-20 — the report gets the stop's own message, not the rows above. Those rows are
+            // the terminal rendering: a gutter and a wrap computed against this terminal's width,
+            // which is meaningless in a file someone posts as a PR comment. The message is already
+            // neutralised at construction, so it is safe to write raw.
+            writeReviewFailureReport(config, reportSource, 'pr', error.message);
+            setExitCode(1);
           } else {
-            displayError(error instanceof Error ? error.message : String(error));
+            failBeforeReview(error instanceof Error ? error.message : String(error));
           }
-          setExitCode(1);
           return;
         }
       } else {
@@ -176,17 +197,15 @@ export function prCommand(
           // returns null (with a warning) for an invalid PR number. Without this guard the review
           // would silently proceed against no diff; fail loudly as the throwing path used to.
           if (!prContent) {
-            displayError(
+            failBeforeReview(
               `Could not retrieve PR content for "${prId}". Cannot continue with review.`
             );
-            setExitCode(1);
             return;
           }
           changedPaths = extractChangedPathsFromDiff(prContent);
           content.push(prContent);
         } catch (error) {
-          displayError(error instanceof Error ? error.message : String(error));
-          setExitCode(1);
+          failBeforeReview(error instanceof Error ? error.message : String(error));
           return;
         }
       }
@@ -198,7 +217,7 @@ export function prCommand(
       const { review } = await import('@gaunt-sloth/review/modules/reviewModule.js');
       const { createResolvers } = await import('@gaunt-sloth/agent/resolvers.js');
       await review(
-        prId ? `PR-${prId}` : 'PR-discovery',
+        reportSource,
         getReviewSystemPrompt(config),
         content.join('\n'),
         config,

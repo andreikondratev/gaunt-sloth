@@ -86,7 +86,15 @@ jobs:
           OPEN_ROUTER_API_KEY: ${{ secrets.OPEN_ROUTER_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
 
+      # REL-20 — only post when there is something to post. The product writes the report even when
+      # a run fails before inference, so the usual failure now arrives here as a file explaining
+      # itself; this guard covers what is left, where no file was produced at all. Without it the
+      # step dies inside github-script on `ENOENT ... 'review.md'`, which reports a missing file
+      # several steps away from the reason there is one. The run still fails either way — "Check
+      # review step result" below fails it on the review step's own outcome, which is the result
+      # worth reading.
       - name: Hide older AI review comments and post new one
+        if: hashFiles('review.md') != ''
         uses: actions/github-script@v8
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}

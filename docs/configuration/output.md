@@ -48,6 +48,11 @@ config to opt in:
 
 Override the setting per run with `-w/--write-output-to-file true|false|<filename>`. Shortcuts `-wn` or `-w0` map to `false`.
 
+`review` and `pr` keep the promise even when the run fails: if the content cannot be fetched — a
+pull request over GitHub's 300-file diff limit, no `gh` on the path, an unreadable file — the report
+is still written at that path with the error in place of a verdict, so a script that reads it back
+finds an explanation rather than nothing. The run still exits `1`.
+
 ## Binary Model Outputs (Image Generation)
 
 Some models (e.g. Gemini with image generation) return inline binary content such as images. By default, Gaunt Sloth saves these as local files instead of printing raw base64 to the terminal.

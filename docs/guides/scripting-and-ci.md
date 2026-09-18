@@ -96,6 +96,11 @@ is a full session log, so when you want only the answer, redirect stdout instead
 gth exec scripts/release-notes.md > RELEASE_NOTES.md
 ```
 
+A `review` or `pr` step that fails before the model is reached still writes its report file, with
+the error in it in place of a verdict, so the next step — the one that reads the report back and
+posts it as a pull request comment — finds an explanation rather than dying on a file that is not
+there. Fail the job on the review step's own exit code, not on the missing file.
+
 ## Stdin in CI
 
 `ask` and `exec` read piped stdin, so on a non-TTY with an open-but-idle stdin they wait for EOF.

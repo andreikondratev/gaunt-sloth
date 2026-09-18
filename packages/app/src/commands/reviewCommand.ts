@@ -22,6 +22,10 @@ import { readMultipleFilesFromProjectDir } from '@gaunt-sloth/review/utils/fileU
 // `commands/commandUtils`, and this helper lives only in review's (GS2-45).
 import { resolvePrIdFromArg } from '@gaunt-sloth/review/commands/commandUtils.js';
 import { extractChangedPathsFromDiff } from '@gaunt-sloth/review/utils/diffPaths.js';
+import { writeReviewFailureReport } from '@gaunt-sloth/review/modules/reviewFailureReport.js';
+
+/** The source label this command passes to `review()`, and therefore names its report file with. */
+const REVIEW_SOURCE = 'REVIEW';
 
 interface ReviewCommandOptions {
   file?: string[];
@@ -114,7 +118,12 @@ export function reviewCommand(
           contentSource
         );
       } catch (error) {
-        displayError(error instanceof Error ? error.message : String(error));
+        const message = error instanceof Error ? error.message : String(error);
+        displayError(message);
+        // REL-20 — `gth review` fails before inference the same way `gth pr` does (the git source
+        // outside a repository, the GitHub source on a diff too large to fetch), so it owes the
+        // same report. The two commands share this exit; they must not diverge on it.
+        writeReviewFailureReport(config, REVIEW_SOURCE, 'review', message);
         setExitCode(1);
         return;
       }
@@ -145,7 +154,7 @@ export function reviewCommand(
       const { review } = await import('@gaunt-sloth/review/modules/reviewModule.js');
       const { createResolvers } = await import('@gaunt-sloth/agent/resolvers.js');
       await review(
-        'REVIEW',
+        REVIEW_SOURCE,
         getReviewSystemPrompt(config),
         content.join('\n'),
         config,

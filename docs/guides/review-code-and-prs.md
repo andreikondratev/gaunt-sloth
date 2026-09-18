@@ -76,6 +76,11 @@ The provider half is dropped when a JS config hands Gaunt Sloth an already-built
 there is then no provider name to report; the model is dropped altogether when none resolves,
 leaving the line ending at the command rather than showing a placeholder.
 
+A run that fails before the model is reached — a pull request over GitHub's 300-file diff limit, no
+`gh` on the path — writes that report as well, headed the same way, with the error in it in place of
+a verdict. The run still exits `1`, so a workflow fails on the review step; what changes is that the
+comment it posts names the failure instead of the next step dying on a file that is not there.
+
 The header belongs to the review document rather than to the technical preamble, so the default
 [`output.header: "compact"`](../configuration/output.md#run-header-outputheader) keeps it while
 dropping the Workdir/Model/Tools lines — on a review, this line *is* the compact header. Only

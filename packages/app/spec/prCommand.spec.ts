@@ -1,6 +1,19 @@
 import { Command } from 'commander';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+
+/**
+ * REL-20 — a throwaway project directory, returned by the `getProjectDir` stub below.
+ *
+ * The failing cells here exercise exits that now write the report file `writeOutputToFile`
+ * promised, and `mockConfig` sets that to `true` — a generated name under the project directory.
+ * Left pointing at the real one, these tests would drop `gth_<timestamp>_PR-*.md` files into the
+ * repository on every run.
+ */
+const PROJECT_DIR = mkdtempSync(resolve(tmpdir(), 'gsloth-prcommand-spec-'));
 
 // Make randomUUID deterministic across this spec to stabilize wrapContent output
 vi.mock('node:crypto', async () => {
@@ -97,6 +110,10 @@ vi.mock('#src/config.js', () => configMock);
 vi.mock('#src/utils/utils.js', () => utilsMock);
 
 describe('prCommand', () => {
+  afterAll(() => {
+    rmSync(PROJECT_DIR, { recursive: true, force: true });
+  });
+
   beforeEach(async () => {
     vi.resetAllMocks();
 
@@ -465,6 +482,9 @@ describe('prCommand', () => {
       error: vi.fn(),
       exit: vi.fn(),
       getCurrentWorkDir: vi.fn().mockReturnValue('/mock/dir'),
+      // REL-20 — resolving the report path reaches this. Read lazily so the stub returns the
+      // temp directory created at module scope rather than whatever exists when this factory runs.
+      getProjectDir: vi.fn(() => PROJECT_DIR),
       getUseColour: vi.fn().mockReturnValue(false),
       log: vi.fn(),
       setExitCode: vi.fn(),
