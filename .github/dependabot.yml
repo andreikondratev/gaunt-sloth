@@ -16,3 +16,11 @@ updates:
       dev-dependencies:
         patterns:
           - '*'
+
+  # Ungrouped on purpose: every action in .github/workflows is pinned by moving major tag, so the
+  # only updates Dependabot can raise here are major bumps. Grouping those would put independent
+  # breaking changes in one PR that a single red CI cell blocks entirely.
+  - package-ecosystem: 'github-actions'
+    directory: '/' # Dependabot scans .github/workflows itself; '/' is the repo root
+    schedule:
+      interval: 'weekly'
