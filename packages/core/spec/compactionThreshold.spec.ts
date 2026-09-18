@@ -15,6 +15,7 @@ import {
 } from '#src/core/compactionThreshold.js';
 import { parseTokenBudget, TokenBudgetError } from '#src/config/tokenBudget.js';
 import type { ContextWindowReading } from '#src/core/contextWindow.js';
+import { getDebugLogBuffer } from '#src/utils/debugUtils.js';
 
 /** A stand-in for the session's one memoised window resolution. */
 const windowOf = (reading: ContextWindowReading) => ({ read: async () => reading });
@@ -39,6 +40,33 @@ const UNKNOWN: ContextWindowReading = { tokens: null, origin: 'unknown', check: 
  * which is what makes it usable as the discriminating half of a pair.
  */
 const UNCHECKED: ContextWindowReading = { tokens: 262_000, origin: 'profile', check: 'unchecked' };
+
+/**
+ * [[OPS-125]] — the debug-log lines this controller wrote while `work` ran.
+ *
+ * Slices the shared ring buffer rather than mocking `debugLog`, which is what
+ * `contextWindowSources.spec.ts` does for EXT-168's signal: the buffer is the surface
+ * `/debug-dump` actually reads, so a spec that asserted on a mock would pass over a line that
+ * never reached a user.
+ */
+const withDebugLines = async <T>(
+  work: () => Promise<T>
+): Promise<{ result: T; lines: string[] }> => {
+  const before = getDebugLogBuffer().length;
+  const result = await work();
+  return { result, lines: getDebugLogBuffer().slice(before) };
+};
+
+/**
+ * The inert-budget signal, matched on its opening words rather than the whole sentence — the
+ * wording is copy and will be edited; what this file pins is that the line fires exactly when the
+ * state does.
+ */
+const INERT_BUDGET_SIGNAL = /The configured automatic-compaction threshold /;
+
+/** Just this node's signal lines out of a debug-log slice. */
+const budgetSignalsIn = (lines: string[]): string[] =>
+  lines.filter((line) => INERT_BUDGET_SIGNAL.test(line));
 
 describe('EXT-161 — reading the `autocompact` config key', () => {
   it('is ON when the key is absent (RULED: on by default)', () => {
@@ -275,5 +303,147 @@ describe('EXT-187 — the check state reaches the status, and changes no number'
     expect(unchecked.thresholdTokens as number).toBeGreaterThan(
       3 * (real.thresholdTokens as number)
     );
+  });
+});
+
+/**
+ * [[OPS-125]] — **three states used to answer `thresholdOrigin: 'none'`, and one of them was a
+ * user being ignored.**
+ *
+ * Every cell below is written as one of the three, because a single assertion that "the unknown
+ * window yields no threshold" is satisfied by all three at once and is exactly the coverage that
+ * let them collapse in the first place. What each cell has to show is that the state it names is
+ * *different from the other two*, which is why the statuses are compared as the `(enabled,
+ * thresholdOrigin)` pair a caller actually reads rather than one field at a time.
+ *
+ * The signal cells come in pairs for the reason EXT-168's do: "a line was written" is an assertion
+ * about presence, and would pass just as well against an emission that fired on every status.
+ */
+describe('OPS-125 — an explicit budget that cannot resolve is its own state, and says so', () => {
+  /** How a caller tells the three apart: the two fields together, never either alone. */
+  const stateOf = (status: { enabled: boolean; thresholdOrigin: string }) =>
+    `${status.enabled ? 'on' : 'off'}/${status.thresholdOrigin}`;
+
+  it('CASE 1 — compaction switched off: no threshold, and the state says the user asked for that', async () => {
+    const status = await controller({ enabled: false, threshold: '80%' }, UNKNOWN).status();
+    expect(status.enabled).toBe(false);
+    expect(status.thresholdTokens).toBeNull();
+    expect(status.thresholdOrigin).toBe('none');
+  });
+
+  it('CASE 2 — nothing configured and no window: no threshold, and nobody asked for one', async () => {
+    const status = await controller(undefined, UNKNOWN).status();
+    expect(status.enabled).toBe(true);
+    expect(status.thresholdTokens).toBeNull();
+    expect(status.thresholdOrigin).toBe('none');
+  });
+
+  it('CASE 3 — a percentage against no window: no threshold, and the state says a setting was ignored', async () => {
+    const status = await controller('80%', UNKNOWN).status();
+    expect(status.enabled).toBe(true);
+    expect(status.thresholdTokens).toBeNull();
+    expect(status.thresholdOrigin).toBe('unresolved-budget');
+    // The budget is still carried, so a surface can name what the user wrote back to them.
+    expect(status.budget).toEqual({ kind: 'fraction', fraction: 0.8 });
+  });
+
+  it('gives the three DISTINCT states — the whole defect was that it did not', async () => {
+    const states = await Promise.all(
+      [
+        controller({ enabled: false, threshold: '80%' }, UNKNOWN),
+        controller(undefined, UNKNOWN),
+        controller('80%', UNKNOWN),
+      ].map(async (c) => stateOf(await c.status()))
+    );
+    expect(new Set(states).size).toBe(3);
+    // The three configs differ only in the `autocompact` key, over one identical unknown-window
+    // reading — so nothing but this module's own branching can be what separated them.
+    expect(states).toEqual(['off/none', 'on/none', 'on/unresolved-budget']);
+  });
+
+  it('a SESSION `/autocompact 80%` against no window reaches the same state', async () => {
+    // The config key is the silent path, but the command shares this seam, and a state that only
+    // existed for one of them would be a second answer to the same question.
+    const c = controller(undefined, UNKNOWN);
+    c.setSessionBudget(parseTokenBudget('80%'));
+    expect((await c.status()).thresholdOrigin).toBe('unresolved-budget');
+  });
+
+  it('an ABSOLUTE budget against no window is NOT this state — it still fires', async () => {
+    // The asymmetry the state is about: a percentage needs the window, a count does not. A status
+    // that labelled every budget over an unknown window as unresolved would be worse than `'none'`,
+    // because it would report a threshold that IS enforced as ignored.
+    const status = await controller('300K', UNKNOWN).status();
+    expect(status.thresholdOrigin).toBe('config');
+    expect(status.thresholdTokens).toBe(300_000);
+  });
+
+  it('changes NO number — the three states still yield no threshold, as ruled', async () => {
+    // The node forbids widening what the threshold does. This is a labelling change, and a cell
+    // that did not say so would let a later edit turn the new state into a fallback number.
+    for (const config of [{ enabled: false, threshold: '80%' }, undefined, '80%']) {
+      expect(await controller(config, UNKNOWN).threshold()).toBeNull();
+    }
+    // Never the LangChain guess, on any of them.
+    expect(await controller('80%', UNKNOWN).threshold()).not.toBe(4097);
+  });
+
+  it('writes one debug line naming the setting and the consequence', async () => {
+    const { lines } = await withDebugLines(() => controller('80%', UNKNOWN).status());
+    const signals = budgetSignalsIn(lines);
+    expect(signals).toHaveLength(1);
+    // What the user wrote, read back in their own form — a line that did not name the setting
+    // would not tell a maintainer which key is inert.
+    expect(signals[0]).toContain('80%');
+    // The consequence, which is what makes the line worth reading.
+    expect(signals[0]).toMatch(/no preventive compaction will happen this session/);
+    // The remedy that actually works here, and the fact that makes it the remedy.
+    expect(signals[0]).toMatch(/absolute threshold needs no window/);
+  });
+
+  it('writes it ONCE, however many times the guard asks', async () => {
+    // `threshold()` is read before every model call. An ungated line would be written per turn into
+    // a 1000-entry ring buffer and would evict every other diagnostic in the session — and a spec
+    // that read the status once could not tell.
+    const c = controller('80%', UNKNOWN);
+    const { lines } = await withDebugLines(async () => {
+      for (let turn = 0; turn < 5; turn++) await c.threshold();
+      await c.status();
+    });
+    expect(budgetSignalsIn(lines)).toHaveLength(1);
+  });
+
+  it('CONTROL: silent when the same percentage resolves normally', async () => {
+    const { result, lines } = await withDebugLines(() => controller('80%', KNOWN).status());
+    expect(result.thresholdTokens).toBe(160_000);
+    expect(result.thresholdOrigin).toBe('config');
+    expect(budgetSignalsIn(lines)).toEqual([]);
+  });
+
+  it('CONTROL: silent when compaction is simply OFF, even with a percentage configured', async () => {
+    // **The regression a careless fix produces.** A user who set `enabled: false` asked for
+    // silence; `{ enabled: false, threshold: "80%" }` carries case 3's exact config shape under
+    // case 1's state, so a signal keyed on the budget alone — or on any rewrite that computes the
+    // state before the off switch is consulted — fires here and takes the silence away.
+    for (const off of [{ enabled: false, threshold: '80%' }, false]) {
+      const { result, lines } = await withDebugLines(() => controller(off, UNKNOWN).status());
+      expect(result.enabled).toBe(false);
+      expect(result.thresholdOrigin).toBe('none');
+      expect(budgetSignalsIn(lines)).toEqual([]);
+    }
+  });
+
+  it('CONTROL: silent when nothing was configured — that line is EXT-168’s, not a second copy', async () => {
+    // Case 2 is already reported once, by the window resolution itself. Saying it again from here
+    // is the duplication the node ruled out, and it would arrive without the provider or the model
+    // id that make the original line actionable.
+    const { result, lines } = await withDebugLines(() => controller(undefined, UNKNOWN).status());
+    expect(result.thresholdOrigin).toBe('none');
+    expect(budgetSignalsIn(lines)).toEqual([]);
+  });
+
+  it('CONTROL: silent for an absolute budget over an unknown window', async () => {
+    const { lines } = await withDebugLines(() => controller('300K', UNKNOWN).status());
+    expect(budgetSignalsIn(lines)).toEqual([]);
   });
 });

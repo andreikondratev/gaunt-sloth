@@ -24,7 +24,7 @@ import type {
   ToolAnnotationHint,
 } from '@gaunt-sloth/core/config.js';
 import type { TokenBudget } from '@gaunt-sloth/core/config.js';
-import { parseTokenBudget, TokenBudgetError } from '@gaunt-sloth/core/config.js';
+import { formatTokenBudget, parseTokenBudget, TokenBudgetError } from '@gaunt-sloth/core/config.js';
 import type { AutocompactStatus } from '@gaunt-sloth/core/core/compactionThreshold.js';
 import {
   CONTEXT_WINDOW_CHECK_LABELS,
@@ -1614,6 +1614,32 @@ export function autocompactLines(status: AutocompactStatus): string[] {
     ];
   }
   if (status.thresholdTokens === null) {
+    // [[OPS-125]] (DL-1 nothing important is silent, DL-4 transparency) — **the advice below is
+    // wrong for a user who already set a threshold.** "Set one yourself" names the thing they did,
+    // and a person reading it concludes their setting was never saved rather than that it cannot
+    // be applied to this model. So the state where a budget was named and could not resolve says
+    // what they set, why it produced no number, and the one form that would.
+    //
+    // Compared by exact value rather than by "not a real origin", so a status from an older or
+    // hand-built fixture that predates this member renders exactly as it did before.
+    if (status.thresholdOrigin === 'unresolved-budget') {
+      return [
+        'Automatic compaction is on, but nothing will trigger it.',
+        windowPart,
+        ...windowCheckLines(status),
+        ...(status.budget
+          ? [
+              `Your threshold is set to ${formatTokenBudget(status.budget)} — a share of that ` +
+                'window. There is no window to take a share of, so the setting is accepted and ' +
+                'does nothing.',
+            ]
+          : []),
+        'An absolute threshold needs no window and would still fire here: `/autocompact 300K` for ' +
+          'this session, or the `autocompact` config key to make it stick. Running `gth models ' +
+          '--refresh` fills the catalog cache for your provider, which is what would let a ' +
+          'percentage resolve.',
+      ];
+    }
     return [
       'Automatic compaction is on, but nothing will trigger it.',
       windowPart,
@@ -1623,10 +1649,16 @@ export function autocompactLines(status: AutocompactStatus): string[] {
         '`autocompact` config key to make it stick.',
     ];
   }
+  // The map is exhaustive over the origin union, which is why that union is where [[OPS-125]] put
+  // its new state: a member added there does not compile until this surface has said what it reads
+  // as. Both no-threshold members are unreachable from here — the `thresholdTokens === null` return
+  // above catches every status that carries one — so their entries exist to keep a hand-built
+  // status from rendering `undefined`, and they are phrased to be true if one ever does.
   const provenance: Record<AutocompactStatus['thresholdOrigin'], string> = {
     session: 'set with /autocompact in this session (the config value is overridden until it ends)',
     config: 'from the `autocompact` key in your config',
     default: "derived from the window, holding back room for the model's answer",
+    'unresolved-budget': 'a share of a context window no source knew, so nothing will trigger it',
     none: 'nothing will trigger it',
   };
   return [

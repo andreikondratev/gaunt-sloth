@@ -25,7 +25,13 @@
  * a session override re-labels the provenance, and {@link AutocompactController} is the single
  * object both the guard and `/status` read, over one memoised window resolution.
  */
-import { parseTokenBudget, resolveTokenBudget, type TokenBudget } from '#src/config/tokenBudget.js';
+import {
+  formatTokenBudget,
+  parseTokenBudget,
+  resolveTokenBudget,
+  type TokenBudget,
+} from '#src/config/tokenBudget.js';
+import { debugLog } from '#src/utils/debugUtils.js';
 import type {
   ContextWindowCheck,
   ContextWindowOrigin,
@@ -93,7 +99,29 @@ export function resolveAutocompactConfig(raw: unknown): ResolvedAutocompactConfi
   return { enabled: true, budget: null };
 }
 
-/** Where the threshold number in force came from — what `/status` names. */
+/**
+ * Where the threshold number in force came from — what `/status` names.
+ *
+ * [[OPS-125]] — **three states used to share `'none'`, and one of them was a user being ignored.**
+ * Compaction switched off, a window nothing knew with nothing configured, and an explicit
+ * percentage budget that could not resolve all answered the same value. The first is somebody
+ * getting exactly what they asked for; the last is somebody's setting accepted and silently inert,
+ * and no caller — not `/status`, not a test, not the next maintainer reading this type — could tell
+ * them apart.
+ *
+ * **Only one member was added, because `enabled` already separates the first.** A status carrying
+ * `enabled: false` is the off switch and nothing else, so the pair that genuinely could not be
+ * distinguished was the other two. A second member spelling out "switched off" would encode a fact
+ * the status already states beside it, and two fields disagreeing about the off switch is a worse
+ * failure than the one being fixed.
+ *
+ * **Widened here rather than answered by a reason field beside the origin.** The deciding surface is
+ * `autocompactLines`' provenance map, typed `Record<AutocompactThresholdOrigin, string>`: a new
+ * member of this union does not compile until every place that renders an origin has said what the
+ * new state reads as, while a new field beside it is droppable by every consumer without a word.
+ * For a defect whose whole substance is a state nobody was told about, the change that cannot be
+ * ignored is the right one.
+ */
 export type AutocompactThresholdOrigin =
   /** A `/autocompact` typed in this session; outranks the config for the rest of it. */
   | 'session'
@@ -101,7 +129,23 @@ export type AutocompactThresholdOrigin =
   | 'config'
   /** Derived from the resolved window, holding back room for the answer. */
   | 'default'
-  /** Nothing will fire: switched off, or no window and no absolute threshold to fall back on. */
+  /**
+   * A threshold WAS named, as a share of the context window, and no source knew the window — so
+   * there is no number to take a share of and nothing will fire.
+   *
+   * Distinct from `'none'` because the user made a choice here and it is not being honoured. An
+   * absolute count never reaches this state: it needs no window, which is the asymmetry that makes
+   * this the one configuration that is fine on every model whose window resolves and inert on the
+   * rest.
+   */
+  | 'unresolved-budget'
+  /**
+   * Nothing will fire and nobody asked for anything: compaction is switched off, or the window is
+   * unknown and no threshold was named to fall back on.
+   *
+   * Read it with `enabled`, which is what separates those two — off is a deliberate silence, and
+   * the unknown window already says so once through the window resolution's own signal.
+   */
   | 'none';
 
 /** The whole picture, as `/status` prints it and the guard enforces it. */
@@ -157,6 +201,16 @@ export interface AutocompactControllerOptions {
 export class AutocompactController {
   private readonly options: AutocompactControllerOptions;
   private sessionBudget: TokenBudget | null = null;
+  /**
+   * [[OPS-125]] — whether the inert-budget line has already been written for this session.
+   *
+   * **The gate is not tidiness.** `status()` is what `threshold()` reads, and the guard reads
+   * `threshold()` before every model call — so an ungated line would be written once per turn into
+   * a 1000-entry ring buffer and would evict every other diagnostic in the session, including the
+   * window-resolution line that names the model this one is about. EXT-168's equivalent needs no
+   * flag only because it sits inside the memoised window resolution, which runs once.
+   */
+  private budgetSignalWritten = false;
 
   constructor(options: AutocompactControllerOptions) {
     this.options = options;
@@ -259,10 +313,38 @@ export class AutocompactController {
     }
 
     if (reading.tokens === null) {
+      // [[OPS-125]] — **the two ways to arrive here are not the same event, and only one of them
+      // has already been reported.** With no budget named, this is the plain unknown-window case:
+      // nobody asked for anything, and the window resolution has already written a line naming the
+      // provider, the model and the consequence. With a budget named, `resolveTokenBudget` returned
+      // null, which for a budget it accepted can only mean a fraction — an absolute count needs no
+      // window and returns as written. That user asked for a specific share and is getting nothing.
+      //
+      // The label is the whole change on this branch: **the arithmetic is untouched.** Both states
+      // still yield no threshold, which is the ruling `contextWindow.ts` holds and this node was
+      // explicitly told not to widen. What moves is that a caller can now tell them apart.
+      const budgetWentUnresolved = budget !== null;
+      if (budgetWentUnresolved && !this.budgetSignalWritten) {
+        this.budgetSignalWritten = true;
+        // Deliberately NOT a session-start notice: [[EXT-168]] declined one for this same
+        // population and recorded why, and `debugUtils.ts` fills its ring buffer unconditionally
+        // so `/debug-dump` hands this over to anyone who asks.
+        //
+        // It says the one thing the window-resolution line cannot: that line knows no window was
+        // found and says so; it does not know a threshold was configured against it. Writing only
+        // the overlap would be the duplication this node was filed to avoid — the fact worth
+        // adding is that an explicit setting is being ignored, and which setting it is.
+        debugLog(
+          `The configured automatic-compaction threshold ${formatTokenBudget(budget)} is a share ` +
+            "of this model's context window, and no source knew that window, so there is no " +
+            'number to take a share of and no preventive compaction will happen this session. An ' +
+            'absolute threshold needs no window — set one (for example 300K) to make it bite here.'
+        );
+      }
       return {
         enabled: true,
         thresholdTokens: null,
-        thresholdOrigin: 'none',
+        thresholdOrigin: budgetWentUnresolved ? 'unresolved-budget' : 'none',
         window: null,
         windowOrigin: reading.origin,
         windowCheck: reading.check,

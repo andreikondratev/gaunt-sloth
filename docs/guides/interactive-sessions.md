@@ -147,6 +147,12 @@ conversations that had room to spare. Set the number yourself if you hit this �
 below, or `/autocompact` for one session — or run `gth models` once to fill the catalog cache for
 your provider.
 
+**A percentage needs a window; an absolute count does not.** So `"80%"` is the one setting that
+protects every model whose window resolves and does nothing on the models where none of the three
+sources answered — there is no number to take a share of. `/status` says which of the two you are
+looking at, and names the percentage back to you rather than leaving you to wonder whether the key
+was read at all. A plain count like `300K` fires whatever the window turns out to be.
+
 **When the third source answers with no catalog cached to check it, `/status` and `/autocompact`
 call the window unverified.** Those built-in tables are measured to overstate some models, and an
 overstated window is one a `"80%"` threshold aims past — so the setting is honoured, and the

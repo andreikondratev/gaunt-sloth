@@ -531,3 +531,113 @@ describe('EXT-187 — an unverified window says so', () => {
     expect(lines).not.toMatch(REMEDY);
   });
 });
+
+/**
+ * [[OPS-125]] — **`/status` can now say which of the three no-threshold states the user is in.**
+ *
+ * The state itself is core's; what this describe holds is that the surface the user actually asks
+ * spends it, because a distinction that reaches no screen is the same silence in a new type.
+ *
+ * The sharp cell is the advice line. The generic branch tells the user to *set a threshold*, which
+ * for somebody who wrote `"autocompact": "80%"` names the thing they already did — so the reading
+ * they come away with is that their setting was not saved, rather than that it cannot apply to this
+ * model. Each cell here is paired with the state it must NOT be confused with.
+ */
+describe('OPS-125 — the surface names the setting that is being ignored', () => {
+  /** Case 3 as the controller produces it: a percentage, and no window to take it of. */
+  const unresolvedBudget = (over: Partial<AutocompactStatus> = {}): AutocompactStatus =>
+    status({
+      enabled: true,
+      thresholdTokens: null,
+      thresholdOrigin: 'unresolved-budget',
+      window: null,
+      windowOrigin: 'unknown',
+      budget: { kind: 'fraction', fraction: 0.8 },
+      ...over,
+    });
+
+  /** Case 2: same absent window, but nobody named a threshold. */
+  const nothingConfigured = (): AutocompactStatus =>
+    status({
+      enabled: true,
+      thresholdTokens: null,
+      thresholdOrigin: 'none',
+      window: null,
+      windowOrigin: 'unknown',
+      budget: null,
+    });
+
+  /** The advice that is wrong for case 3, matched on the clause that names the user's own act. */
+  const SET_ONE_YOURSELF = /Set one yourself/;
+
+  it('reads back the percentage the user set, and says it is doing nothing', () => {
+    const lines = autocompactLines(unresolvedBudget()).join(' ');
+    expect(lines).toContain('80%');
+    expect(lines).toContain('accepted and does nothing');
+    // Still the honest headline and the honest window line — this state is not a failure to render.
+    expect(lines).toContain('Automatic compaction is on, but nothing will trigger it.');
+    expect(lines).toContain("This model's context window is not known to any source we have.");
+  });
+
+  it('offers the remedy that works here, not the one the user already took', () => {
+    const lines = autocompactLines(unresolvedBudget()).join(' ');
+    expect(lines).toMatch(/absolute threshold needs no window/);
+    expect(lines).toContain('/autocompact 300K');
+    expect(lines).toContain('gth models --refresh');
+    // The clause that would tell them to do what they have done.
+    expect(lines).not.toMatch(SET_ONE_YOURSELF);
+  });
+
+  it('CONTROL: with nothing configured, the generic advice is what prints', () => {
+    // The discriminating half. If the fork above fired on the whole `thresholdTokens === null`
+    // branch, this cell would lose the sentence it has always had, and a user with no setting at
+    // all would be told their setting does nothing.
+    const lines = autocompactLines(nothingConfigured()).join(' ');
+    expect(lines).toMatch(SET_ONE_YOURSELF);
+    expect(lines).not.toContain('accepted and does nothing');
+    expect(lines).not.toContain('80%');
+  });
+
+  it('CONTROL: compaction switched off still reads as OFF and gains nothing', () => {
+    // A user who set `autocompact: false` asked for silence. The off branch returns before the
+    // fork, and this pins that it stays that way even carrying case 3's own budget.
+    const lines = autocompactLines(
+      status({
+        enabled: false,
+        thresholdTokens: null,
+        thresholdOrigin: 'none',
+        window: null,
+        windowOrigin: 'unknown',
+        budget: { kind: 'fraction', fraction: 0.8 },
+      })
+    ).join(' ');
+    expect(lines).toContain('OFF');
+    expect(lines).not.toContain('accepted and does nothing');
+    expect(lines).not.toMatch(/absolute threshold needs no window/);
+  });
+
+  it('CONTROL: a resolved percentage prints its number, not the inert sentence', () => {
+    const lines = autocompactLines(status({ budget: { kind: 'fraction', fraction: 0.8 } })).join(
+      ' '
+    );
+    expect(lines).toContain('Automatic compaction is ON');
+    expect(lines).not.toContain('accepted and does nothing');
+  });
+
+  it('spends the state the REAL controller produces, not a fixture’s idea of it', async () => {
+    // A hand-built status proves the renderer forks; it cannot prove the producer emits the value
+    // it forks on. This runs the config through the real controller over an unknown window and
+    // hands the result straight to the renderer.
+    const controller = new AutocompactController({
+      config: resolveAutocompactConfig('80%'),
+      window: {
+        read: async () => ({ tokens: null, origin: 'unknown' as const, check: 'checked' as const }),
+      },
+      defaultThreshold: (window) => window - 2048,
+    });
+    const lines = autocompactLines(await controller.status()).join(' ');
+    expect(lines).toContain('80%');
+    expect(lines).toContain('accepted and does nothing');
+    expect(lines).not.toMatch(SET_ONE_YOURSELF);
+  });
+});
