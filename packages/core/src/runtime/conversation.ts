@@ -146,6 +146,11 @@ export async function runConversation(
       for (const userMessage of userMessages) {
         // Rotate to a fresh (empty) checkpointer thread so this turn's replay of the full `messages`
         // array is the sole history the agent sees — no double-append from a prior checkpoint.
+        //
+        // [[EXT-109]] — `resetThread` and NOT `clearConversation`: this runs once per turn, so the
+        // user-initiated clear's extra work (dropping the approvals capture log the `/debug-dump`
+        // archive reads) would happen on every message here, emptying the record of a session's
+        // gated decisions on exactly the surfaces a bug report is most likely to come from.
         runner.resetThread();
         messages.push(new HumanMessage(userMessage));
 

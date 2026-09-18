@@ -1425,7 +1425,7 @@ describe('[[EXT-29]] §5 — the bounded agent↔rater negotiation at `auto`', (
      *
      * **The user messages are the only thing this can show**, and the test is built around that. A
      * new user turn already ends the negotiation on its own (the test above), so the transcript and
-     * both counters are clear at the start of turn two whether `resetThread` cleared anything or not
+     * both counters are clear at the start of turn two whether the clear cleared anything or not
      * — an assertion about those passes with the `clear()` call deleted. Only the retained messages
      * survive a turn boundary, so only they can distinguish the two. And they are invisible at round
      * 1 by rule, which is why turn two rejects TWICE: the second rating is the round-2 context where
@@ -1474,7 +1474,7 @@ describe('[[EXT-29]] §5 — the bounded agent↔rater negotiation at `auto`', (
       // …and it never reached the classifier, which is the other half of the same fact.
       expect(ratings[1].user, 'the rating saw the command alone').not.toContain('hunter2');
 
-      runner.resetThread();
+      runner.clearConversation();
 
       turnOf('rm -rf ./c', 'rm -rf ./d');
       await runner.processMessages([new HumanMessage('clean the build directory')]);

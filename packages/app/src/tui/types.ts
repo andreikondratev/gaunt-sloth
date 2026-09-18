@@ -111,11 +111,18 @@ export interface TuiAgent {
    */
   requestRunRecap?(reason: GthTerminationReason | null): Promise<GthRunRecap | null>;
   /**
-   * Reset the agent's conversation thread so subsequent turns start from an empty model
-   * context — wired to the TUI's `/clear`, which only clears the on-screen transcript.
-   * Optional so the fixture agent (no real checkpointer thread) may omit it.
+   * The user asked for this conversation to be forgotten: `/clear`, which by itself only empties
+   * the on-screen transcript. The agent drops everything that is state of the conversation being
+   * left — the model's thread, so subsequent turns start from an empty model context, and
+   * ([[EXT-109]]) the approvals gate's capture log, which the `/debug-dump` archive and the
+   * Auto-mode debug tab both read live and which would otherwise still hand back the user's own
+   * pre-`/clear` messages.
+   *
+   * **It is named for the gesture, not for the rotation**, because the runner rotates the same
+   * thread once per turn on the ACP and AG-UI surfaces and must not drop the log there. Optional so
+   * the fixture agent (no runner, no checkpointer thread) may omit it.
    */
-  resetThread?(): void;
+  clearConversation?(): void;
   /**
    * CFG-27 — switch the session approvals RUNG and return the posture the runner LANDED on, so
    * the App can render a state-aware notice and the status-bar badge. Wired to `/approvals

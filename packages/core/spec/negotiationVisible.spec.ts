@@ -743,7 +743,8 @@ describe('[[TUI-C69]] §5.4/§5.5 — the visible negotiation and the cooldown',
     });
 
     /**
-     * `/clear` too, and for the reason `resetThread` already gives about the negotiation itself:
+     * Any thread rotation, `/clear` included, and for the reason the rotation already gives about
+     * the negotiation itself:
      * state from before the user asked for the conversation to be forgotten must not decide how the
      * conversation after it is drawn.
      */

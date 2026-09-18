@@ -310,8 +310,13 @@ argument.** Nothing else may write a line of one.
   It is dropped the moment the next turn starts so it doesn't linger above a fresh conversation.
 - **Clear resets BOTH the view and the model thread.** Wiping only the on-screen transcript would
   leave the LangGraph checkpointer's thread intact, so the model would still "remember" everything —
-  a transparency lie (DL-4). Call `agent.resetThread?.()` so the model's context truly matches the
-  now-empty screen, and **reset the turn counter to 0** so the status bar agrees.
+  a transparency lie (DL-4). Call `agent.clearConversation?.()` so the model's context truly matches
+  the now-empty screen, and **reset the turn counter to 0** so the status bar agrees.
+- **Nothing the app is holding may go on quoting the cleared conversation.** The same call drops the
+  approvals gate's capture log, which the Auto-mode debug tab reads live and a later `/debug-dump`
+  exports: a pane that still shows pre-clear commands and the user's own words beside five blank
+  ones is the same DL-4 lie, and the dump is the file the user attaches to a bug report. A new
+  surface that caches anything of the conversation clears it here too.
 
 ## The full-screen dock (DL-3, DL-5, TUI-C48)
 

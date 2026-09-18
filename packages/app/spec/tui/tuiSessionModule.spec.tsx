@@ -24,6 +24,7 @@ vi.mock('@gaunt-sloth/core/core/GthAgentRunner.js', () => {
   GthAgentRunner.prototype.cleanup = runnerCleanupMock;
   GthAgentRunner.prototype.processMessagesWithEvents = vi.fn();
   GthAgentRunner.prototype.resetThread = vi.fn();
+  GthAgentRunner.prototype.clearConversation = vi.fn();
   GthAgentRunner.prototype.setToolApprovalCallback = vi.fn();
   // [[EXT-150]] — the return leg of the approval conversation, wired beside the callback above.
   GthAgentRunner.prototype.setApprovalOutcomeCallback = vi.fn();

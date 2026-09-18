@@ -470,8 +470,8 @@ describe('GS2-107 — retention at the policy boundary, on a real runner', () =>
 
   /**
    * GS2-107 fix round, finding A — **the exclusion has to name the thread the session is writing
-   * to, and the runner moves that thread without telling anyone.** `resetThread()` mints a fresh one
-   * on `/clear`; `resumeConversation` rebinds onto a stored one. A thread minted by `/clear` is
+   * to, and the runner moves that thread without telling anyone.** `clearConversation()` mints a
+   * fresh one on `/clear`; `resumeConversation` rebinds onto a stored one. A thread minted by `/clear` is
    * unaddressable by construction — no conversation row names it — so it is a reclamation candidate
    * while a live session's whole cross-turn memory sits in it: both interactive surfaces send only
    * the new `HumanMessage` and let checkpoint state carry the rest.
@@ -517,7 +517,7 @@ describe('GS2-107 — retention at the policy boundary, on a real runner', () =>
         checkpointer.bindConversation?.(nameThread(boot));
         await say(runner, 'look up the code');
 
-        runner.resetThread(); // `/clear`
+        runner.clearConversation(); // `/clear`
         await say(runner, 'look up the code');
         const rotated = rotatedThread([orphan, boot]);
         const held = countCheckpoints(rotated);
@@ -555,7 +555,7 @@ describe('GS2-107 — retention at the policy boundary, on a real runner', () =>
         checkpointer.bindConversation?.(conversationId);
         expect(await say(runner, 'what was the code')).toContain(`recall:${SECRET}`);
 
-        runner.resetThread(); // `/clear`, after the resume
+        runner.clearConversation(); // `/clear`, after the resume
         await say(runner, 'look up the code');
         const rotated = rotatedThread([stored, orphan, boot]);
         const held = countCheckpoints(rotated);
@@ -593,7 +593,7 @@ describe('GS2-107 — retention at the policy boundary, on a real runner', () =>
         checkpointer.bindConversation?.(storedConversation);
         expect(await say(runner, 'what was the code')).toContain(`recall:${SECRET}`);
 
-        runner.resetThread(); // `/clear`
+        runner.clearConversation(); // `/clear`
         await say(runner, 'look up the code');
         const rotated = rotatedThread([stored, orphan, boot]);
         const held = countCheckpoints(rotated);

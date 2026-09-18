@@ -940,9 +940,12 @@ async function runTuiSession(
         return runner.requestRunRecap(reason);
       },
       // `/clear` rotates the runner's thread_id so the model context truly matches the
-      // cleared transcript (the checkpointer otherwise replays the whole prior conversation).
-      resetThread() {
-        runner.resetThread();
+      // cleared transcript (the checkpointer otherwise replays the whole prior conversation), and
+      // ([[EXT-109]]) drops the approvals capture log the Auto-mode tab and `/debug-dump` read.
+      // The runner's `resetThread` is deliberately NOT what this calls: that one is the per-turn
+      // rotation the conversational surfaces make, and the log must survive it there.
+      clearConversation() {
+        runner.clearConversation();
       },
       // CFG-27 — `/approvals <rung>` switches the runner's session rung. Returns the posture the
       // runner LANDED on, so the notice and the status badge describe the real state rather than

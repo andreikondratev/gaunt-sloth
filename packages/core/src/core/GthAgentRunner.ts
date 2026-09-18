@@ -325,7 +325,7 @@ export interface GthAgentRunnerInitOptions {
    * and a resume supplies a stored id, so the graph comes back holding what it held. Omitted, the
    * runner mints a fresh thread exactly as before.
    *
-   * Note that `/clear` ({@link GthAgentRunner#resetThread}) deliberately rotates to a NEW thread, so
+   * Note that `/clear` ({@link GthAgentRunner#clearConversation}) deliberately rotates to a NEW thread, so
    * after one the id recorded against the conversation names the state from before the clear — which
    * is the correct thing for it to name, since that is the state the user asked to leave behind.
    */
@@ -3821,16 +3821,59 @@ export class GthAgentRunner {
   }
 
   /**
-   * Rotate the thread the runner drives by minting a fresh `runConfig` (new `thread_id`),
-   * so subsequent turns start from an empty checkpointer thread rather than retrieving the
-   * prior conversation. Used by the TUI's `/clear`, which clears the on-screen transcript;
-   * without this the model would still see the full history persisted under the old thread.
+   * Rotate the thread the runner drives by minting a fresh `runConfig` (new `thread_id`), so
+   * subsequent turns start from an empty checkpointer thread rather than retrieving the prior
+   * conversation. Without it the model would still see the full history persisted under the old
+   * thread.
+   *
+   * **This is the PER-TURN primitive, not the user's `/clear`.** `runtime/conversation.ts` calls it
+   * before every turn, so the ACP and AG-UI surfaces reach it once per message: anything dropped
+   * here is dropped on every turn of those surfaces. A person asking for the conversation to be
+   * forgotten is {@link clearConversation}, which is a different event that happens to share this
+   * rotation.
    *
    * Rotating the thread_id (rather than deleting from the checkpointer) keeps this independent
    * of any checkpointer-specific delete API, mirroring how `init()` mints the initial config.
    */
   public resetThread(): void {
     this.rotateThread();
+  }
+
+  /**
+   * [[EXT-109]] — **the user's own `/clear`**: the gesture that means *drop that*.
+   *
+   * Rotates the thread exactly as {@link resetThread} does, and additionally empties the approvals
+   * gate's capture log. Both places that log reaches a person read it live from this runner — the
+   * `/debug-dump` archive's `approvals.json` and the Auto-mode debug tab — so without this a dump
+   * taken after a `/clear` hands back the conversation the user has just asked to be rid of: a
+   * record carries the command, the rating, and (through the alignment check's `user` role, fed
+   * from the retained provenance window) the user's own recent messages verbatim. The dump is the
+   * artifact people attach to bug reports, so the one command whose whole purpose is "drop that"
+   * was leaving it in the file most likely to be sent to someone else. Redaction still runs over
+   * the archive, but it matches secret SHAPES; what a user asked to be forgotten matches no
+   * pattern, so retention is the control here and redaction is not.
+   *
+   * **Why a separate method rather than a flag on the rotation.** The clear and the per-turn reset
+   * only look alike. Clearing the log inside {@link resetThread} — or inside `rotateThread` — would
+   * empty it once per turn on the ACP and AG-UI surfaces, destroying the facility exactly where an
+   * incident is most likely to be reported from, and doing it silently, because an empty section
+   * reads as *no ratings happened*. As two methods, a future per-turn caller cannot reach this by
+   * forgetting an argument.
+   *
+   * **A resume is not this gesture.** {@link resumeConversation} rotates too, but moving onto
+   * another conversation is navigating away rather than asking for something to be gone, so it
+   * leaves the log alone.
+   *
+   * **What this deliberately does NOT do:** it does not delete the checkpoints written before the
+   * clear. They stay on disk, and the conversation row still names the pre-clear thread, so they
+   * stay resumable by an id a person could type. Whether `/clear` should also make a conversation
+   * unresumable is a product decision — it trades "cleared means gone" against never being able to
+   * resume a cleared conversation — and it is tracked on [[EXT-109]] rather than settled here.
+   */
+  public clearConversation(): void {
+    this.rotateThread();
+    // The one call `ApprovalCaptureLog.clear()` was written for ([[TUI-C27]]).
+    this.approvalCaptures.clear();
   }
 
   /**

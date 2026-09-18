@@ -212,7 +212,7 @@ export function openSessionCheckpointerSafe(
     // would make that sentence false.
     //
     // **What keeps this session's own thread safe.** Not the id minted above: the runner rotates
-    // threads and does not tell anyone — `resetThread()` on `/clear`, `resumeConversation` onto a
+    // threads and does not tell anyone — `clearConversation()` on `/clear`, `resumeConversation` onto a
     // stored thread — so after any rotation that id names a thread nobody wrote. The saver excludes
     // the threads IT wrote instead, which is the same set by construction however often the session
     // rotated, so nothing is passed here. What remains outside that set is a live session in

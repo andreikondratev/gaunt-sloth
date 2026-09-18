@@ -1416,7 +1416,12 @@ export function App(props: TuiAppProps): React.ReactElement {
           // thread intact (the LangGraph checkpointer replays it on the next turn), so the
           // model would still "remember" everything. Reset the agent's thread too so the
           // model context truly matches the now-empty transcript (TUI-C8).
-          agent.resetThread?.();
+          //
+          // [[EXT-109]] — and the agent's own record of the conversation goes with it: the
+          // approvals gate's capture log is what the Auto-mode tab above and a later
+          // `/debug-dump` read, and every other pane cleared here would otherwise sit beside one
+          // that still quotes the user's pre-`/clear` messages.
+          agent.clearConversation?.();
           // The status-bar turn counter is part of the conversation state we just wiped, so
           // reset it too — a cleared session starts back at "turns: 0".
           turnCountRef.current = 0;

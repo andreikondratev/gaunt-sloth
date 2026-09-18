@@ -166,8 +166,9 @@ export class GthSqliteSaver extends BaseCheckpointSaver {
   /**
    * GS2-107 — every thread this saver has written to, which is what automatic reclamation excludes.
    *
-   * The thread a session writes to is not fixed at open: `resetThread()` mints a fresh one on
-   * `/clear` and `resumeConversation` rebinds onto a stored one, and neither tells this object. An
+   * The thread a session writes to is not fixed at open: `clearConversation()` mints a fresh one on
+   * `/clear`, `resetThread()` does the same before every turn on the conversational surfaces, and
+   * `resumeConversation` rebinds onto a stored one — none of them tells this object. An
    * exclusion built from the id the session started with therefore names a thread nobody is writing
    * and misses the one that is — which on the `/clear` path is a thread no conversation row names,
    * i.e. exactly a reclamation candidate. Recording the ids as they arrive needs no notification at

@@ -36,6 +36,7 @@ const runnerMock = vi.hoisted(() => ({
   cleanup: vi.fn(),
   processMessagesWithEvents: vi.fn(),
   resetThread: vi.fn(),
+  clearConversation: vi.fn(),
   resumeConversation: vi.fn(),
   setSessionGrantsListener: vi.fn(),
   getSessionScopedGrants: vi.fn(() => ({ allow: [], deny: [] })),

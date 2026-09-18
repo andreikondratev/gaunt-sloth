@@ -52,7 +52,9 @@ Inside a session, a line starting with `/` is a command, not a prompt. Run `/hel
 them — in the TUI it also lists the key bindings, grouped by where each one works. Typing `/` alone
 there opens a searchable command menu. A few worth knowing:
 
-- `/clear` — wipe the transcript and the model's memory of it (it is gone, not scrolled away)
+- `/clear` — wipe the transcript and the model's memory of it (it is gone, not scrolled away), and
+  with them the approvals record behind the Auto-mode debug tab, so a `/debug-dump` taken afterwards
+  does not carry the conversation you just cleared
 - `/compact` — fold the older part of the conversation into a summary the model reads in its
   place, keeping the last few messages word for word, so a session that has grown long can keep
   going without starting over. Free text after it (`/compact the migration plan`) says what the

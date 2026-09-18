@@ -1039,16 +1039,17 @@ describe('tui <App>', () => {
     unmount();
   });
 
-  it('/clear resets the agent conversation thread, not just the transcript (TUI-C8)', async () => {
+  it('/clear resets the agent conversation, not just the transcript (TUI-C8)', async () => {
     // The on-screen reset is already covered by the transcript state; the bug was that the
     // model's checkpointer thread was left intact. Assert /clear calls the agent's
-    // resetThread so the next turn starts from an empty model context.
+    // clearConversation so the next turn starts from an empty model context — and, since
+    // [[EXT-109]], so the approvals capture log behind the Auto-mode tab goes with it.
     let resetCount = 0;
     const agent: TuiAgent = {
       async *runTurn() {
         yield { type: 'text', delta: 'hi there' };
       },
-      resetThread() {
+      clearConversation() {
         resetCount += 1;
       },
     };
@@ -1142,8 +1143,8 @@ describe('tui <App>', () => {
     unmount();
   });
 
-  it('/clear does not throw when the agent has no resetThread (fixture agent)', async () => {
-    // The fixture agent omits resetThread; the optional-chaining call must be a safe no-op —
+  it('/clear does not throw when the agent has no clearConversation (fixture agent)', async () => {
+    // The fixture agent omits clearConversation; the optional-chaining call must be a safe no-op —
     // the app must keep running (prompt returns, no error system line).
     const agent = scriptedAgent([{ type: 'text', delta: 'hi' }]);
     const { stdin, lastFrame, frames, unmount } = render(
@@ -1156,7 +1157,7 @@ describe('tui <App>', () => {
     stdin.write('\r');
 
     // The command consumes cleanly (its echoed text clears from the prompt) and no error line
-    // surfaced — i.e. the optional resetThread call did not blow up the run.
+    // surfaced — i.e. the optional clearConversation call did not blow up the run.
     await vi.waitFor(() => expect(lastFrame()).not.toContain('> /clear'));
     expect(frames.join('\n')).not.toContain('[error]');
 

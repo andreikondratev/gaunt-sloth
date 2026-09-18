@@ -75,9 +75,14 @@ export interface WriteDebugDumpInput {
    * It goes through the same `renderStructured` pass as `transcript.json` and
    * `model-messages.json` — the [[GS2-47]]/[[GS2-54]] literal + pattern redaction over the secret
    * values {@link collectSecretValues} harvested from env and config. That is deliberate reuse
-   * rather than a policy of its own: the captured rating prompt carries the user's own last five
-   * messages verbatim plus the command, so it is at least as sensitive as the transcript, and a
+   * rather than a policy of its own: a record carries the command, the rating, and — through the
+   * alignment check's `user` role ([[EXT-127]], fed from the retained provenance window) — the
+   * user's own recent messages verbatim, so it is at least as sensitive as the transcript, and a
    * second redaction policy for one artifact is how two policies come to disagree.
+   *
+   * [[EXT-109]] — redaction is not the control for what a user asked to be FORGOTTEN, because that
+   * matches no secret shape. `GthAgentRunner.clearConversation` empties the log on `/clear`, so a
+   * dump taken after one carries no record from before it.
    */
   approvals?: readonly ApprovalDecisionCapture[];
   /**

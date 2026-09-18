@@ -1644,7 +1644,7 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
    * own unique ids — but **the protection was the providers', not this code's**, which is a
    * property no test here can hold and no bump has to preserve.
    *
-   * On `/clear` it is the same argument `GthAgentRunner.resetThread` makes about the negotiation:
+   * On `/clear` it is the same argument `GthAgentRunner.clearConversation` makes about the negotiation:
    * state from before the user asked for the conversation to be forgotten must not decide how the
    * conversation after it is drawn.
    */
