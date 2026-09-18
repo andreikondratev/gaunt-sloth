@@ -3,6 +3,7 @@ import {
   getEffectiveDevToolsConfig,
   getGhReadFileMaxBytes,
   getShellMaxOutputBytes,
+  getShellMaxTimeoutMs,
   getShellTimeoutMs,
   isBuiltInToolEntryEnabled,
   isGhReadFileToolEnabled,
@@ -10,6 +11,7 @@ import {
   normalizeBuiltInTools,
   GH_READ_FILE_DEFAULT_MAX_BYTES,
   SHELL_DEFAULT_MAX_OUTPUT_BYTES,
+  SHELL_DEFAULT_MAX_TIMEOUT_MS,
   SHELL_DEFAULT_TIMEOUT_MS,
   type GthConfig,
 } from '#src/config.js';
@@ -81,7 +83,7 @@ describe('getEffectiveDevToolsConfig (builtInTools → resolved GthDevToolsConfi
     expect(getShellTimeoutMs(resolved)).toBe(5000);
   });
 
-  it('round-trips the full shell EXECUTION config (timeout/maxOutputBytes) through the accessors', () => {
+  it('round-trips the full shell EXECUTION config (timeout/maxTimeout/maxOutputBytes) through the accessors', () => {
     // CFG-26 — the approval knobs (allowlist/persistAllowlist/judge/yolo) no longer live on this
     // entry; they moved to the top-level `approvals` block (see approvalsConfig.spec.ts). What is
     // left here is execution-only, and that is the whole point of the split.
@@ -90,6 +92,7 @@ describe('getEffectiveDevToolsConfig (builtInTools → resolved GthDevToolsConfi
         run_shell_command: {
           enabled: true,
           timeout: 300000,
+          maxTimeout: 900000,
           maxOutputBytes: 200000,
         },
       },
@@ -97,10 +100,13 @@ describe('getEffectiveDevToolsConfig (builtInTools → resolved GthDevToolsConfi
     const resolved = getEffectiveDevToolsConfig(config, 'code');
     expect(isShellToolEnabled(resolved, 'code')).toBe(true);
     expect(getShellTimeoutMs(resolved)).toBe(300000);
+    // EXT-125 — the ceiling on a model-requested budget is reachable from the same registry entry.
+    expect(getShellMaxTimeoutMs(resolved)).toBe(900000);
     expect(getShellMaxOutputBytes(resolved)).toBe(200000);
     expect(resolved?.shell).toEqual({
       enabled: true,
       timeout: 300000,
+      maxTimeout: 900000,
       maxOutputBytes: 200000,
     });
   });
@@ -137,6 +143,7 @@ describe('getEffectiveDevToolsConfig (builtInTools → resolved GthDevToolsConfi
     expect(isShellToolEnabled(undefined, 'code')).toBe(true);
     // …with default timeout / output budget.
     expect(getShellTimeoutMs(undefined)).toBe(SHELL_DEFAULT_TIMEOUT_MS);
+    expect(getShellMaxTimeoutMs(undefined)).toBe(SHELL_DEFAULT_MAX_TIMEOUT_MS);
     expect(getShellMaxOutputBytes(undefined)).toBe(SHELL_DEFAULT_MAX_OUTPUT_BYTES);
   });
 

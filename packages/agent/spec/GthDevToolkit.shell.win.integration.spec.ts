@@ -49,7 +49,8 @@ d('GthDevToolkit shell hardening on Windows (real spawn)', () => {
     const elapsed = Date.now() - start;
     expect(error).toBeInstanceOf(ShellCommandFailedError);
     expect(error.exitCode).toBeNull();
-    expect(error.output).toContain('was killed after exceeding');
+    // EXT-125: the kill names the budget it hit, in ms.
+    expect(error.output).toContain('300ms time budget');
     // Resolves well before the 59s command (timeout + the 3s SIGKILL grace).
     expect(elapsed).toBeLessThan(15_000);
   }, 30_000);

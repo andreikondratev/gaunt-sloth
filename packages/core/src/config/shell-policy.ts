@@ -32,7 +32,7 @@ import { isAccessClassGrantedAtRung } from '#src/config/tool-descriptions.js';
  * - the fixed dev-command tools (`run_tests`/`run_lint`/`run_build`/`run_single_test`) read
  *   {@link command} — the shell command to run; its presence enables the tool;
  * - `run_shell_command` reads the EXT-9/12 execution knobs ({@link enabled}/{@link timeout}/
- *   {@link maxOutputBytes});
+ *   {@link maxTimeout}/{@link maxOutputBytes});
  * - `gth_grep` reads {@link fileSet} (GS2-51) — which corpus to search;
  * - a plain built-in tool (`gth_checklist`, `gth_web_fetch`, …) reads {@link enabled} (or is
  *   toggled with a bare boolean in the registry).
@@ -54,6 +54,13 @@ export interface BuiltInToolConfig {
   command?: string;
   /** `run_shell_command`: per-command wall-clock timeout (ms). See {@link SHELL_DEFAULT_TIMEOUT_MS}. */
   timeout?: number;
+  /**
+   * `run_shell_command` (EXT-125): the CEILING, in ms, on a time budget the MODEL asks for in a
+   * tool call's `timeoutMs` argument. {@link timeout} is what a call gets when it asks for nothing;
+   * this is the most it may ask for. See {@link SHELL_DEFAULT_MAX_TIMEOUT_MS} and
+   * {@link getShellMaxTimeoutMs}, which spells out how the two interact.
+   */
+  maxTimeout?: number;
   /** `run_shell_command`: captured-output byte budget. See {@link SHELL_DEFAULT_MAX_OUTPUT_BYTES}. */
   maxOutputBytes?: number;
   /**
@@ -354,6 +361,10 @@ export interface GthDevToolsConfig {
    * (these have safe defaults so bare `shell: true` is already hardened):
    * - `timeout`: per-command wall-clock limit in MILLISECONDS before the child
    *   (and its process group) is killed. Default {@link SHELL_DEFAULT_TIMEOUT_MS}.
+   * - `maxTimeout`: the CEILING in MILLISECONDS on a budget the MODEL asks for in a call's
+   *   `timeoutMs` argument (EXT-125). Default {@link SHELL_DEFAULT_MAX_TIMEOUT_MS}; resolved by
+   *   {@link getShellMaxTimeoutMs}, which is what keeps a model from granting itself an unbounded
+   *   wait. A call asking for more than the ceiling is refused WITHOUT running.
    * - `maxOutputBytes`: byte budget for the captured output returned to the model
    *   (head + tail window; the middle is dropped and the full output spilled to a
    *   temp file). Default {@link SHELL_DEFAULT_MAX_OUTPUT_BYTES}. Live terminal
@@ -366,6 +377,7 @@ export interface GthDevToolsConfig {
    * On-disk (CFG-18) these live on the `run_shell_command` entry of `builtInTools`, e.g.
    * `{ "builtInTools": { "run_shell_command": true } }` or
    * `{ "builtInTools": { "run_shell_command": { "timeout": 300000, "maxOutputBytes": 200000 } } }`.
+   * Since EXT-125 the same entry also carries `maxTimeout`.
    *
    * CFG-26 — the approval knobs that used to live here (`allowlist`, `persistAllowlist`,
    * `judge`, `yolo`) moved to the top-level `approvals` block ({@link ApprovalsConfig}); read
@@ -376,6 +388,7 @@ export interface GthDevToolsConfig {
     | {
         enabled?: boolean;
         timeout?: number;
+        maxTimeout?: number;
         maxOutputBytes?: number;
       };
 }
@@ -386,6 +399,21 @@ export interface GthDevToolsConfig {
  * hanging the agent forever on a stuck command.
  */
 export const SHELL_DEFAULT_TIMEOUT_MS = 120_000;
+
+/**
+ * EXT-125 — default CEILING (ms) on a time budget the MODEL asks for in a shell tool call's
+ * `timeoutMs` argument, when {@link GthDevToolsConfig.shell} does not set `maxTimeout`.
+ *
+ * Ten minutes, because the longest thing a repo's own dev commands plausibly need is a full test
+ * suite, and `run_tests` is the likeliest of them to want that. Five times the
+ * {@link SHELL_DEFAULT_TIMEOUT_MS} default gives that room while still bounding a stuck command at
+ * an interval a human notices.
+ *
+ * **The ceiling matters more than the default does.** The default is what a call gets for asking
+ * nothing and is easy to raise in config for one project; the ceiling is the only thing standing
+ * between a model and an unbounded wait, so it is the number to argue about.
+ */
+export const SHELL_DEFAULT_MAX_TIMEOUT_MS = 600_000;
 
 /**
  * Default byte budget for shell output captured into the ToolMessage returned to
@@ -439,6 +467,38 @@ export function getShellTimeoutMs(devTools: GthDevToolsConfig | undefined): numb
 }
 
 /**
+ * EXT-125 — resolve the CEILING (ms) on a time budget a shell tool call may ask for in its
+ * `timeoutMs` argument. Only the object form can override it; non-positive / non-finite values are
+ * ignored, exactly as {@link getShellTimeoutMs} treats `timeout`.
+ *
+ * **Never below {@link getShellTimeoutMs}, and that clamp is the point.** The budget a call gets
+ * for asking nothing is already granted to every command, so a ceiling under it would mean a model
+ * asking for a legal-looking number got LESS time than staying silent would have given it, and its
+ * repair move would be to stop naming a budget — the opposite of what the argument exists for. The
+ * rule is therefore: **naming a budget can never leave a call worse off than not naming one.**
+ *
+ * The case that reads oddly and is nonetheless correct: `{ "maxTimeout": 60000 }` with no
+ * `timeout` resolves to 120000, not 60000. The user has already granted every command 120 s by
+ * leaving the default in place; a 60 s ceiling on top of that forbids nothing. A user who means
+ * "no command may run longer than a minute" sets `timeout` as well, and then the ceiling holds at
+ * 60000 because the max of the two is 60000. A user who means "the model may not raise the budget
+ * at all" sets `maxTimeout` equal to `timeout`.
+ *
+ * **What this guarantees is the safety property the argument needs:** the ceiling is a function of
+ * CONFIG alone — the larger of the user's explicit ceiling and the budget the user already grants
+ * by default — and never of anything the model sent. So no sequence of tool calls can widen it, and
+ * a model cannot grant itself wall-clock the user had not already granted every command.
+ */
+export function getShellMaxTimeoutMs(devTools: GthDevToolsConfig | undefined): number {
+  const shell = devTools?.shell;
+  let ceiling = SHELL_DEFAULT_MAX_TIMEOUT_MS;
+  if (shell && typeof shell === 'object' && typeof shell.maxTimeout === 'number') {
+    if (Number.isFinite(shell.maxTimeout) && shell.maxTimeout > 0) ceiling = shell.maxTimeout;
+  }
+  return Math.max(ceiling, getShellTimeoutMs(devTools));
+}
+
+/**
  * Resolve the captured-output byte budget from config, falling back to
  * {@link SHELL_DEFAULT_MAX_OUTPUT_BYTES}. Only the object form can override it.
  * Non-positive / non-finite values are ignored.
@@ -484,6 +544,7 @@ function devToolsConfigFromRegistry(
       resolved.shell = {
         enabled: entry.enabled,
         timeout: entry.timeout,
+        maxTimeout: entry.maxTimeout,
         maxOutputBytes: entry.maxOutputBytes,
       };
     }

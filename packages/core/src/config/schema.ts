@@ -825,7 +825,7 @@ const autocompactSchema = z.union([
  * CFG-18 — the per-tool config object carried as a value in the widened `builtInTools` registry.
  * One permissive shape covering every tool: `command` for the fixed dev-command tools
  * (run_tests/run_lint/run_build/run_single_test), the EXT-12 execution knobs for
- * `run_shell_command` (`timeout`/`maxOutputBytes`), `fileSet` for `gth_grep` (GS2-51), and
+ * `run_shell_command` (`timeout`/`maxTimeout`/`maxOutputBytes`), `fileSet` for `gth_grep` (GS2-51), and
  * `enabled` for a plain built-in tool.
  *
  * CFG-26 — the APPROVAL knobs that used to live here (`allowlist`, `persistAllowlist`, `judge`,
@@ -837,6 +837,10 @@ const builtInToolConfigSchema = z.object({
   enabled: z.boolean().optional(),
   command: z.string().optional(),
   timeout: z.number().optional(),
+  // EXT-125 — `run_shell_command`: the ceiling on a time budget the MODEL asks for in a call's
+  // `timeoutMs` argument, where `timeout` above is what a call that asks for nothing gets. See
+  // BuiltInToolConfig and getShellMaxTimeoutMs, which never resolves it below `timeout`.
+  maxTimeout: z.number().optional(),
   maxOutputBytes: z.number().optional(),
   // CFG-52 — `gth_gh_read_file`: ceiling on the DECODED file text the GitHub-API file-read tool
   // returns (default 600 KiB). A file read, not captured command output, hence `maxBytes` rather

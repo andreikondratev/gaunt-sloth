@@ -423,6 +423,9 @@
                   "timeout": {
                     "type": "number"
                   },
+                  "maxTimeout": {
+                    "type": "number"
+                  },
                   "maxOutputBytes": {
                     "type": "number"
                   },
@@ -773,6 +776,9 @@
                           "timeout": {
                             "type": "number"
                           },
+                          "maxTimeout": {
+                            "type": "number"
+                          },
                           "maxOutputBytes": {
                             "type": "number"
                           },
@@ -1103,6 +1109,9 @@
                           "timeout": {
                             "type": "number"
                           },
+                          "maxTimeout": {
+                            "type": "number"
+                          },
                           "maxOutputBytes": {
                             "type": "number"
                           },
@@ -1424,6 +1433,9 @@
                           "timeout": {
                             "type": "number"
                           },
+                          "maxTimeout": {
+                            "type": "number"
+                          },
                           "maxOutputBytes": {
                             "type": "number"
                           },
@@ -1718,6 +1730,9 @@
                             "type": "string"
                           },
                           "timeout": {
+                            "type": "number"
+                          },
+                          "maxTimeout": {
                             "type": "number"
                           },
                           "maxOutputBytes": {
@@ -2016,6 +2031,9 @@
                           "timeout": {
                             "type": "number"
                           },
+                          "maxTimeout": {
+                            "type": "number"
+                          },
                           "maxOutputBytes": {
                             "type": "number"
                           },
@@ -2312,6 +2330,9 @@
                           "timeout": {
                             "type": "number"
                           },
+                          "maxTimeout": {
+                            "type": "number"
+                          },
                           "maxOutputBytes": {
                             "type": "number"
                           },
@@ -2606,6 +2627,9 @@
                             "type": "string"
                           },
                           "timeout": {
+                            "type": "number"
+                          },
+                          "maxTimeout": {
                             "type": "number"
                           },
                           "maxOutputBytes": {

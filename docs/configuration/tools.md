@@ -282,7 +282,26 @@ default in `code` mode** (each invocation still goes through the approvals gate)
 
 - `true` / `false` — enable / force-disable (an object without `enabled` also defaults ON in `code`).
 - `timeout` — per-command wall-clock limit in **milliseconds** (default `120000`).
+- `maxTimeout` — the most the **agent** may ask for on one call, in milliseconds (default `600000`).
 - `maxOutputBytes` — byte budget for the captured output returned to the model (default `100000`).
+
+**`timeout` is what a command gets; `maxTimeout` is the most it may ask for.** Every tool in this
+group — `run_shell_command` and the fixed `run_*` commands — takes an optional `timeoutMs` argument,
+so an agent that expects one particular command to run long (a full test suite, a clean build, a
+large clone) can ask for more time for that call alone instead of you raising `timeout` for every
+command in the session. A request above the ceiling is refused **without running anything**, and the
+refusal names the ceiling so the next attempt is a legal one.
+
+Both keys live on the `run_shell_command` entry and both govern **all five** tools. Two consequences
+worth knowing:
+
+- `maxTimeout` never resolves below `timeout`, because `timeout` is already granted to every
+  command. To stop the agent extending a call at all, set `maxTimeout` equal to `timeout`. To cap
+  every command at a minute, set both to `60000` — setting `maxTimeout` alone caps nothing, since
+  the default `timeout` already allows two.
+- A command killed for outliving its budget says so, and says it differently from a command that
+  exited non-zero. The agent is told what the budget was and whether asking for more is available,
+  so it does not read a timeout as a broken command and retry it unchanged.
 
 **Who may run a command is configured separately**, in the top-level [`approvals`](#approvals)
 setting — not here.
@@ -296,6 +315,7 @@ setting — not here.
         "gth_checklist": true,
         "run_shell_command": {
           "timeout": 300000,
+          "maxTimeout": 900000,
           "maxOutputBytes": 200000
         }
       }

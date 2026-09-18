@@ -194,6 +194,10 @@
       "kind": "number"
     },
     {
+      "name": "SHELL_DEFAULT_MAX_TIMEOUT_MS",
+      "kind": "number"
+    },
+    {
       "name": "SHELL_DEFAULT_TIMEOUT_MS",
       "kind": "number"
     },
@@ -391,6 +395,10 @@
     },
     {
       "name": "getShellMaxOutputBytes",
+      "kind": "function"
+    },
+    {
+      "name": "getShellMaxTimeoutMs",
       "kind": "function"
     },
     {

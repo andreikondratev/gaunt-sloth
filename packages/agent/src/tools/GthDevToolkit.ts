@@ -12,6 +12,7 @@ import path from 'node:path';
 import {
   GthDevToolsConfig,
   getShellMaxOutputBytes,
+  getShellMaxTimeoutMs,
   getShellTimeoutMs,
   isShellToolEnabled,
 } from '@gaunt-sloth/core/config.js';
@@ -93,6 +94,101 @@ export function killProcessGroup(
   }
 }
 
+/**
+ * [[EXT-125]] — the outcome of resolving ONE call's time budget, before anything is spawned.
+ *
+ * A discriminated union rather than a number plus an out-of-band error, because the refused case
+ * must be impossible to use as a budget by accident: there is no `timeoutMs` on that arm to read.
+ */
+export type ShellTimeoutBudget =
+  | {
+      kind: 'granted';
+      /** The wall-clock budget to arm, in ms. */
+      timeoutMs: number;
+      /** The ceiling in force for this call, in ms. */
+      ceilingMs: number;
+      /** Whether the CALL named this budget, as opposed to inheriting the configured default. */
+      requested: boolean;
+    }
+  | {
+      kind: 'refused';
+      /** What the call asked for, in ms. */
+      requestedMs: number;
+      /** The ceiling it exceeded, in ms. */
+      ceilingMs: number;
+      /** The model-facing refusal to return INSTEAD of running anything. */
+      message: string;
+    };
+
+/**
+ * [[EXT-125]] — resolve a call's time budget against the config ceiling.
+ *
+ * **Over the ceiling is REFUSED, not clamped, and that is the whole safety story.** Silently
+ * clamping would run the command on a budget the model did not ask for, kill it, and leave the
+ * model reading a kill it has no way to attribute — a fact about our gate laundered into a claim
+ * about the command, which is exactly what [[EXT-66]] settled must not happen. Refusing before the
+ * spawn costs nothing (no process, no side effect, no output) and leaves the model one legible
+ * move: re-call at or under a number it has now been told.
+ *
+ * `requestedMs` is validated here as well as in the schema. The schema is the only thing standing
+ * between a provider's arguments and this function, and a tool argument is model-authored data on
+ * the most safety-sensitive path in the repo; a second check costs one comparison and means the
+ * ceiling does not depend on a zod version's coercion behaviour.
+ */
+export function resolveShellTimeoutBudget(
+  requestedMs: number | undefined,
+  defaultMs: number,
+  ceilingMs: number
+): ShellTimeoutBudget {
+  if (requestedMs === undefined || !Number.isFinite(requestedMs) || requestedMs <= 0) {
+    // Absent or unusable → exactly the pre-EXT-125 path: the configured/default budget, untouched.
+    return { kind: 'granted', timeoutMs: defaultMs, ceilingMs, requested: false };
+  }
+  if (requestedMs > ceilingMs) {
+    return {
+      kind: 'refused',
+      requestedMs,
+      ceilingMs,
+      message:
+        `Refused before running anything: this call asked for a ${requestedMs}ms time budget, ` +
+        `and the ceiling for this tool is ${ceilingMs}ms. No command was executed. ` +
+        `Re-call with timeoutMs at or below ${ceilingMs}, split the work into steps that each fit, ` +
+        `or ask the user to raise builtInTools.run_shell_command.maxTimeout in config.`,
+    };
+  }
+  return { kind: 'granted', timeoutMs: requestedMs, ceilingMs, requested: true };
+}
+
+/**
+ * [[EXT-125]] — the tail appended to a KILLED command's model-facing body.
+ *
+ * **It must not read like a non-zero exit, because it is not one.** A timeout is a fact about this
+ * tool's gate: the command did not fail, did not finish, and reported nothing. A model that cannot
+ * tell the two apart has only one repair move — re-run the identical command — which is what makes
+ * a long build unappealable. So this text says three things the exit-code text never says: that the
+ * kill came from a BUDGET, what that budget was in ms, and what to do differently next time.
+ *
+ * The move offered depends on whether there is headroom left: under the ceiling the model can ask
+ * for more itself, and at the ceiling it cannot, so offering `timeoutMs` there would promise a move
+ * that does not exist and cost a wasted turn discovering it.
+ */
+export function buildTimeoutKillNotice(
+  command: string,
+  timeoutMs: number,
+  ceilingMs: number
+): string {
+  const move =
+    timeoutMs < ceilingMs
+      ? `To give it longer, re-call with timeoutMs up to ${ceilingMs} (this call used ${timeoutMs}).`
+      : `This call already used the ${ceilingMs}ms ceiling, so a longer run needs ` +
+        `builtInTools.run_shell_command.maxTimeout raised in config — asking for more is refused.`;
+  return (
+    `Command '${command}' hit its ${timeoutMs}ms time budget and was killed by this tool. ` +
+    `It did not fail and it did not finish: nothing above is a result the command reported, and ` +
+    `no exit code exists. Any output above is what it wrote before the kill. ${move}`
+  );
+}
+
 // Helper function to create a tool with dev type. The fn's second parameter is LangChain's
 // ToolRunnableConfig — when the framework invokes the tool with a ToolCall, `config.toolCall.id`
 // identifies the call, which TUI-C17 threads into the live-output channel for attribution.
@@ -111,37 +207,99 @@ function createGthTool<T extends z.ZodSchema>(
   return toolInstance;
 }
 
-// Schema definitions for built-in tools
-const RunTestsArgsSchema = z.object({});
-const RunLintArgsSchema = z.object({});
-const RunBuildArgsSchema = z.object({});
-const RunSingleTestArgsSchema = z.object({
-  testPath: z.string().describe('Relative path to the test file to run'),
-});
-const RunShellCommandArgsSchema = z.object({
-  command: z.string().describe('The shell command to run'),
-  /**
-   * [[EXT-29]] (spec §5.1, §7) — **the move §7 already promises the model and it could not make.**
-   * The rejection message names *"call the same command with a justification"* among the moves
-   * available after a refusal; without an argument to carry one, the only way to act on that was to
-   * re-send the identical call, which is what makes an agent repeat itself and burn §5.3's cap
-   * without producing information.
-   *
-   * It reaches the rater as fenced, untrusted data, weighed asymmetrically (§5.1): a justification
-   * may only ever make an outcome LESS severe, and a stated intent that does not match what the
-   * command does is grounds for rejection rather than for a discount. Never sent for its own sake —
-   * an unprompted one is noise the rater still has to read.
-   */
-  justification: z
-    .string()
+/**
+ * [[EXT-125]] — the per-call time budget argument, shared by EVERY tool in this toolkit.
+ *
+ * `.int().min(1)` and NOT `.positive()`: zod-4 serialises `.positive()` as JSON-Schema
+ * `exclusiveMinimum`, which Google Gemini's function-declaration subset rejects outright — see the
+ * GS2-56 guard in `packages/agent/spec/builtInToolsGeminiSchema.spec.ts`.
+ *
+ * The description names the EFFECTIVE ceiling rather than a constant, which is why the schema is
+ * built per toolkit instance instead of living at module scope: a model told the real number asks
+ * for a legal one first time, where a model told a generic rule spends a turn discovering the
+ * project's. Milliseconds are in the argument's NAME because the repo has both conventions —
+ * `builtInTools.run_shell_command.timeout` is ms while a custom tool's `timeout` is seconds — and a
+ * model guessing wrong by a factor of a thousand is a silently absurd budget in either direction.
+ */
+const timeoutMsArg = (ceilingMs: number) =>
+  z
+    .number()
+    .int()
+    .min(1)
     .optional()
     .describe(
-      'Optional. Why this command is the right one, in a sentence or two — supply it when ' +
-        'RE-CALLING a command that was rejected, so the reviewer can weigh what you are trying ' +
-        'to do. Address the objection you were given rather than restating the request; a ' +
-        'justification that does not match what the command actually does is rejected outright.'
-    ),
-});
+      'Optional. Wall-clock budget for THIS call, in milliseconds, after which the command (and ' +
+        'its process group) is killed. Omit it to use the project default. Supply it when you ' +
+        'have reason to expect this particular command to run long — a full test suite, a clean ' +
+        `build, a large clone. The maximum accepted here is ${ceilingMs}; a larger value is ` +
+        'refused without running anything.'
+    );
+
+/**
+ * Schema definitions for built-in tools.
+ *
+ * **[[EXT-125]] scope item 3, decided: the fixed `run_*` tools take the per-call budget too.**
+ * Three reasons, in the order that decided it:
+ *
+ *  1. **The node's own worked example is a fixed tool.** `run_tests` is the likeliest command in
+ *     any repo to want ten minutes. Shipping the appeal on `run_shell_command` alone would close
+ *     the gap everywhere except the place it was most likely to be felt, and leave a model whose
+ *     test suite was killed with the one move the node exists to remove: re-run it unchanged.
+ *  2. **"The user configures the command, so the user owns its timeout" does not distinguish
+ *     them.** `getShellTimeoutMs` reads ONE value — the `run_shell_command` registry entry's
+ *     `timeout` — and it governs all five tools. Whatever authority that argument gives the user
+ *     over `run_tests`, it gives identically over `run_shell_command`.
+ *  3. **A budget grants strictly less on a fixed tool.** The model cannot choose what runs there;
+ *     the command is the user's own string. The argument moves one bounded number, and
+ *     {@link getShellMaxTimeoutMs} bounds it the same way on every tool, through the same seam in
+ *     {@link GthDevToolkit.executeCommand} — there is no second code path to keep honest.
+ *
+ * **The rejected alternative, recorded so it is not silently re-adopted:** leave the three
+ * no-argument schemas as `z.object({})` so the model supplies no input at all on the fixed-tool
+ * path, on the ground that a path with zero model-authored input is a smaller attack surface than
+ * one with a validated integer. Rejected because the surface it protects is not the dangerous one —
+ * the command string is what makes `run_shell_command` sensitive, and that is user-authored here —
+ * while the cost is leaving the node's motivating case unfixed. If that trade is ever re-argued,
+ * re-argue it against reason 2, which is the load-bearing one.
+ *
+ * `run_single_test` gains `timeoutMs` and NOT a second string: `testPath` goes through
+ * {@link GthDevToolkit.validateParameterValue} because it is interpolated into a shell command, and
+ * a number that is only ever compared to a ceiling must never be routed through a string sanitizer.
+ */
+const RunTestsArgsSchema = (ceilingMs: number) => z.object({ timeoutMs: timeoutMsArg(ceilingMs) });
+const RunLintArgsSchema = (ceilingMs: number) => z.object({ timeoutMs: timeoutMsArg(ceilingMs) });
+const RunBuildArgsSchema = (ceilingMs: number) => z.object({ timeoutMs: timeoutMsArg(ceilingMs) });
+const RunSingleTestArgsSchema = (ceilingMs: number) =>
+  z.object({
+    testPath: z.string().describe('Relative path to the test file to run'),
+    timeoutMs: timeoutMsArg(ceilingMs),
+  });
+const RunShellCommandArgsSchema = (ceilingMs: number) =>
+  z.object({
+    command: z.string().describe('The shell command to run'),
+    timeoutMs: timeoutMsArg(ceilingMs),
+    /**
+     * [[EXT-29]] (spec §5.1, §7) — **the move §7 already promises the model and it could not make.**
+     * The rejection message names *"call the same command with a justification"* among the moves
+     * available after a refusal; without an argument to carry one, the only way to act on that was
+     * to re-send the identical call, which is what makes an agent repeat itself and burn §5.3's cap
+     * without producing information.
+     *
+     * It reaches the rater as fenced, untrusted data, weighed asymmetrically (§5.1): a
+     * justification may only ever make an outcome LESS severe, and a stated intent that does not
+     * match what the command does is grounds for rejection rather than for a discount. Never sent
+     * for its own sake — an unprompted one is noise the rater still has to read.
+     */
+    justification: z
+      .string()
+      .optional()
+      .describe(
+        'Optional. Why this command is the right one, in a sentence or two — supply it when ' +
+          'RE-CALLING a command that was rejected, so the reviewer can weigh what you are trying ' +
+          'to do. Address the objection you were given rather than restating the request; a ' +
+          'justification that does not match what the command actually does is rejected outright.'
+      ),
+  });
 
 const TEST_PATH_PLACEHOLDER = '${testPath}';
 
@@ -238,6 +396,11 @@ export default class GthDevToolkit extends BaseToolkit {
    * Execute a shell command with the EXT-9 Tier-1 hardening applied:
    *  1. stdin closed + timeout + process-group kill (no hang on interactive
    *     commands; runaway commands are killed group-wide on timeout),
+   *     [[EXT-125]]: `requestedTimeoutMs` lets ONE call ask for a longer wall-clock budget, bounded
+   *     by {@link getShellMaxTimeoutMs}; over the ceiling the call is refused without spawning
+   *     anything, and an ABSENT argument resolves to precisely {@link getShellTimeoutMs} — the
+   *     value, the spawn and the clean/non-zero-exit bodies are all unchanged by this parameter's
+   *     existence,
    *  2. output capped with a head/tail window + temp-file spillover,
    *  3. provider/LLM credentials scrubbed from the child env,
    *  4. an unbypassable hardline blocklist (refuses catastrophic commands BEFORE
@@ -256,7 +419,8 @@ export default class GthDevToolkit extends BaseToolkit {
   private async executeCommand(
     command: string,
     toolName: string,
-    toolCallId?: string
+    toolCallId?: string,
+    requestedTimeoutMs?: number
   ): Promise<string> {
     // TUI-C17: the "Executing" notice + live child output go through the tool-output channel.
     // With no subscriber (every non-TUI surface) the channel's default sink reproduces the
@@ -282,7 +446,23 @@ export default class GthDevToolkit extends BaseToolkit {
       return refusal;
     }
 
-    const timeoutMs = getShellTimeoutMs(this.commands);
+    // [[EXT-125]] — the call's own budget, bounded by the config ceiling. Resolved HERE, beside the
+    // hardline refusal and before the spawn, so an over-ceiling ask costs no process and no side
+    // effect; and resolved from `this.commands` alone, so nothing the model sent can widen it.
+    const ceilingMs = getShellMaxTimeoutMs(this.commands);
+    const budget = resolveShellTimeoutBudget(
+      requestedTimeoutMs,
+      getShellTimeoutMs(this.commands),
+      ceilingMs
+    );
+    if (budget.kind === 'refused') {
+      // Returned, not thrown, and for the same reason the hardline refusal above is: nothing ran,
+      // so there is no command outcome to report. A ShellCommandFailedError here would file a fact
+      // about this tool's gate under a type whose name asserts the COMMAND failed.
+      emitToolOutput({ toolCallId, toolName, kind: 'warning', text: `\n⏱ ${budget.message}` });
+      return budget.message;
+    }
+    const timeoutMs = budget.timeoutMs;
     const maxOutputBytes = getShellMaxOutputBytes(this.commands);
 
     return new Promise((resolve, reject) => {
@@ -356,12 +536,10 @@ export default class GthDevToolkit extends BaseToolkit {
           // model's observation is unchanged except for the status.
           reject(
             new ShellCommandFailedError({
-              output:
-                body +
-                `\n\nCommand '${command}' was killed after exceeding the ${Math.round(
-                  timeoutMs / 1000
-                )}s timeout. ` +
-                `If it legitimately needs longer, increase the shell timeout in config.`,
+              // [[EXT-125]] — the tail names the budget in ms and the move that changes the next
+              // attempt, and shares NO sentence with the exit-code tail below: a model that cannot
+              // tell a kill from a failure can only re-run the same command.
+              output: body + '\n\n' + buildTimeoutKillNotice(command, timeoutMs, ceilingMs),
               exitCode: null,
               command,
               toolName,
@@ -416,18 +594,26 @@ export default class GthDevToolkit extends BaseToolkit {
 
   private createTools(): StructuredToolInterface[] {
     const tools: StructuredToolInterface[] = [];
+    // [[EXT-125]] — the effective ceiling, read once so every tool's `timeoutMs` description names
+    // the SAME number the seam will enforce. `executeCommand` re-reads it rather than closing over
+    // this one. Today the two reads cannot disagree: `this.commands` is assigned in the constructor
+    // and never reassigned, so this is belt-and-braces, not a guard against an observed divergence.
+    // It is worth the second call anyway, because it keeps the enforced bound a function of config
+    // at the moment of the spawn rather than of whatever a description was built from.
+    const ceilingMs = getShellMaxTimeoutMs(this.commands);
 
     if (this.commands.run_tests) {
       tools.push(
         createGthTool(
           async (
-            _args: z.infer<typeof RunTestsArgsSchema>,
+            args: z.infer<ReturnType<typeof RunTestsArgsSchema>>,
             config?: ToolRunnableConfig
           ): Promise<string> => {
             return await this.executeCommand(
               this.commands.run_tests!,
               'run_tests',
-              config?.toolCall?.id
+              config?.toolCall?.id,
+              args.timeoutMs
             );
           },
           {
@@ -435,7 +621,7 @@ export default class GthDevToolkit extends BaseToolkit {
             description:
               'Execute the test suite for this project. Runs the configured test command and returns the output.' +
               `\nThe configured command is [${this.commands.run_tests!}].`,
-            schema: RunTestsArgsSchema,
+            schema: RunTestsArgsSchema(ceilingMs),
           },
           'execute'
         )
@@ -446,12 +632,17 @@ export default class GthDevToolkit extends BaseToolkit {
       tools.push(
         createGthTool(
           async (
-            args: z.infer<typeof RunSingleTestArgsSchema>,
+            args: z.infer<ReturnType<typeof RunSingleTestArgsSchema>>,
             config?: ToolRunnableConfig
           ): Promise<string> => {
             const validatedPath = this.validateParameterValue(args.testPath, 'testPath');
             const command = this.buildSingleTestCommand(validatedPath);
-            return await this.executeCommand(command, 'run_single_test', config?.toolCall?.id);
+            return await this.executeCommand(
+              command,
+              'run_single_test',
+              config?.toolCall?.id,
+              args.timeoutMs
+            );
           },
           {
             name: 'run_single_test',
@@ -459,7 +650,7 @@ export default class GthDevToolkit extends BaseToolkit {
               'Execute a single test file. Runs the configured test command with the specified test file path. ' +
               'The test path must be relative and cannot contain directory traversal attempts or shell injection. ' +
               `\nThe base command is [${this.commands.run_single_test}].`,
-            schema: RunSingleTestArgsSchema,
+            schema: RunSingleTestArgsSchema(ceilingMs),
           },
           'execute'
         )
@@ -470,13 +661,14 @@ export default class GthDevToolkit extends BaseToolkit {
       tools.push(
         createGthTool(
           async (
-            _args: z.infer<typeof RunLintArgsSchema>,
+            args: z.infer<ReturnType<typeof RunLintArgsSchema>>,
             config?: ToolRunnableConfig
           ): Promise<string> => {
             return await this.executeCommand(
               this.commands.run_lint!,
               'run_lint',
-              config?.toolCall?.id
+              config?.toolCall?.id,
+              args.timeoutMs
             );
           },
           {
@@ -484,7 +676,7 @@ export default class GthDevToolkit extends BaseToolkit {
             description:
               'Run the linter on the project code. Executes the configured lint command and returns any linting errors or warnings.' +
               `\nThe configured command is [${this.commands.run_lint!}].`,
-            schema: RunLintArgsSchema,
+            schema: RunLintArgsSchema(ceilingMs),
           },
           'execute'
         )
@@ -495,13 +687,14 @@ export default class GthDevToolkit extends BaseToolkit {
       tools.push(
         createGthTool(
           async (
-            _args: z.infer<typeof RunBuildArgsSchema>,
+            args: z.infer<ReturnType<typeof RunBuildArgsSchema>>,
             config?: ToolRunnableConfig
           ): Promise<string> => {
             return await this.executeCommand(
               this.commands.run_build!,
               'run_build',
-              config?.toolCall?.id
+              config?.toolCall?.id,
+              args.timeoutMs
             );
           },
           {
@@ -509,7 +702,7 @@ export default class GthDevToolkit extends BaseToolkit {
             description:
               'Build the project. Executes the configured build command and returns the build output.' +
               `\nThe configured command is [${this.commands.run_build!}].`,
-            schema: RunBuildArgsSchema,
+            schema: RunBuildArgsSchema(ceilingMs),
           },
           'execute'
         )
@@ -524,13 +717,14 @@ export default class GthDevToolkit extends BaseToolkit {
       tools.push(
         createGthTool(
           async (
-            args: z.infer<typeof RunShellCommandArgsSchema>,
+            args: z.infer<ReturnType<typeof RunShellCommandArgsSchema>>,
             config?: ToolRunnableConfig
           ): Promise<string> => {
             return await this.executeCommand(
               args.command,
               'run_shell_command',
-              config?.toolCall?.id
+              config?.toolCall?.id,
+              args.timeoutMs
             );
           },
           {
@@ -539,8 +733,10 @@ export default class GthDevToolkit extends BaseToolkit {
               'Run an arbitrary shell command in the project working directory and return its ' +
               'combined stdout/stderr and exit status. Use for any task the fixed run_* tools do ' +
               'not cover (e.g. git, package managers, file inspection). Each call is subject to ' +
-              'human approval before it runs unless approval has been disabled.',
-            schema: RunShellCommandArgsSchema,
+              'human approval before it runs unless approval has been disabled. A command that ' +
+              'outlives its time budget is KILLED, which is not the same as failing — the result ' +
+              'says so, and timeoutMs is how you ask for longer.',
+            schema: RunShellCommandArgsSchema(ceilingMs),
           },
           'execute'
         )

@@ -42,6 +42,16 @@ d('GthDevToolkit shell hardening (real spawn)', () => {
     ).executeCommand(command, 'run_shell_command');
   };
 
+  /** EXT-125: the same, with a per-call time budget attached to THIS invocation. */
+  const runWithBudget = (command: string, commands: object, timeoutMs: number) => {
+    const toolkit = new GthDevToolkit(commands);
+    return (
+      toolkit as unknown as {
+        executeCommand(_c: string, _n: string, _id?: string, _t?: number): Promise<string>;
+      }
+    ).executeCommand(command, 'run_shell_command', undefined, timeoutMs);
+  };
+
   it('kills a long-running command after the configured timeout (throws, preserving the body)', async () => {
     const { ShellCommandFailedError } = await import('#src/tools/GthDevToolkit.js');
     const start = Date.now();
@@ -53,7 +63,8 @@ d('GthDevToolkit shell hardening (real spawn)', () => {
     const elapsed = Date.now() - start;
     expect(error).toBeInstanceOf(ShellCommandFailedError);
     expect(error.exitCode).toBeNull();
-    expect(error.output).toContain('was killed after exceeding');
+    // EXT-125: the kill names the budget it hit, in ms.
+    expect(error.output).toContain('300ms time budget');
     // Should be killed quickly (well before sleep 30 finishes).
     expect(elapsed).toBeLessThan(10_000);
   }, 15_000);
@@ -128,4 +139,49 @@ d('GthDevToolkit shell hardening (real spawn)', () => {
     expect(result).toContain('hello-world');
     expect(result).toContain('completed successfully');
   }, 10_000);
+
+  // ---------------------------------------------------------------------------------------------
+  // EXT-125 — the per-call budget, exercised against a REAL process rather than a timer mock.
+  // ---------------------------------------------------------------------------------------------
+
+  it('EXT-125: a killed command returns the output it produced BEFORE the kill', async () => {
+    const { ShellCommandFailedError } = await import('#src/tools/GthDevToolkit.js');
+    // Prints, flushes, then hangs. The kill must not discard the marker: that output is usually
+    // the only evidence of how far a long command actually got.
+    const error = await run('echo pre-kill-marker; sleep 30', {
+      shell: { enabled: true, timeout: 500 },
+    }).catch((e) => e as InstanceType<typeof ShellCommandFailedError>);
+    expect(error).toBeInstanceOf(ShellCommandFailedError);
+    expect(error.output).toContain('pre-kill-marker');
+    expect(error.output).toContain('500ms time budget');
+  }, 15_000);
+
+  it('EXT-125: a per-call budget is honoured end to end, below the configured default', async () => {
+    const { ShellCommandFailedError } = await import('#src/tools/GthDevToolkit.js');
+    const start = Date.now();
+    // Config would give this 30s; the CALL asks for 400ms and gets it, so the kill lands early.
+    const error = await runWithBudget(
+      'sleep 30',
+      { shell: { enabled: true, timeout: 30_000 } },
+      400
+    ).catch((e) => e as InstanceType<typeof ShellCommandFailedError>);
+    expect(error).toBeInstanceOf(ShellCommandFailedError);
+    expect(error.output).toContain('400ms time budget');
+    expect(Date.now() - start).toBeLessThan(10_000);
+  }, 20_000);
+
+  it('EXT-125: a budget above the ceiling never reaches a process', async () => {
+    // `sleep 30` would take 30s if it ran at all; the refusal returns immediately and the elapsed
+    // time is the evidence that nothing was spawned, independently of the message.
+    const start = Date.now();
+    const result = await runWithBudget(
+      'sleep 30',
+      { shell: { enabled: true, maxTimeout: 1_000, timeout: 1_000 } },
+      60_000
+    );
+    expect(result).toContain('No command was executed');
+    expect(result).toContain('1000ms');
+    expect(result).not.toContain('<COMMAND_OUTPUT>');
+    expect(Date.now() - start).toBeLessThan(5_000);
+  }, 15_000);
 });

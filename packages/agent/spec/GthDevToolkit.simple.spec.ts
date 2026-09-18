@@ -306,7 +306,10 @@ describe('GthDevToolkit - Basic Tests', () => {
         const error = (await captured) as InstanceType<typeof ShellCommandFailedError>;
         expect(error).toBeInstanceOf(ShellCommandFailedError);
         expect(error.exitCode).toBeNull();
-        expect(error.output).toContain('was killed after exceeding');
+        // EXT-125: the kill names its budget in ms. Whether it reads DIFFERENTLY from a non-zero
+        // exit is asserted in GthDevToolkit.timeoutBudget.ext125.spec.ts, which is where the
+        // not-contains legs live; this one only pins that the timeout path still rejects.
+        expect(error.output).toContain('50ms time budget');
       } finally {
         vi.useRealTimers();
       }

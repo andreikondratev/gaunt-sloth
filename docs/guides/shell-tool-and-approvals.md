@@ -477,6 +477,12 @@ commit, `npm install`, a one-off script) is an ordinary shell command and gets w
 force does with one — the auto-rater at `assisted` and `auto`. The `timeout` bump gives a slow
 command up to 300000 ms (5 minutes) before it is killed; the default is 120000 ms.
 
+You usually do not need that bump. The agent can ask for extra time on the one call that needs it,
+via a `timeoutMs` argument on any of these tools, and `maxTimeout` on the same entry is the most it
+may ask for (default 600000 ms, ten minutes). Raise `timeout` when *every* command in the project is
+slow; leave it alone and let the agent ask when one build or one test run is. A request above the
+ceiling runs nothing and is told the ceiling, so the agent's next attempt is a legal one.
+
 A per-command `builtInTools` object **replaces** the default set entirely, which is why
 `gth_checklist` and `gth_grep` (the two defaults) are listed explicitly — drop them and they are
 gone.
@@ -845,6 +851,11 @@ never times out into an approval. Declare what the pipeline is allowed to run:
 // Cap the output the shell tool feeds back to the model (default 100000 bytes)
 { "commands": { "code": { "builtInTools": {
   "run_shell_command": { "maxOutputBytes": 200000 }
+} } } }
+
+// Every command gets one minute, and the agent may not ask for more
+{ "commands": { "code": { "builtInTools": {
+  "run_shell_command": { "timeout": 60000, "maxTimeout": 60000 }
 } } } }
 ```
 
