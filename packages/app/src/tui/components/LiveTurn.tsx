@@ -378,13 +378,18 @@ export function LiveTurn({
   /** True while the turn is still streaming; suppresses markdown reflow until complete. */
   streaming?: boolean;
   /**
-   * [[TUI-C99]] — the frame width an answered call's approval request block is framed at. Only that
-   * block reads it; every other part of a turn is laid out by Ink itself.
+   * The frame width this turn's width-dependent parts are drawn at: [[TUI-C99]]'s approval request
+   * block, and the full-width rules `renderMarkdown` bakes into a committed text run. Everything
+   * else is laid out by Ink itself.
    *
    * **Required**, because the omission it would otherwise permit is silent: it reaches
    * `ApprovalRequestPanel` as the 80-column default and re-wraps untrusted rows on a narrower
-   * terminal. Both production callers hold the terminal width already; a test rendering a turn with
-   * no approval in it passes any number.
+   * terminal. Both production callers hold the terminal width already.
+   *
+   * [[REL-13]] — pass the width a spec means, not any number. The row-count oracle in
+   * `transcriptWindow.ts` measures a committed text run through `renderMarkdown` at THIS width, so
+   * a render that leaves it to `stdout.columns` puts the oracle and the renderer on two different
+   * widths — latent while both resolve to the same terminal, and charged once per text run.
    */
   columns: number;
 }): React.ReactElement {
@@ -400,7 +405,7 @@ export function LiveTurn({
       {drawn.map((segment, i) => {
         const body =
           segment.kind === 'text' ? (
-            <Text>{streaming ? segment.text : renderMarkdown(segment.text)}</Text>
+            <Text>{streaming ? segment.text : renderMarkdown(segment.text, { columns })}</Text>
           ) : segment.kind === 'compaction' ? (
             // [[EXT-167]] — the involuntary fold, drawn as the same block `/compact` commits and at
             // the point in the turn where it happened. The words come from `overflowCompactionNotice`,
