@@ -431,6 +431,52 @@ export function resolveContextWindow(
         // in a position to contradict the tier below and did not, which is the fact the field
         // reports. A catalog that did not answer splits on whether one could ever exist.
         check = catalog !== null ? 'checked' : carried ? 'unchecked' : 'uncheckable';
+        // [[EXT-190]] — **a catalog row is not a ceiling, and one of them is measured low.** Tier 3
+        // carries the overstatement case; this is the other direction, and its cost is the mirror
+        // image: an understated window compacts a conversation that still had room, discarding real
+        // context and paying for a summary to do it. Nothing errors and nothing is logged, so it is
+        // a quality cost rather than a correctness one — which is why it is recorded here and not
+        // corrected in code.
+        //
+        // Two ids, one identical payload per probe at `max_tokens: 1`. Both answered 200 and
+        // reported a prompt count equal to what was sent:
+        //
+        //   google-genai / gemini-2.5-flash-image   catalog 32,768   accepted 47,135
+        //   deepseek     / deepseek-chat            no catalog row   accepted 300,880
+        //
+        // **Those are lower bounds.** Neither id was pushed until it refused, so its real ceiling
+        // is unknown; the rows establish what was accepted and reported and nothing beyond that.
+        // **Finding the ceiling is deliberately declined, not merely unfinished.** A binary search
+        // bills real tokens, and it would sharpen a number that changes no decision: each accepted
+        // count already sits inside a figure the provider itself publishes, below.
+        //
+        // **`gemini-2.5-flash-image` — the catalog's number is wrong, not the field.** Google's
+        // Gemini API model page publishes an input token limit of 65,536 for this id, and 47,135
+        // falls between that and the 32,768 models.dev carries. The control that makes this the
+        // value rather than a misread quantity is `gemini-2.5-flash`, where the catalog's 1,048,576
+        // equals the same page's published input limit exactly — so `limit.context` does mean what
+        // this tier reads it as. A refresh does not move it: the live dataset carries the same
+        // 32,768, and `@langchain/google`'s profile carries 32,768 for this id too, so the backstop
+        // repeats rather than checks it. Note also that Google's Firebase AI Logic page lists
+        // 32,768 as this model's input limit, so which figure a reader finds depends on the surface
+        // they read; the Gemini API page is the one describing the surface `google-genai` calls.
+        //
+        // **`deepseek-chat` has no catalog row at all**, in the live dataset as much as in a cached
+        // slice, so this tier falls through for it and its window is the profile's 1,000,000 —
+        // which 300,880 is comfortably inside. The 128K attached to that id belongs to a DeepSeek
+        // generation it no longer names: the provider's current model list and change log carry
+        // neither `deepseek-chat` nor a 128K figure, and every deepseek row models.dev does carry
+        // is 1,000,000.
+        //
+        // **So that row understates nothing here, and needs no correcting.** There is no catalog
+        // number for it to be wrong, and no field being misread; the window this resolution hands
+        // out is larger than anything measured against it. **The one thing left genuinely open is
+        // the id**: it answered after the date its own retirement was announced, and what it serves
+        // now was not established. Anyone reasoning from `deepseek-chat` should settle that first.
+        //
+        // The general rule both rows illustrate: **a catalog number is what a provider published,
+        // not a limit anyone here has observed.** Treat it as the best available guess at the
+        // window and never as a proven bound.
         const context = catalog?.models?.[modelId]?.limit?.context;
         if (typeof context === 'number' && Number.isFinite(context) && context > 0) {
           return { tokens: context, origin: 'models.dev', check };
