@@ -1031,7 +1031,8 @@ depth.
 
 The docked `/debug` panel (`tui/components/DebugPanel.tsx`) is the inspectability surface (DL-4):
 each tab exposes one slice of what actually shaped the turn, one keystroke deep (DL-2). The tab set,
-in cycle order, is **Subagents · System prompt · Tools · MCP · Chat history · Raw response**.
+in cycle order, is **Subagents · System prompt · Tools · MCP · Chat history · Raw response ·
+Auto-mode**.
 
 - **Each tab opens with a short, plain-language description that scrolls WITH its content** (not a
   fixed header, so it costs no permanent estate; the `withDescription` idiom in `debugRender.ts`).
@@ -1046,6 +1047,23 @@ in cycle order, is **Subagents · System prompt · Tools · MCP · Chat history 
   for the full description + parameter schema (DL-2: overview here, detail one tab over). A server
   that supplied no instructions shows a neutral line, and a session with no MCP servers shows a
   neutral empty state rather than a blank or a crash (DL-7 graceful degradation).
+- **Auto-mode tab (TUI-C27).** The approvals gate's own record of every gated tool call this
+  session, over the rater config in force. **Its content is WHICH STAGE decided, and that is the
+  whole reason the tab exists (DL-4 transparency):** "escalated" on its own does not distinguish a
+  rater verdict from a deterministic floor match from a rating taken on a command the parser could
+  not resolve from a deny-list hit, and those need four different answers — so the deciding stage is
+  named per call, beside the rung, the rater's outcome and reason with the model that produced it,
+  any preflight finding, the matched floor, and the list entry. Most recent call first: the pane is
+  an eight-row viewport and the call a person opened it about is the last one.
+  - **It does not draw the rater's prompt or raw answer**, which are kilobytes each and the most
+    sensitive thing the record carries; those are written to the `/debug-dump` archive, and the
+    tab's intro says so, because an absence a user cannot explain reads as data not recorded (DL-2:
+    the tab is the overview, the archive the detail — the same rule the MCP tab follows).
+  - **Every value it draws goes through the same on-screen redaction the tool panels use**, then the
+    neutraliser, in that order — these records carry the user's own commands (GS2-47/GS2-54). One
+    policy, reused; never a second one written for this surface.
+  - **A session with no approvals gate gets a neutral empty state**, not a promise that something
+    will appear (DL-7 graceful degradation).
 
 ## Debug pane search (DL-4 inspectability, DL-2 progressive disclosure, DL-9 keyboard-first, TUI-C21)
 

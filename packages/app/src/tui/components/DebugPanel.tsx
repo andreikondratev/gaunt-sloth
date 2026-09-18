@@ -8,7 +8,15 @@ import { highlightSegments } from '#src/tui/debugSearch.js';
  * "Sent to model (system + tools)" section into two tabs — `system` and `tools` — so the tool
  * catalogue no longer sits below the whole system prompt.
  */
-export const DEBUG_TABS = ['subagents', 'system', 'tools', 'mcp', 'history', 'response'] as const;
+export const DEBUG_TABS = [
+  'subagents',
+  'system',
+  'tools',
+  'mcp',
+  'history',
+  'response',
+  'auto',
+] as const;
 export type DebugTab = (typeof DEBUG_TABS)[number];
 
 const TAB_LABELS: Record<DebugTab, string> = {
@@ -18,6 +26,7 @@ const TAB_LABELS: Record<DebugTab, string> = {
   mcp: 'MCP',
   history: 'Chat history',
   response: 'Raw response',
+  auto: 'Auto-mode',
 };
 
 export interface DebugPanelProps {
@@ -33,6 +42,8 @@ export interface DebugPanelProps {
   mcpLines: string[];
   /** Rendered lines for the "Raw response" tab (already split on newlines). */
   responseLines: string[];
+  /** Rendered lines for the "Auto-mode" tab — the approvals gate's decisions (TUI-C27). */
+  autoLines: string[];
   /** Which tab is shown. */
   activeTab: DebugTab;
   /** Top line of the windowed slice (PageUp/PageDown moves this while focused). */
@@ -63,6 +74,7 @@ export interface DebugPanelLinesInput {
   toolsLines: string[];
   mcpLines: string[];
   responseLines: string[];
+  autoLines: string[];
   activeTab: DebugTab;
 }
 
@@ -78,6 +90,7 @@ export function debugPanelLines({
   toolsLines,
   mcpLines,
   responseLines,
+  autoLines,
   activeTab,
 }: DebugPanelLinesInput): string[] {
   switch (activeTab) {
@@ -93,6 +106,8 @@ export function debugPanelLines({
       return historyLines.length ? historyLines : ['(no model call captured yet)'];
     case 'response':
       return responseLines.length ? responseLines : ['(no model response captured yet)'];
+    case 'auto':
+      return autoLines.length ? autoLines : ['(no approvals activity available in this session)'];
   }
 }
 
@@ -144,6 +159,7 @@ export function DebugPanel({
   toolsLines,
   mcpLines,
   responseLines,
+  autoLines,
   activeTab,
   scrollOffset,
   focused,
@@ -162,6 +178,7 @@ export function DebugPanel({
     toolsLines,
     mcpLines,
     responseLines,
+    autoLines,
     activeTab,
   });
 
@@ -202,7 +219,7 @@ export function DebugPanel({
           })}
         </Text>
       </Box>
-      {/* Hint on its own row so it never competes with the (now six) tab labels for width
+      {/* Hint on its own row so it never competes with the (now seven) tab labels for width
           and wraps mid-phrase. */}
       <Box>
         <Text dimColor>

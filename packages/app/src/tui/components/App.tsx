@@ -61,6 +61,7 @@ import {
   DEBUG_TABS,
   type DebugTab,
 } from '#src/tui/components/DebugPanel.js';
+import { renderApprovalDetails } from '#src/tui/debugRender.js';
 import {
   type ApprovalPostureChoice,
   approvalPostureChoices,
@@ -99,6 +100,13 @@ import { useTranscriptScroll } from '#src/tui/useTranscriptScroll.js';
 import { isComposingKeystroke, WHEEL_ROWS_PER_NOTCH } from '#src/tui/transcriptScroll.js';
 import { TUI_HINT_SUFFIX, TUI_KEY_BINDINGS } from '#src/tui/keyBindings.js';
 import { isTypedText, typedText } from '#src/tui/keyGuards.js';
+
+/**
+ * The empty line list a debug tab that is not on screen hands the panel. A module-level constant so
+ * its identity is stable across renders: a fresh `[]` each time would make the memo that clamps the
+ * scroll offset recompute on every render of every other tab.
+ */
+const NO_DEBUG_LINES: string[] = [];
 
 /** Rows of clipping viewport in the docked debug panel (default / restored size). */
 const DEBUG_VIEWPORT_HEIGHT = 8;
@@ -408,6 +416,19 @@ export function App(props: TuiAppProps): React.ReactElement {
   const debugViewport = debugViewportHeight(debugMaximized, terminalRows);
   // PageUp/PageDown step tracks the live viewport so maximise pages by (almost) a full screen.
   const debugPageStep = Math.max(1, debugViewport - 1);
+  // [[TUI-C27]] — the Auto-mode tab's lines: the approvals gate's own record of every gated tool
+  // call, plus the rater config in force (already held here, since `/approvals` moves it).
+  //
+  // **Read fresh on every render while that tab is on screen, deliberately, and memoised on
+  // nothing.** The decision this tab exists for emits no event: a call the rater approves on its
+  // first rating relays nothing to any surface — the tool simply runs — so anything keyed on the
+  // approval, negotiation or turn signals the App already has would look live and miss exactly it.
+  // A pull costs one render of a capped (50-record) buffer, and only while a user is looking at
+  // the tab; every other tab keeps the stable empty array and pays nothing.
+  const debugAuto =
+    debugVisible && debugTab === 'auto'
+      ? renderApprovalDetails(props.readApprovalCaptures?.() ?? [], approvals).split('\n')
+      : NO_DEBUG_LINES;
   // The active section's line count drives the real maximum scroll offset, so neither the page
   // step nor the arrow step can push the offset past the end (the over-scroll bug that left
   // PgUp/↑ burning through phantom offset before anything moved — TUI-C11). Single-sourced with
@@ -421,9 +442,10 @@ export function App(props: TuiAppProps): React.ReactElement {
         toolsLines: debugTools,
         mcpLines: debugMcp,
         responseLines: debugResponse,
+        autoLines: debugAuto,
         activeTab: debugTab,
       }),
-    [subagents, debugHistory, debugSystem, debugTools, debugMcp, debugResponse, debugTab]
+    [subagents, debugHistory, debugSystem, debugTools, debugMcp, debugResponse, debugAuto, debugTab]
   );
   const debugLineCount = debugLines.length;
   const debugMaxOffset = Math.max(0, debugLineCount - debugViewport);
@@ -2085,6 +2107,7 @@ export function App(props: TuiAppProps): React.ReactElement {
                 toolsLines={debugTools}
                 mcpLines={debugMcp}
                 responseLines={debugResponse}
+                autoLines={debugAuto}
                 activeTab={debugTab}
                 scrollOffset={debugScroll}
                 focused={debugFocused}

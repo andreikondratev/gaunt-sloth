@@ -2,12 +2,21 @@ import type { BaseMessage } from '@langchain/core/messages';
 import { mapChatMessagesToStoredMessages } from '@langchain/core/messages';
 import { z } from 'zod';
 import type { DebugRequestExtras, DebugToolDef } from '@gaunt-sloth/agent/core/debugCapture.js';
-import type { GthConfig } from '@gaunt-sloth/core/config.js';
+import type { GthConfig, ResolvedApprovals } from '@gaunt-sloth/core/config.js';
+import { APPROVAL_RUNG_LABELS, isRatedRung } from '@gaunt-sloth/core/config.js';
 import type {
   AgentResolvers,
   McpServerInstruction,
   McpConnectionFailure,
 } from '@gaunt-sloth/core/core/types.js';
+import type {
+  ApprovalCaptureAction,
+  ApprovalDecidingStage,
+  ApprovalDecisionCapture,
+  ApprovalHumanAnswer,
+} from '@gaunt-sloth/core/core/shell/approvalCapture.js';
+import { neutralizeUntrustedText } from '@gaunt-sloth/core/core/shell/framing.js';
+import { redactForToolDisplay } from '@gaunt-sloth/core/core/toolDisplay.js';
 import { MCP_TOOL_NAME_PREFIX } from '@gaunt-sloth/core/constants.js';
 
 /**
@@ -221,6 +230,267 @@ export function renderMcpDetails(
   }
 
   return withDescription(MCP_TAB_DESCRIPTION, sections.join('\n'));
+}
+
+const AUTO_TAB_DESCRIPTION =
+  'Auto-mode: what the approvals gate did with each gated tool call, and — the point of this tab — ' +
+  'WHICH STAGE decided it. "Escalated" on its own does not distinguish a rater verdict from a ' +
+  'deterministic floor match from a deny-list hit, and those need different answers. Most recent ' +
+  'call first. The rater config in force is at the top; the full rater prompt and its raw answer ' +
+  'are not drawn here — they are in the /debug-dump archive.';
+
+/**
+ * **Which stage decided**, in the words a reader of this tab needs.
+ *
+ * A total `Record` on purpose, for two reasons. A stage added to
+ * {@link @gaunt-sloth/core!core/shell/approvalCapture.ApprovalDecidingStage | ApprovalDecidingStage} is a compile error until someone writes its sentence,
+ * which is the same guarantee `MECHANISM_NOTES` and `APPROVAL_RUNG_LABELS` buy. And it puts the
+ * distinction this whole tab exists for in ONE table, so a test can pin each stage to its own
+ * wording rather than to an enum value that reads the same for every branch.
+ */
+const STAGE_LABELS: Record<ApprovalDecidingStage, string> = {
+  'not-gated': 'the rung in force does not gate this tool',
+  'deny-list': 'a declared deny entry (or an earlier "always reject")',
+  bypass: 'nothing — the gate is off for this session',
+  'hardline-floor': 'the deterministic hardline floor, before any rating',
+  'escalate-entry': 'a declared escalate entry — straight to a person, no rating',
+  'allow-list': 'a declared allow entry, with no rating',
+  'allow-tripwire': 'a declared allow entry that kept the rater on as a tripwire',
+  rater: 'the auto-rater',
+  'tool-open-world-floor': 'the open-world floor on a non-shell tool call',
+  'unrated-rung': 'the rung itself — it consults no model, so a person decides',
+};
+
+/** What became of the call, in the words the notices use. */
+const ACTION_LABELS: Record<ApprovalCaptureAction, string> = {
+  approve: 'approved — the tool ran',
+  reject: 'rejected',
+  escalate: 'escalated to a person',
+  halt: 'halted the run',
+  error: 'the decision itself errored',
+};
+
+/** How an escalation ended once it reached (or failed to reach) a person. */
+const HUMAN_ANSWER_LABELS: Record<ApprovalHumanAnswer, string> = {
+  approve: 'yes, and they approved',
+  reject: 'yes, and they refused',
+  'no-human': 'no — nobody was at the keyboard',
+};
+
+/**
+ * Render the "Auto-mode" tab ([[TUI-C27]]): the approvals gate's own record of every gated tool
+ * call this session, plus the rater config in force.
+ *
+ * **Newest first, which deliberately differs from `approvals.json` in the `/debug-dump` archive.**
+ * The archive is read in a text editor with the whole file in reach, so chronological order is the
+ * natural one there. This tab is an eight-row viewport, and the call a person opened it about is
+ * almost always the last one — putting the oldest of fifty records under the description would make
+ * the common case a scroll to the bottom.
+ *
+ * **The rater's prompt and raw answer are deliberately not drawn.** They are the archive's job (the
+ * capture holds them and `/debug-dump` writes them), each is kilobytes, and they are the most
+ * sensitive thing the record carries. The description says where they live so nobody reads their
+ * absence as them not being recorded.
+ *
+ * **Every free-text leaf goes through the SAME on-screen policy the tool panels use** —
+ * {@link @gaunt-sloth/core!core/toolDisplay.redactForToolDisplay | redactForToolDisplay} then {@link @gaunt-sloth/core!core/shell/framing.neutralizeUntrustedText | neutralizeUntrustedText}, in that order
+ * (see this module's `safeText`) — because these records carry the user's own commands. Applied per LEAF and
+ * never to the assembled block: the neutraliser escapes newlines, so neutralising the whole thing
+ * would collapse the tab into one unreadable line.
+ */
+export function renderApprovalDetails(
+  captures: readonly ApprovalDecisionCapture[],
+  approvals: ResolvedApprovals | undefined
+): string {
+  const sections: string[] = [];
+
+  sections.push('=== RATER CONFIG ===');
+  if (approvals) {
+    sections.push(
+      `rung in force: ${APPROVAL_RUNG_LABELS[approvals.rung]} ` +
+        `(${isRatedRung(approvals.rung) ? 'consults the rater' : 'consults no model'})`
+    );
+    sections.push(`rater profile: ${safeText(approvals.rater ?? '(the session model)')}`);
+    sections.push(
+      `alignment checker profile: ${safeText(approvals.alignmentChecker ?? '(the session model)')}`
+    );
+    sections.push(
+      `rater timeout: ${
+        approvals.raterTimeoutMs === undefined ? '(the default)' : `${approvals.raterTimeoutMs} ms`
+      }`
+    );
+    sections.push(
+      `declared entries: ${approvals.allow.length} allow · ${approvals.deny.length} deny · ` +
+        `${approvals.escalate.length} escalate`
+    );
+  } else {
+    sections.push('(this session has no approvals surface)');
+  }
+
+  sections.push('');
+  sections.push(`=== GATED CALLS (${captures.length}) — most recent first ===`);
+  if (captures.length === 0) {
+    sections.push('(no tool call has been through the gate yet)');
+    return withDescription(AUTO_TAB_DESCRIPTION, sections.join('\n'));
+  }
+
+  const newestFirst = [...captures].reverse();
+  newestFirst.forEach((record, i) => {
+    sections.push('');
+    for (const line of approvalRecordLines(record, i + 1, newestFirst.length)) sections.push(line);
+  });
+
+  return withDescription(AUTO_TAB_DESCRIPTION, sections.join('\n'));
+}
+
+/** One gated call, from arrival to outcome. */
+function approvalRecordLines(
+  record: ApprovalDecisionCapture,
+  position: number,
+  total: number
+): string[] {
+  const lines: string[] = [];
+  lines.push(`── ${position} of ${total} · ${safeText(record.at)} · ${safeText(record.tool)} ──`);
+  if (record.command !== undefined) lines.push(`  command: ${safeText(record.command)}`);
+  lines.push(`  rung in force: ${APPROVAL_RUNG_LABELS[record.rung]}`);
+  // The headline. `stage` is absent only when the decision threw before reaching one, and that is
+  // said outright rather than left as a blank a reader would read as the recorder having failed.
+  lines.push(
+    `  decided by: ${
+      record.stage ? STAGE_LABELS[record.stage] : '(the decision ended before any stage decided)'
+    }`
+  );
+  lines.push(
+    `  outcome: ${record.action ? ACTION_LABELS[record.action] : '(no outcome recorded)'}`
+  );
+  if (record.scope) lines.push(`  granted for: ${record.scope}`);
+  if (record.humanAnswer) {
+    lines.push(`  a person was asked: ${HUMAN_ANSWER_LABELS[record.humanAnswer]}`);
+  }
+
+  if (record.hardline) {
+    lines.push(`  hardline floor: ${safeText(record.hardline.description)}`);
+    // Naming the matched pattern is the §8.1 resolution this node took, and the same one the
+    // archive took: §8.1 governs rung descriptions and promotional copy, not a diagnostic view a
+    // user opens about their own session, where "a floor matched" is not actionable.
+    lines.push(`    matched pattern: ${safeText(record.hardline.pattern)}`);
+  }
+
+  if (record.ruleMatch) {
+    lines.push(`  list entry: ${record.ruleMatch.action} — ${safeText(record.ruleMatch.entry)}`);
+    if (record.ruleMatch.rate !== undefined) {
+      lines.push(`    rater kept on as a tripwire: ${yesNo(record.ruleMatch.rate)}`);
+    }
+  }
+
+  if (record.preflight) {
+    lines.push(`  preflight: ${record.preflight.kind} — ${safeText(record.preflight.reason)}`);
+    // Two different questions, and reporting either one alone misattributes the decision: whether
+    // the rating sat below the floor, and whether the decision's readers applied the floor at all.
+    lines.push(`    rewrote the rating: ${yesNo(record.preflight.rewroteRating)}`);
+    lines.push(`    applied to the decision: ${yesNo(record.preflight.floorApplied)}`);
+    if (record.preflight.carvedHosts?.length) {
+      lines.push(
+        `    hosts the user named: ${record.preflight.carvedHosts.map(safeText).join(', ')}`
+      );
+    }
+  }
+
+  if (record.parserUnresolved) {
+    // This is what remains of "was the call an abstain": not an outcome of its own, but the gate
+    // parser's shape report on a command it could not statically resolve, carried into the rating
+    // as neutral context. A rated call with this block and a rated call without it are two
+    // different stories about the same stage.
+    lines.push(`  command not statically resolvable: ${record.parserUnresolved.mechanism}`);
+    for (const note of record.parserUnresolved.notes) lines.push(`    note: ${safeText(note)}`);
+  }
+
+  lines.push(...ratingLines(record));
+  lines.push(...alignmentLines(record));
+
+  lines.push(
+    `  negotiation budget: ${record.budget.consecutiveRejections}/${record.budget.maxConsecutive} ` +
+      `consecutive rejections · ${record.budget.rejectionsSinceHuman}/${record.budget.maxBeforeHuman} ` +
+      'since a person was involved'
+  );
+  if (record.error) lines.push(`  error: ${safeText(record.error)}`);
+  return lines;
+}
+
+/** The rating call, when one was made. Its absence is itself reported — it names the stage. */
+function ratingLines(record: ApprovalDecisionCapture): string[] {
+  const rating = record.rating;
+  if (!rating) return ['  rating: none — no model was consulted for this call'];
+  const lines: string[] = [];
+  lines.push(
+    rating.verdict
+      ? `  rating: ${rating.verdict.outcome} — ${safeText(rating.verdict.reason)}`
+      : '  rating: sent, but no answer was recorded'
+  );
+  lines.push(
+    `    rater model: ${safeText(rating.model ?? '(not recorded)')}` +
+      ` · profile: ${safeText(rating.profile ?? '(the session model)')}` +
+      ` · ${rating.durationMs === undefined ? 'still in flight' : `${rating.durationMs} ms`}` +
+      ` (budget ${rating.timeoutMs} ms)`
+  );
+  lines.push(`    a rejection would go back to the agent: ${yesNo(rating.negotiable)}`);
+  if (rating.failClosed) {
+    // The distinction a bug report cannot make without this line: the gate decided, not the model.
+    lines.push(`    fail-closed: ${rating.failClosed} — the gate decided this, not the rater`);
+  }
+  if (rating.providerError) {
+    const parts: string[] = [];
+    if (rating.providerError.status !== undefined)
+      parts.push(`HTTP ${rating.providerError.status}`);
+    if (rating.providerError.message) parts.push(safeText(rating.providerError.message));
+    if (rating.providerError.withheld) parts.push('(provider message withheld)');
+    lines.push(`    provider error: ${parts.length ? parts.join(' — ') : '(no detail)'}`);
+  }
+  return lines;
+}
+
+/** The alignment check, when the classifier declined and a checker was consulted. */
+function alignmentLines(record: ApprovalDecisionCapture): string[] {
+  const alignment = record.alignment;
+  if (!alignment) return [];
+  const lines: string[] = [];
+  lines.push(
+    alignment.decision
+      ? `  alignment check: ${alignment.decision.kind} — ${safeText(alignment.decision.reason)}`
+      : '  alignment check: sent, but no decision was recorded'
+  );
+  if (alignment.decision?.suggestedCommand) {
+    lines.push(`    suggested instead: ${safeText(alignment.decision.suggestedCommand)}`);
+  }
+  lines.push(
+    `    checker profile: ${safeText(alignment.profile ?? '(the session model)')}` +
+      ` · ${alignment.durationMs === undefined ? 'still in flight' : `${alignment.durationMs} ms`}` +
+      ` (budget ${alignment.timeoutMs} ms)`
+  );
+  if (alignment.failClosed) {
+    lines.push(`    fail-closed: ${alignment.failClosed} — the gate decided this, not the checker`);
+  }
+  return lines;
+}
+
+/**
+ * One free-text leaf, ready for the screen.
+ *
+ * **Redact first, neutralise second — never the reverse**, the same order and the same reasoning as
+ * the tool panels (`parseChecklistArgs`, `toolDisplay.formatParamValue`): a literal secret carrying
+ * a control character stops matching the moment that character is rewritten to a printable escape,
+ * so neutralising first can leave a secret on screen that redacting first would have caught.
+ *
+ * The secret SET is `toolDisplay`'s, not one harvested here — a second harvest outside core has no
+ * registered config to read the inline `apiKey` literals from, and would be a visibly-redacted
+ * surface with a weaker guarantee than the panel beside it.
+ */
+function safeText(value: string): string {
+  return neutralizeUntrustedText(redactForToolDisplay(value));
+}
+
+function yesNo(value: boolean): string {
+  return value ? 'yes' : 'no';
 }
 
 /** Format one tool definition: name, description, then its JSON-schema params. */

@@ -1056,6 +1056,11 @@ async function runTuiSession(
         subscribeApproval={approvalBridge.subscribe}
         subscribeAttackHalt={attackHaltBridge.subscribe}
         subscribeNegotiation={negotiationBridge.subscribe}
+        // [[TUI-C27]] — the Auto-mode debug tab reads the gate's decisions from the live runner,
+        // at RENDER time, for the same reason `/debug-dump` reads them at call time: the log is
+        // mutated in place as each decision is made, so anything snapshotted earlier is a
+        // decision-in-progress frozen halfway.
+        readApprovalCaptures={() => runner.getApprovalCaptures()}
         onTurnComplete={logTurn}
         onExit={async () => {
           // Fail-closed: resolve any approval still awaiting a decision before tearing down,

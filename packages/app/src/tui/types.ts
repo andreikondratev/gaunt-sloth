@@ -27,6 +27,7 @@ import type { GthTerminationReason } from '@gaunt-sloth/core/core/terminationRea
 import type { GthOutstandingWork } from '@gaunt-sloth/core/core/outstandingWork.js';
 import type { GthRunRecap } from '@gaunt-sloth/core/core/runRecap.js';
 import type { LiveNegotiationRound } from '@gaunt-sloth/core/core/shell/negotiation.js';
+import type { ApprovalDecisionCapture } from '@gaunt-sloth/core/core/shell/approvalCapture.js';
 import type { CommandNoticeTone } from '#src/tui/components/CommandNotice.js';
 import type { DebugDumpInput } from '@gaunt-sloth/agent/modules/slashCommands.js';
 import type { ResumeResolution, ResumeTarget } from '@gaunt-sloth/agent/modules/sessionResume.js';
@@ -408,6 +409,20 @@ export interface TuiAppProps {
    * so the readline/AG-UI paths and the fixture agent (which have no such sink) simply omit it.
    */
   subscribeDebug?: (cb: (capture: TuiDebugCapture) => void) => () => void;
+  /**
+   * [[TUI-C27]] — read the approvals gate's record of this session's gated tool calls, for the
+   * `/debug` panel's **Auto-mode** tab.
+   *
+   * **A getter rather than a subscription, because the case the tab exists for emits nothing.** A
+   * call the rater approves on its first rating relays no event to any surface — the tool simply
+   * runs — so a push bridge would carry the refusals and negotiations and silently miss exactly the
+   * decision this instrumentation was filed over. The panel therefore pulls, reading the live
+   * `ApprovalCaptureLog` snapshot while the tab is on screen.
+   *
+   * Optional, and absent is what a surface with no approvals gate means: the fixture agent and the
+   * AG-UI path omit it and the tab shows its empty state rather than an empty promise.
+   */
+  readApprovalCaptures?: () => readonly ApprovalDecisionCapture[];
   /**
    * Subscribe to tool-approval requests bridged from the runner (EXT-9 Phase B2): each
    * {@link PendingApproval} carries the pending `run_shell_command` interrupt and a `resolve`

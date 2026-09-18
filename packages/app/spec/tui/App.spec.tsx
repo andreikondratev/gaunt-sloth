@@ -841,7 +841,7 @@ describe('tui <App>', () => {
 
   it('cycles debug sections backward with Shift+Tab (TUI-C11)', async () => {
     // Plain Tab steps forward (subagents → history → request → response); Shift+Tab steps back.
-    // From the first section, one Shift+Tab wraps to the last (response).
+    // From the first section, one Shift+Tab wraps to the last (auto).
     const agent = scriptedAgent([{ type: 'text', delta: 'hi' }]);
     let emit: ((c: import('#src/tui/types.js').TuiDebugCapture) => void) | undefined;
     const subscribeDebug = (cb: (c: import('#src/tui/types.js').TuiDebugCapture) => void) => {
@@ -875,12 +875,14 @@ describe('tui <App>', () => {
       expect(lastFrame()).toContain('(subagent dispatch is not available in this release)')
     );
 
-    // Shift+Tab from the first section (subagents) wraps backward to the last (response).
+    // Shift+Tab from the first section (subagents) wraps backward to the last (auto).
     stdin.write(SHIFT_TAB);
-    await vi.waitFor(() => expect(lastFrame()).toContain('RESPONSE_BODY'));
+    await vi.waitFor(() => expect(lastFrame()).toContain('Auto-mode:'));
 
-    // Order is subagents · system · tools · mcp · history · response (TUI-C20 inserts mcp after
-    // tools), so stepping back visits each of the six sections in turn.
+    // Order is subagents · system · tools · mcp · history · response · auto (TUI-C20 inserts mcp
+    // after tools, TUI-C27 appends auto), so stepping back visits each of the seven in turn.
+    stdin.write(SHIFT_TAB); // -> response
+    await vi.waitFor(() => expect(lastFrame()).toContain('RESPONSE_BODY'));
     stdin.write(SHIFT_TAB); // -> history
     await vi.waitFor(() => expect(lastFrame()).toContain('HISTORY_BODY'));
     stdin.write(SHIFT_TAB); // -> mcp
