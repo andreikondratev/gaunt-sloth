@@ -36,7 +36,7 @@ describe('toolDisplay (TUI-C30)', () => {
     });
 
     it('truncates over-long values with … at the per-value cap', async () => {
-      const { summariseToolCall, TOOL_PARAM_VALUE_MAX_CHARS } =
+      const { summariseToolCall, TOOL_PARAM_VALUE_MAX_COLUMNS } =
         await import('#src/core/toolDisplay.js');
       const long = 'x'.repeat(200);
       const summary = summariseToolCall('read_file', JSON.stringify({ path: long }), []);
@@ -44,7 +44,7 @@ describe('toolDisplay (TUI-C30)', () => {
       expect(summary).not.toContain(long);
       // The caps are COLUMN budgets, so the bound is measured in columns — on an ASCII fixture
       // the two coincide, and a `.length` bound would silently double the moment one does not.
-      expect(stringWidth(summary)).toBeLessThan(TOOL_PARAM_VALUE_MAX_CHARS + 20);
+      expect(stringWidth(summary)).toBeLessThan(TOOL_PARAM_VALUE_MAX_COLUMNS + 20);
     });
 
     it('caps a CJK value by terminal COLUMNS rather than code points (TUI-C34)', async () => {
@@ -62,7 +62,7 @@ describe('toolDisplay (TUI-C30)', () => {
     // TUI-C102 a newline is escaped to a visible `\x0a` rather than collapsed to a space, which the
     // approval dialog has always done for the same string and the same reason.
     it('caps the whole summary and keeps newlines off it so it stays one line', async () => {
-      const { summariseToolCall, TOOL_SUMMARY_MAX_CHARS } =
+      const { summariseToolCall, TOOL_SUMMARY_MAX_COLUMNS } =
         await import('#src/core/toolDisplay.js');
       const args = Object.fromEntries(
         Array.from({ length: 20 }, (_, i) => [`arg${i}`, `value number ${i}\nwith newline`])
@@ -70,7 +70,7 @@ describe('toolDisplay (TUI-C30)', () => {
       const summary = summariseToolCall('mystery_tool', JSON.stringify(args), []);
       expect(summary).not.toContain('\n');
       expect(stringWidth(summary)).toBeLessThanOrEqual(
-        stringWidth('mystery_tool()') + TOOL_SUMMARY_MAX_CHARS
+        stringWidth('mystery_tool()') + TOOL_SUMMARY_MAX_COLUMNS
       );
       expect(summary).toContain('…');
     });
@@ -119,10 +119,10 @@ describe('toolDisplay (TUI-C30)', () => {
     // than the per-value cap that matches no provider pattern (a bare 64-char hex token) would
     // otherwise be bisected by the cut, stop literal-matching, and leak its head.
     it('fully redacts a patternless literal secret LONGER than the value cap', async () => {
-      const { summariseToolCall, TOOL_PARAM_VALUE_MAX_CHARS } =
+      const { summariseToolCall, TOOL_PARAM_VALUE_MAX_COLUMNS } =
         await import('#src/core/toolDisplay.js');
       const secret = 'deadbeef'.repeat(8); // 64 chars, no provider-pattern prefix
-      expect(stringWidth(secret)).toBeGreaterThan(TOOL_PARAM_VALUE_MAX_CHARS);
+      expect(stringWidth(secret)).toBeGreaterThan(TOOL_PARAM_VALUE_MAX_COLUMNS);
       const summary = summariseToolCall('echo_tool', JSON.stringify({ token: secret }), [secret]);
       expect(summary).toBe('echo_tool(token=<redacted>)');
       expect(summary).not.toContain(secret.slice(0, 12)); // no leaked head
@@ -138,7 +138,7 @@ describe('toolDisplay (TUI-C30)', () => {
     });
 
     it('the whole-summary cap cannot bisect a secret out of matching either', async () => {
-      const { summariseToolCall, TOOL_SUMMARY_MAX_CHARS } =
+      const { summariseToolCall, TOOL_SUMMARY_MAX_COLUMNS } =
         await import('#src/core/toolDisplay.js');
       const secret = 'feedface'.repeat(5); // 40 chars — under the per-value cap, so it survives
       // Two padded args push the joined summary past the 120 cap with the secret STRADDLING the
@@ -150,7 +150,7 @@ describe('toolDisplay (TUI-C30)', () => {
       );
       expect(summary).not.toContain('feedface'); // neither whole nor bisected head survives
       expect(stringWidth(summary)).toBeLessThanOrEqual(
-        stringWidth('echo_tool()') + TOOL_SUMMARY_MAX_CHARS
+        stringWidth('echo_tool()') + TOOL_SUMMARY_MAX_COLUMNS
       );
     });
   });
@@ -180,17 +180,17 @@ describe('toolDisplay (TUI-C30)', () => {
     });
 
     it('caps an over-long single line at the per-line COLUMN budget with …', async () => {
-      const { capToolDisplayLines, TOOL_PREVIEW_LINE_MAX_CHARS } =
+      const { capToolDisplayLines, TOOL_PREVIEW_LINE_MAX_COLUMNS } =
         await import('#src/core/toolDisplay.js');
       const capped = capToolDisplayLines([{ text: 'y'.repeat(500), style: 'dim' }]);
-      expect(stringWidth(capped[0].text)).toBeLessThanOrEqual(TOOL_PREVIEW_LINE_MAX_CHARS);
+      expect(stringWidth(capped[0].text)).toBeLessThanOrEqual(TOOL_PREVIEW_LINE_MAX_COLUMNS);
       expect(capped[0].text.endsWith('…')).toBe(true);
 
       // The same cap on a CJK line, which is half as many code points as it is columns: 99 whole
       // two-column clusters (198) plus the marker (1) is the whole 200-column budget bar the odd
       // column no wide glyph can fill — a unit-counting cap would draw it twice that wide.
       const wide = capToolDisplayLines([{ text: '設定'.repeat(300), style: 'dim' }]);
-      expect(stringWidth(wide[0].text)).toBe(TOOL_PREVIEW_LINE_MAX_CHARS - 1);
+      expect(stringWidth(wide[0].text)).toBe(TOOL_PREVIEW_LINE_MAX_COLUMNS - 1);
       expect(wide[0].text.endsWith('…')).toBe(true);
     });
 
@@ -202,50 +202,53 @@ describe('toolDisplay (TUI-C30)', () => {
     // that did pass some. Read it as "this utility measures what a line RENDERS as", not as
     // evidence that some caller depends on the discount today.
     it('leaves a COLOURED line that visibly fits the cap alone, and still caps one that does not', async () => {
-      const { capToolDisplayLines, TOOL_PREVIEW_LINE_MAX_CHARS } =
+      const { capToolDisplayLines, TOOL_PREVIEW_LINE_MAX_COLUMNS } =
         await import('#src/core/toolDisplay.js');
       // 180 visible columns under the 200-column cap, but 380 once the escapes' own printable
       // bytes are counted — so whether this line fits has to be decided by what it RENDERS as, or
       // a fitting line comes back cut by its own escapes.
       const coloured = '\x1b[32m'.repeat(50) + 'a'.repeat(180);
-      expect(stringWidth(coloured)).toBeLessThan(TOOL_PREVIEW_LINE_MAX_CHARS);
+      expect(stringWidth(coloured)).toBeLessThan(TOOL_PREVIEW_LINE_MAX_COLUMNS);
       expect(capToolDisplayLines([{ text: coloured, style: 'dim' }])[0].text).toBe(coloured);
 
       // …and the cap still bites on a coloured line that genuinely over-runs, so this is not
       // "coloured input is exempt".
       const over = capToolDisplayLines([{ text: '\x1b[32m' + 'a'.repeat(400), style: 'dim' }])[0]
         .text;
-      expect(stringWidth(over)).toBeLessThanOrEqual(TOOL_PREVIEW_LINE_MAX_CHARS);
+      expect(stringWidth(over)).toBeLessThanOrEqual(TOOL_PREVIEW_LINE_MAX_COLUMNS);
       expect(over.endsWith('…')).toBe(true);
     });
 
     it('returns a line exactly the column budget wide unchanged, and marks the next column up', async () => {
-      const { capToolDisplayLines, TOOL_PREVIEW_LINE_MAX_CHARS } =
+      const { capToolDisplayLines, TOOL_PREVIEW_LINE_MAX_COLUMNS } =
         await import('#src/core/toolDisplay.js');
       const capped = (text: string): string =>
         capToolDisplayLines([{ text, style: 'dim' }])[0].text;
 
       // A line of exactly the budget needs no marker, so it comes back byte-identical — spending
       // a column on `…` here would cost a column of real output to say nothing was lost.
-      const exact = 'a'.repeat(TOOL_PREVIEW_LINE_MAX_CHARS);
-      expect(stringWidth(exact)).toBe(TOOL_PREVIEW_LINE_MAX_CHARS);
+      const exact = 'a'.repeat(TOOL_PREVIEW_LINE_MAX_COLUMNS);
+      expect(stringWidth(exact)).toBe(TOOL_PREVIEW_LINE_MAX_COLUMNS);
       expect(capped(exact)).toBe(exact);
 
       // One column more is the neighbour that makes the line above a boundary rather than a
       // "long lines pass through" claim: it loses its tail to the marker and lands on the budget.
-      const oneOver = 'a'.repeat(TOOL_PREVIEW_LINE_MAX_CHARS + 1);
-      expect(capped(oneOver)).toBe(`${'a'.repeat(TOOL_PREVIEW_LINE_MAX_CHARS - 1)}…`);
-      expect(stringWidth(capped(oneOver))).toBe(TOOL_PREVIEW_LINE_MAX_CHARS);
+      const oneOver = 'a'.repeat(TOOL_PREVIEW_LINE_MAX_COLUMNS + 1);
+      expect(capped(oneOver)).toBe(`${'a'.repeat(TOOL_PREVIEW_LINE_MAX_COLUMNS - 1)}…`);
+      expect(stringWidth(capped(oneOver))).toBe(TOOL_PREVIEW_LINE_MAX_COLUMNS);
 
       // The same pair in COLUMNS rather than units: half as many two-column clusters is exactly
-      // the budget, and one cluster more over-runs it by two.
-      const wideClusters = TOOL_PREVIEW_LINE_MAX_CHARS / 2;
+      // the budget, and one cluster more over-runs it by two. That halving needs an even budget:
+      // on an odd one `.repeat()` of a fractional count THROWS, before either assertion below can
+      // run, and the failure reads as a code regression rather than a stale test.
+      expect(TOOL_PREVIEW_LINE_MAX_COLUMNS % 2).toBe(0);
+      const wideClusters = TOOL_PREVIEW_LINE_MAX_COLUMNS / 2;
       const exactWide = '設'.repeat(wideClusters);
-      expect(stringWidth(exactWide)).toBe(TOOL_PREVIEW_LINE_MAX_CHARS);
+      expect(stringWidth(exactWide)).toBe(TOOL_PREVIEW_LINE_MAX_COLUMNS);
       expect(capped(exactWide)).toBe(exactWide);
       // A wide cluster cannot be half-drawn, so the marker leaves the odd column unspent.
       expect(capped(`${exactWide}設`)).toBe(`${'設'.repeat(wideClusters - 1)}…`);
-      expect(stringWidth(capped(`${exactWide}設`))).toBe(TOOL_PREVIEW_LINE_MAX_CHARS - 1);
+      expect(stringWidth(capped(`${exactWide}設`))).toBe(TOOL_PREVIEW_LINE_MAX_COLUMNS - 1);
     });
 
     it('uses the singular marker for exactly one hidden line', async () => {
@@ -547,7 +550,7 @@ describe('toolDisplay (TUI-C30)', () => {
     });
 
     it('composes redaction, neutralisation and the width cap on ONE line that needs all three', async () => {
-      const { buildToolPreviewLines, TOOL_PREVIEW_LINE_MAX_CHARS } =
+      const { buildToolPreviewLines, TOOL_PREVIEW_LINE_MAX_COLUMNS } =
         await import('#src/core/toolDisplay.js');
       // The secret literal CONTAINS a control character on purpose. That is the only input able to
       // tell redact-then-neutralise from neutralise-then-redact: rewrite the control character
@@ -569,7 +572,7 @@ describe('toolDisplay (TUI-C30)', () => {
       // escapes it used to discount are gone by the time it looks, so the measured width and the
       // sliced text are the same string — which is the property that breaks if the neutralisation
       // step is ever moved after the cap.
-      expect(stringWidth(text)).toBeLessThanOrEqual(TOOL_PREVIEW_LINE_MAX_CHARS);
+      expect(stringWidth(text)).toBeLessThanOrEqual(TOOL_PREVIEW_LINE_MAX_COLUMNS);
       expect(text.endsWith('…')).toBe(true);
     });
 
