@@ -170,6 +170,14 @@ exactly one line per tool call. From `warning` onwards the successful row goes t
 shows up only when something was wrong with it — a failure keeps its row and enough of the error to
 explain itself, and an auto-rater clarification keeps its own.
 
+The progress line quietens at the same step. While a command waits — on the model, on `gh`, on
+`git` — it prints a label and then a dot per second: `Thinking.`, `Reviewing.`,
+`Fetching GitHub PR #445 diff`. That whole line belongs to `info`, so you see it at `debug` and
+`info` and it is gone from `display` onwards — label, dots, and the line break that closes them, so
+a quieted run has no blank line left where the dots used to be. The one exception is the
+`reading STDIN` notice a piped run prints while it waits for the pipe to close: it is written before
+your config has been read, so it appears whatever this is set to.
+
 ## Tool output preview depth (toolOutputPreviewLines)
 
 Reviewing a large pull request, the agent reads a dozen files, and each read prints ten greyed lines

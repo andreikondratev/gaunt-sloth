@@ -1,7 +1,16 @@
 import { StatusLevel, StatusUpdateCallback } from '#src/core/types.js';
 import * as su from '#src/utils/systemUtils.js';
 import { closeLogStream, initLogStream, stream, writeToLogStream } from '#src/utils/systemUtils.js';
+import { shouldDisplayLevel } from '#src/utils/consoleLevel.js';
 import { debugLog } from '#src/utils/debugUtils.js';
+
+/**
+ * The console level is held in {@link @gaunt-sloth/core!utils/consoleLevel | utils/consoleLevel}, a
+ * module with no dependencies of its own, so that a writer which cannot use these helpers can still
+ * consult the same gate — see that module for why. Re-exported here because this is the spelling
+ * `consoleLevel` has always had, and one public name for one setting is worth more than tidiness.
+ */
+export { getConsoleLevel, resetConsoleLevel, setConsoleLevel } from '#src/utils/consoleLevel.js';
 
 // Internal state for session logging
 interface LoggingState {
@@ -9,18 +18,9 @@ interface LoggingState {
   enableSessionLogging: boolean;
 }
 
-// Internal state for console level control
-interface ConsoleLevelState {
-  currentLevel: StatusLevel;
-}
-
 const loggingState: LoggingState = {
   sessionLogFile: undefined,
   enableSessionLogging: false,
-};
-
-const consoleLevelState: ConsoleLevelState = {
-  currentLevel: StatusLevel.INFO, // Default to INFO level, not debug
 };
 
 /**
@@ -71,40 +71,6 @@ export const initSessionLogging = (logFileName: string, enableLogging: boolean):
     initLogStream(logFileName);
   }
 };
-
-/**
- * Set the console logging level.
- * Only messages at or above this level will be displayed.
- * @param level - The minimum level to display
- */
-export const setConsoleLevel = (level: StatusLevel): void => {
-  consoleLevelState.currentLevel = level;
-};
-
-/**
- * Get the current console logging level.
- * @returns The current console level
- */
-export const getConsoleLevel = (): StatusLevel => {
-  return consoleLevelState.currentLevel;
-};
-
-/**
- * Reset console level to default (INFO) for testing purposes
- */
-export const resetConsoleLevel = (): void => {
-  consoleLevelState.currentLevel = StatusLevel.INFO;
-};
-
-/**
- * Check if a given status level should be displayed based on current console level.
- * @param level - The status level to check
- * @returns true if the level should be displayed
- */
-function shouldDisplayLevel(level: StatusLevel): boolean {
-  // Use enum values for comparison (higher values = more verbose)
-  return level >= consoleLevelState.currentLevel;
-}
 
 export const flushSessionLog = (): void => {
   // Streams auto-flush, so this is now a no-op for API compatibility

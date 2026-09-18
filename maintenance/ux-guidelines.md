@@ -619,6 +619,27 @@ emitted only *after* a real wait crosses the threshold, and exactly once per wai
 A narration is a fact about the present moment, so it is never committed to the transcript — and
 never given a config rung, because unlike the end-of-run recap it spends nothing.
 
+## The progress line on the plain surface (DL-2 progressive disclosure, DL-7 graceful degradation)
+
+While a plain-surface command waits — on the model, on `gh`, on `git`, on Jira — it draws one line:
+a label saying what it is waiting for, then a dot per second saying it still is. `Thinking.`,
+`Reviewing.`, `Fetching GitHub PR #445 diff`. The TUI says the same thing in the status-bar spinner
+row and never draws this line.
+
+- **It is `INFO` output, label and dots together.** Shown at `debug` and `info`, gone from `display`
+  upward — the same rung and the same step of quietening as the tool-call announcements, so *quiet
+  the chatter, keep the result* moves both at once. One rung, not two: the label says what is
+  happening and the dots say it still is, and a reader who does not want the second has no use for
+  the first.
+- **A quieted run gains no blank row.** `stop()` writes the line's terminating newline, so a gate on
+  the label and the dots alone would leave an empty line exactly where the dots used to be — silent
+  output and empty output are not the same thing in a piped run or a posted report. The decision is
+  taken once, when the line starts, and covers the newline with it, which also means a level change
+  mid-line can never leave half a line behind.
+- **`reading STDIN` prints whatever the level says.** It is written before the config has been read
+  (the run-header bullet above explains why that ordering is fixed), so there is no level in force
+  to consult. It is the only progress line a user cannot quieten.
+
 ## A run that ended in an error (DL-1, DL-4 transparency)
 
 - **A provider error is rendered as prose, and the serialized payload never reaches the user's

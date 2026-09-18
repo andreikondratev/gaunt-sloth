@@ -322,6 +322,21 @@ export function readStdin(program: ProgramLike): Promise<void> {
       program.parseAsync().then(() => resolvePromise());
     } else {
       // Support piping diff into gsloth
+      //
+      // TUI-C110 — this notice is gated on the console level like every other progress line, with
+      // no opt-out, and it is the one site where that gate cannot yet take effect. It is the only
+      // one that reports on the USER'S input rather than on the agent's work, which is an argument
+      // for exempting it — a run blocked on a pipe that never closes has nothing else to explain
+      // itself with. It loses to two: an exemption is a writer outside the level system, which is
+      // the whole defect this class of line had; and a user who quieted the console asked for the
+      // silence, in a run that is saying nothing else either.
+      //
+      // **Where it cannot take effect:** `readStdin` runs BEFORE `program.parseAsync()`, and
+      // `consoleLevel` is applied from the config inside the command action, i.e. after the parse
+      // — so the level in force here is always the INFO default and the notice always prints. That
+      // ordering is deliberate and load-bearing (the notice's line must be closed before the run
+      // header starts at column 0, see `maintenance/ux-guidelines.md`), so this is not a gate to
+      // "fix" by moving the write; it is a gate waiting on the level being resolvable this early.
       const progressIndicator = new ProgressIndicator('reading STDIN', true);
 
       stdin.on('readable', function (this: NodeJS.ReadStream) {
