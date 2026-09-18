@@ -8,10 +8,6 @@ updates:
   - package-ecosystem: 'npm' # See documentation for possible values
     directories:
       - '/'
-      - '/packages/agent'
-      - '/packages/app'
-      - '/packages/core'
-      - '/packages/review'
     schedule:
       interval: 'weekly'
     ignore:
