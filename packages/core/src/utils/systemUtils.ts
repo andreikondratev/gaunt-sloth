@@ -309,34 +309,47 @@ export const setEntryPoint = (indexJs: string): void => {
 };
 
 /**
+ * Whether this run will block on piped stdin — and therefore whether {@link readStdin} will draw
+ * its `reading STDIN` line before the command line is parsed.
+ *
+ * Exported so the CLI can ask the same question {@link readStdin} branches on instead of restating
+ * it: what happens before the parse is decided here, and a second copy of the condition is how the
+ * caller ends up preparing for a branch the reader does not take (or missing the one it does).
+ *
+ * `--no-pipe` is registered as a plain negated Option (cli.ts), so Commander maps it to
+ * `pipe === false` rather than `nopipe === true` — see EXT-39. Both spellings mean the same thing:
+ * skip the piped-stdin wait.
+ */
+export function willWaitForPipedStdin(program: ProgramLike): boolean {
+  const nopipe = program.getOptionValue('nopipe') || program.getOptionValue('pipe') === false;
+  return !stdin.isTTY && !nopipe;
+}
+
+/**
  * Asynchronously reads the stdin and stores it as a string,
  * it can later be retrieved with getStringFromStdin.
  */
 export function readStdin(program: ProgramLike): Promise<void> {
   return new Promise((resolvePromise) => {
-    // `--no-pipe` is registered as a plain negated Option (cli.ts), so Commander maps it to
-    // `pipe === false` rather than `nopipe === true` — see EXT-39. Both spellings mean the same
-    // thing: skip the piped-stdin wait.
-    const nopipe = program.getOptionValue('nopipe') || program.getOptionValue('pipe') === false;
-    if (stdin.isTTY || nopipe) {
+    if (!willWaitForPipedStdin(program)) {
       program.parseAsync().then(() => resolvePromise());
     } else {
       // Support piping diff into gsloth
       //
       // TUI-C110 — this notice is gated on the console level like every other progress line, with
-      // no opt-out, and it is the one site where that gate cannot yet take effect. It is the only
-      // one that reports on the USER'S input rather than on the agent's work, which is an argument
-      // for exempting it — a run blocked on a pipe that never closes has nothing else to explain
-      // itself with. It loses to two: an exemption is a writer outside the level system, which is
-      // the whole defect this class of line had; and a user who quieted the console asked for the
-      // silence, in a run that is saying nothing else either.
+      // no opt-out. It is the only one that reports on the USER'S input rather than on the agent's
+      // work, which is an argument for exempting it — a run blocked on a pipe that never closes has
+      // nothing else to explain itself with. It loses to two: an exemption is a writer outside the
+      // level system, which is the whole defect this class of line had; and a user who quieted the
+      // console asked for the silence, in a run that is saying nothing else either.
       //
-      // **Where it cannot take effect:** `readStdin` runs BEFORE `program.parseAsync()`, and
-      // `consoleLevel` is applied from the config inside the command action, i.e. after the parse
-      // — so the level in force here is always the INFO default and the notice always prints. That
-      // ordering is deliberate and load-bearing (the notice's line must be closed before the run
-      // header starts at column 0, see `maintenance/ux-guidelines.md`), so this is not a gate to
-      // "fix" by moving the write; it is a gate waiting on the level being resolvable this early.
+      // This line is written BEFORE `program.parseAsync()`, so the level it consults is whatever is
+      // in force before the parse. That is why the CLI resolves `consoleLevel` from the config
+      // itself before it calls this function, on exactly the branch reached here
+      // ({@link willWaitForPipedStdin}) — see `loadConfiguredConsoleLevel`. The ordering is
+      // deliberate and load-bearing (the notice's line must be closed before the run header starts
+      // at column 0, see `maintenance/ux-guidelines.md`), so the level is what moves early; the
+      // write stays where it is.
       const progressIndicator = new ProgressIndicator('reading STDIN', true);
 
       stdin.on('readable', function (this: NodeJS.ReadStream) {

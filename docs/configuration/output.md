@@ -174,9 +174,10 @@ The progress line quietens at the same step. While a command waits — on the mo
 `git` — it prints a label and then a dot per second: `Thinking.`, `Reviewing.`,
 `Fetching GitHub PR #445 diff`. That whole line belongs to `info`, so you see it at `debug` and
 `info` and it is gone from `display` onwards — label, dots, and the line break that closes them, so
-a quieted run has no blank line left where the dots used to be. The one exception is the
-`reading STDIN` notice a piped run prints while it waits for the pipe to close: it is written before
-your config has been read, so it appears whatever this is set to.
+a quieted run has no blank line left where the dots used to be. That includes the `reading STDIN`
+notice a piped run prints while it waits for the pipe to close: it is written before the command
+line is parsed, so Gaunt Sloth reads `consoleLevel` out of your config first, before it starts
+waiting.
 
 ## Tool output preview depth (toolOutputPreviewLines)
 

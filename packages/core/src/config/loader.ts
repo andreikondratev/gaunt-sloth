@@ -888,6 +888,94 @@ async function readProjectConfiguredTui(
 }
 
 /**
+ * The configured `consoleLevel`, resolved from the config layers BEFORE the CLI parses its
+ * command line — or `undefined` when nobody set a usable one.
+ *
+ * ## Why the level has to be answerable this early
+ *
+ * `readStdin` blocks a piped run until its input ends, and draws a `reading STDIN` progress line
+ * while it waits. That happens before `program.parseAsync()`, and the level the run finally uses is
+ * applied inside the command's action — after the parse. A writer that consults the level before
+ * anything set it reads the INFO default, so the one progress line a piped run draws was the one
+ * line no `consoleLevel` could quieten. The ordering it sits in is fixed for its own reason (the
+ * notice's line must be closed before the run header starts at column 0, see
+ * `maintenance/ux-guidelines.md`), so the level is what moves.
+ *
+ * ## Why this cannot disagree with the level the run ends up on
+ *
+ * It is the same key, read from the same files, discovered the same way, and narrowed by the same
+ * `resolveConsoleLevel`, so the answer is the one a full load reaches. It overrides nothing: where
+ * a run goes on to build its config, `mergeConfig` re-applies the identical value and has the last
+ * word (the defaults always carry a `consoleLevel`, so it never leaves the setting alone). A run
+ * that never builds one — the config-decoupled read-only surfaces, or an exit before the load —
+ * keeps what is read here, which is still the level its user configured. The two readings can
+ * therefore differ only by one of them being absent, never by disagreeing.
+ *
+ * An unusable value resolves to `undefined` here and is left at the default, exactly as the merge
+ * leaves it, and the warning naming it is written once, by the merge, rather than twice.
+ *
+ * ## Quiet, deliberately
+ *
+ * Every failure resolves to `undefined` and a debug line: a config this cannot read is a config
+ * with no level in it as far as this reader is concerned. It must not be the first thing to report
+ * a broken config, because it runs before the parse — earlier than the CLI's top-level guard, which
+ * is where a malformed config, an unresolvable profile and a broken `extends` chain are reported
+ * today. Answering "no level" leaves that report exactly where it is.
+ *
+ * This is {@link loadConfiguredTui}'s twin and deliberately not merged with it: that one narrows to
+ * a boolean and lets a malformed `extends` reach the top level, because it runs inside a command
+ * action where that is the right place for it.
+ */
+export async function loadConfiguredConsoleLevel(
+  commandLineConfigOverrides: CommandLineConfigOverrides
+): Promise<StatusLevel | undefined> {
+  try {
+    const discovered = findProjectConfigPath(commandLineConfigOverrides);
+    if (discovered) {
+      const projectLevel = resolveConsoleLevel(
+        await readProjectConfiguredConsoleLevel(discovered.path, commandLineConfigOverrides)
+      );
+      if (projectLevel !== undefined) {
+        return projectLevel;
+      }
+    }
+    const globalRaw = await loadGlobalRawConfigUnvalidated(
+      globalLayerProfile(commandLineConfigOverrides)
+    );
+    if (!globalRaw) {
+      return undefined;
+    }
+    let raw = globalRaw.raw;
+    // The global layer's `extends` is walked on exactly the branch a run walks it on — only when no
+    // project layer was discovered — for the reason spelled out on {@link loadConfiguredTui}.
+    if (!discovered && typeof raw.extends === 'string') {
+      raw = await resolveConfigExtends(raw, globalLayerProfile(commandLineConfigOverrides), {
+        globalOnly: commandLineConfigOverrides.global,
+      });
+    }
+    return resolveConsoleLevel(raw.consoleLevel);
+  } catch (e) {
+    displayDebug(e instanceof Error ? e : String(e));
+    return undefined;
+  }
+}
+
+/**
+ * The PROJECT layer's raw `consoleLevel`, composed through its `extends` chain the way a run
+ * composes it. Returns whatever the config carries; the caller narrows it.
+ */
+async function readProjectConfiguredConsoleLevel(
+  discoveredPath: string,
+  commandLineConfigOverrides: CommandLineConfigOverrides
+): Promise<unknown> {
+  let raw = await readRawConfigAtPath(discoveredPath);
+  if (typeof raw.extends === 'string') {
+    raw = await resolveConfigExtends(raw, commandLineConfigOverrides.identityProfile);
+  }
+  return raw.consoleLevel;
+}
+
+/**
  * CFG-56 / CFG-57 — the one statement of why `global` and `customConfigPath` cannot travel
  * together: both choose WHERE configuration comes from, so honouring either makes the other a
  * silent no-op. Exported because the CLI refuses the pair at flag-parse time (before anything is
@@ -1852,7 +1940,13 @@ const CONSOLE_LEVELS_BY_NAME: Record<string, StatusLevel> = {
   stream: StatusLevel.STREAM,
 };
 
-function resolveConsoleLevel(level: ConsoleLevelInput | StatusLevel): StatusLevel | undefined {
+/**
+ * The one reading of a configured `consoleLevel` — a level name, a {@link StatusLevel} number, or
+ * nothing usable. Takes `unknown` so the pre-parse reader ({@link loadConfiguredConsoleLevel}) can
+ * hand it a raw, unvalidated config value and get the same answer the merge gets, rather than
+ * carrying a second parser that could read the same file differently.
+ */
+function resolveConsoleLevel(level: unknown): StatusLevel | undefined {
   if (typeof level === 'number') {
     return StatusLevel[level] !== undefined ? level : undefined;
   }

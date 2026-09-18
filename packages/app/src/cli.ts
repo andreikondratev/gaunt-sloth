@@ -20,13 +20,26 @@ import {
 } from '#src/commands/resumeOption.js';
 import { insightsCommand } from '#src/commands/insightsCommand.js';
 import { modelsCommand } from '#src/commands/modelsCommand.js';
-import { argv, exit, getSlothVersion, readStdin } from '@gaunt-sloth/core/utils/systemUtils.js';
+import {
+  argv,
+  exit,
+  getSlothVersion,
+  readStdin,
+  willWaitForPipedStdin,
+} from '@gaunt-sloth/core/utils/systemUtils.js';
 import { commandSkipsStdin, resolveInvokedCommandName } from '#src/utils/stdinPolicy.js';
 import { guardProgramConfigErrors } from '#src/utils/configErrorGuard.js';
 import type { CommandLineConfigOverrides } from '@gaunt-sloth/core/config.js';
-import { CONFLICTING_CONFIG_SOURCES_MESSAGE } from '@gaunt-sloth/core/config.js';
+import {
+  CONFLICTING_CONFIG_SOURCES_MESSAGE,
+  loadConfiguredConsoleLevel,
+} from '@gaunt-sloth/core/config.js';
 
-import { coerceBooleanOrString, displayError } from '@gaunt-sloth/core/utils/consoleUtils.js';
+import {
+  coerceBooleanOrString,
+  displayError,
+  setConsoleLevel,
+} from '@gaunt-sloth/core/utils/consoleUtils.js';
 import { installCrashHandler } from '@gaunt-sloth/core/utils/crashHandler.js';
 
 // GS2-48 — install the process-level crash handler as early as possible, so an uncaughtException /
@@ -182,6 +195,41 @@ if (
 ) {
   displayError(rootResumeRefusalMessage(invokedCommand, rootResume));
   exit(1);
+}
+
+// REL-25 — resolve `consoleLevel` from the config BEFORE the parse, because a piped run writes
+// before the parse. `readStdin` blocks until the pipe closes and draws its `reading STDIN` line
+// while it waits; the level a run finally uses is applied from the merged config inside the command
+// action, i.e. after `program.parseAsync()`. Without this the only level in force when that line is
+// written is the INFO default, so the one progress line a piped run draws was the one line no
+// `consoleLevel` could quieten.
+//
+// **The level is read twice on purpose, and there is only ever one value.** This reads the same key
+// from the same files through the same discovery and the same narrowing as the config load that
+// follows, and sets nothing else. Where that load runs it re-applies the identical value and has
+// the last word (its defaults always carry a `consoleLevel`, so it never leaves the setting alone);
+// where it never runs at all — `insights` and `models` resolve no config, and a `--help`/`--version`
+// run exits before one is built — the value read here is the only one, and it is still the level the
+// user configured. So the two readings cannot hold different answers; one of them can only be
+// absent. That does mean a PIPED `gth insights` now filters its own output by `consoleLevel` while
+// a non-piped one still does not: those surfaces sit outside the config load, not outside the level
+// system, and closing that asymmetry is a change to them rather than to this line.
+//
+// It is also silent: a config it cannot read answers "no level", leaving the run at the default and
+// leaving the report of a broken config where it already is, at the CLI's top-level guard after the
+// parse.
+//
+// Asked only on the branch that writes early, and asked through `readStdin`'s own predicate rather
+// than a restatement of it: a run that will not wait on a pipe gains nothing here, and would pay a
+// config read (and, for a `configure()`-style config, a second module evaluation) for it.
+//
+// It must come after the option-derived overrides above — `-c`, `-g` and `--profile` decide WHICH
+// config this reads — and after the `--no-pipe` implication, which decides whether it is read.
+if (willWaitForPipedStdin(program)) {
+  const earlyConsoleLevel = await loadConfiguredConsoleLevel(cliConfigOverrides);
+  if (earlyConsoleLevel !== undefined) {
+    setConsoleLevel(earlyConsoleLevel);
+  }
 }
 
 // CFG-35 — the config loader raises a catchable error when a provider has no resolvable API key,

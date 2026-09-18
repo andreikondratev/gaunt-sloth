@@ -502,6 +502,10 @@
       "kind": "function"
     },
     {
+      "name": "loadConfiguredConsoleLevel",
+      "kind": "function"
+    },
+    {
       "name": "loadConfiguredTui",
       "kind": "function"
     },

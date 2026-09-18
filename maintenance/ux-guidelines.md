@@ -641,9 +641,11 @@ row and never draws this line.
   output and empty output are not the same thing in a piped run or a posted report. The decision is
   taken once, when the line starts, and covers the newline with it, which also means a level change
   mid-line can never leave half a line behind.
-- **`reading STDIN` prints whatever the level says.** It is written before the config has been read
-  (the run-header bullet above explains why that ordering is fixed), so there is no level in force
-  to consult. It is the only progress line a user cannot quieten.
+- **`reading STDIN` quietens with the rest of them.** It is written before the command line is
+  parsed (the run-header bullet above explains why that ordering is fixed), so the CLI resolves
+  `consoleLevel` from the config before it starts waiting on the pipe, and the line is drawn — or
+  not — at the level the run is about to use. A writer that runs this early has to be given a level;
+  it must not be given an exemption, which is a writer outside the level system again.
 
 ## A run that ended in an error (DL-1, DL-4 transparency)
 

@@ -6,15 +6,17 @@ import { resetConsoleLevel, setConsoleLevel } from '#src/utils/consoleLevel.js';
  * [[TUI-C110]] — the tenth construction site: `reading STDIN`, the manual-mode indicator
  * `systemUtils.readStdin` draws while a piped run waits for its input to end.
  *
- * **Read the honest part first.** This site is gated like the other nine, and the gate cannot take
- * effect in the CLI today: `readStdin` runs BEFORE `program.parseAsync()`, and `consoleLevel` is
- * applied from the config inside the command action, i.e. after the parse — so the level in force
- * when this line is written is always the INFO default. The first cell below is the live behaviour;
- * the quiet ones pin the WIRING (this site consults the same gate as the rest, with no exemption of
- * its own) and would become user-visible the moment a level is resolvable that early. They are not
- * evidence that a piped run at `consoleLevel: "display"` is quiet today, and no other cell in this
- * repo should be read as saying so either. The argument for gating it anyway is at the construction
- * site in `systemUtils.ts`.
+ * This site is gated like the other nine, with no exemption of its own, and what these cells pin is
+ * the WIRING: the label, the dots and the terminating newline all follow the one gate. The argument
+ * for gating a line that reports on the user's own input is at the construction site in
+ * `systemUtils.ts`.
+ *
+ * **What these cells cannot see.** This line is written before `program.parseAsync()`, so whether a
+ * real run is quiet depends on the level being resolved before the parse — which the CLI does, from
+ * the config, on the piped branch ([[REL-25]]; `cli.ts`, `loadConfiguredConsoleLevel`). Nothing in
+ * this file exercises that ordering, and an in-process cell never could: it sets the level itself,
+ * in whatever order it likes. The evidence that a piped `gth` at `consoleLevel: "display"` prints
+ * nothing is `packages/app/spec/stdinNoticeConsoleLevel.e2e.spec.ts`, which spawns the built CLI.
  *
  * `readStdin` reads `systemUtils`' own module-level `stdin`/`stdout` bindings, which are captured
  * from `process` when the module is evaluated — so the seam here is the global `process` itself,
@@ -88,9 +90,9 @@ describe('progress-line gating, per construction site: readStdin (reading STDIN)
   });
 
   /**
-   * The live behaviour, and the byte-identity evidence for this site: the label, a dot per chunk,
-   * and the newline `stop()` writes before the command's own first line — the run header has to
-   * start at column 0 (`maintenance/ux-guidelines.md`).
+   * The byte-identity evidence for this site: the label, a dot per chunk, and the newline `stop()`
+   * writes before the command's own first line — the run header has to start at column 0
+   * (`maintenance/ux-guidelines.md`).
    */
   it('draws its line, and nothing more, at the default info level', async () => {
     await pipedRun();
