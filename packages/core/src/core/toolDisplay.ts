@@ -15,7 +15,7 @@
  * `collapseToolOutput`) so the surfaces stay analogous without sharing code.
  *
  * Design rules (from the node spec):
- *  - **One canonical output cap: {@link TOOL_OUTPUT_PREVIEW_LINES} lines** (and a per-line char
+ *  - **One canonical output cap: {@link TOOL_OUTPUT_PREVIEW_LINES} lines** (and a per-line column
  *    cap), applied by {@link capToolDisplayLines} with a `… (+N more lines)` overflow marker.
  *    This is a RENDER-time cap only — the model-facing `OutputBuffer`/EXT-9 head-tail caps are a
  *    separate layer beneath it and are never touched here.
@@ -55,16 +55,16 @@ export const TOOL_ERROR_PREVIEW_FLOOR_LINES = 3;
 
 /**
  * Per-line cap for preview lines, in terminal COLUMNS (a one-line minified bundle must not flood a
- * row). The `CHARS` in the name is historical; every cap here is a column budget, because a
- * character count is not a width — see `#src/utils/displayWidth.js`.
+ * row). Every cap in this module is a column budget, never a character count: a character count is
+ * not a width — see `#src/utils/displayWidth.js`.
  */
-export const TOOL_PREVIEW_LINE_MAX_CHARS = 200;
+export const TOOL_PREVIEW_LINE_MAX_COLUMNS = 200;
 
 /** Per-value cap inside a params summary, in terminal COLUMNS. */
-export const TOOL_PARAM_VALUE_MAX_CHARS = 48;
+export const TOOL_PARAM_VALUE_MAX_COLUMNS = 48;
 
 /** Whole params-summary cap (everything inside the parentheses), in terminal COLUMNS. */
-export const TOOL_SUMMARY_MAX_CHARS = 120;
+export const TOOL_SUMMARY_MAX_COLUMNS = 120;
 
 /** The overflow/truncation marker used everywhere in this module. */
 export const ELLIPSIS = '…';
@@ -337,7 +337,7 @@ function resolveToolPreviewLines(toolName: string): number {
  * Whether the value fits is put to the SLICE rather than to the ruler, because the slice stops at
  * the budget: a value that over-runs is recognised from its first `max` columns, where measuring
  * it reads all of it — and the values arriving here are whole tool-output lines, which
- * {@link TOOL_PREVIEW_LINE_MAX_CHARS} exists precisely because they can be a megabyte long.
+ * {@link TOOL_PREVIEW_LINE_MAX_COLUMNS} exists precisely because they can be a megabyte long.
  */
 function truncate(value: string, max: number): string {
   const fitted = sliceToWidth(value, max);
@@ -376,7 +376,7 @@ function formatParamValue(value: unknown, secrets: readonly string[]): string {
       text = String(value);
     }
   }
-  return truncate(neutralizeToOneLine(redactText(text, secrets)), TOOL_PARAM_VALUE_MAX_CHARS);
+  return truncate(neutralizeToOneLine(redactText(text, secrets)), TOOL_PARAM_VALUE_MAX_COLUMNS);
 }
 
 /**
@@ -614,7 +614,7 @@ export function getToolGlyph(name: string): string {
 /**
  * One-line call summary: `name(arg=val, other=…)`. Key args only (per the registry entry, or
  * all args for unknown tools), each value inlined + truncated, the whole parenthesised part
- * capped at {@link TOOL_SUMMARY_MAX_CHARS}, and everything secret-redacted (literals +
+ * capped at {@link TOOL_SUMMARY_MAX_COLUMNS}, and everything secret-redacted (literals +
  * provider patterns). Unparsable (mid-stream/malformed) args render as `name(…)` — never a
  * raw JSON dump. `secrets` defaults to the env-derived literals; pass explicitly for tests.
  *
@@ -659,7 +659,7 @@ export function summariseToolCall(
   if (hasHiddenArgs) parts.push(ELLIPSIS);
   // Redact before the whole-summary cap too, so this truncation can no more bisect a secret
   // out of literal-matching than the per-value one can.
-  const inner = truncate(redactText(parts.join(', '), secrets), TOOL_SUMMARY_MAX_CHARS);
+  const inner = truncate(redactText(parts.join(', '), secrets), TOOL_SUMMARY_MAX_COLUMNS);
   // [[TUI-C102]] — the values were neutralised one by one above (each needed it before its own
   // width budget could mean anything); this last pass covers the two strings that never went
   // through `formatParamValue`: the tool NAME and the arg KEYS. Neither is ours — an MCP
@@ -775,8 +775,8 @@ export function buildToolExpansionText(
 }
 
 /**
- * Apply the canonical render cap: at most `maxLines` lines (each char-capped at
- * {@link TOOL_PREVIEW_LINE_MAX_CHARS} with `…`), plus a dim `… (+N more lines)` overflow
+ * Apply the canonical render cap: at most `maxLines` lines (each capped at
+ * {@link TOOL_PREVIEW_LINE_MAX_COLUMNS} columns with `…`), plus a dim `… (+N more lines)` overflow
  * marker when anything was cut. The marker line is IN ADDITION to the cap so exactly how much
  * was hidden is always stated (DL-4 transparency).
  *
@@ -797,7 +797,7 @@ export function capToolDisplayLines(
 ): ToolDisplayLine[] {
   const capped = lines.slice(0, maxLines).map((l) => ({
     ...l,
-    text: truncate(l.text, TOOL_PREVIEW_LINE_MAX_CHARS),
+    text: truncate(l.text, TOOL_PREVIEW_LINE_MAX_COLUMNS),
   }));
   const hidden = lines.length - capped.length;
   if (hidden > 0) {
