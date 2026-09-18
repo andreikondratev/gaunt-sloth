@@ -219,6 +219,35 @@ describe('toolDisplay (TUI-C30)', () => {
       expect(over.endsWith('…')).toBe(true);
     });
 
+    it('returns a line exactly the column budget wide unchanged, and marks the next column up', async () => {
+      const { capToolDisplayLines, TOOL_PREVIEW_LINE_MAX_CHARS } =
+        await import('#src/core/toolDisplay.js');
+      const capped = (text: string): string =>
+        capToolDisplayLines([{ text, style: 'dim' }])[0].text;
+
+      // A line of exactly the budget needs no marker, so it comes back byte-identical — spending
+      // a column on `…` here would cost a column of real output to say nothing was lost.
+      const exact = 'a'.repeat(TOOL_PREVIEW_LINE_MAX_CHARS);
+      expect(stringWidth(exact)).toBe(TOOL_PREVIEW_LINE_MAX_CHARS);
+      expect(capped(exact)).toBe(exact);
+
+      // One column more is the neighbour that makes the line above a boundary rather than a
+      // "long lines pass through" claim: it loses its tail to the marker and lands on the budget.
+      const oneOver = 'a'.repeat(TOOL_PREVIEW_LINE_MAX_CHARS + 1);
+      expect(capped(oneOver)).toBe(`${'a'.repeat(TOOL_PREVIEW_LINE_MAX_CHARS - 1)}…`);
+      expect(stringWidth(capped(oneOver))).toBe(TOOL_PREVIEW_LINE_MAX_CHARS);
+
+      // The same pair in COLUMNS rather than units: half as many two-column clusters is exactly
+      // the budget, and one cluster more over-runs it by two.
+      const wideClusters = TOOL_PREVIEW_LINE_MAX_CHARS / 2;
+      const exactWide = '設'.repeat(wideClusters);
+      expect(stringWidth(exactWide)).toBe(TOOL_PREVIEW_LINE_MAX_CHARS);
+      expect(capped(exactWide)).toBe(exactWide);
+      // A wide cluster cannot be half-drawn, so the marker leaves the odd column unspent.
+      expect(capped(`${exactWide}設`)).toBe(`${'設'.repeat(wideClusters - 1)}…`);
+      expect(stringWidth(capped(`${exactWide}設`))).toBe(TOOL_PREVIEW_LINE_MAX_CHARS - 1);
+    });
+
     it('uses the singular marker for exactly one hidden line', async () => {
       const { capToolDisplayLines } = await import('#src/core/toolDisplay.js');
       const lines = Array.from({ length: 11 }, (_, i) => ({

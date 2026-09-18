@@ -304,6 +304,44 @@ describe('utils/displayWidth', () => {
     expect(displayWidth(sliceToWidth(partials, 10))).toBe(10);
   }, 10_000);
 
+  it('ends an OSC string on the 8-bit ST as well as on BEL and ESC-backslash', async () => {
+    const { displayWidth, sliceEndToWidth, sliceToWidth } =
+      await import('#src/utils/displayWidth.js');
+
+    // U+009C is the one-byte String Terminator, the C1 twin of `ESC \`. `strip-ansi` ends an OSC
+    // on it, so `string-width` measures such a string as the text alone — and a walk that did not
+    // would spend the budget on the payload's own printable bytes and answer a different question
+    // from the ruler it is paired with.
+    const ST = '\x9c';
+    const title = `\x1b]0;window title${ST}`;
+    const link = `\x1b]8;;https://example.com${ST}`;
+
+    // The ruler first, from `strip-ansi` / `string-width` rather than from the module under test.
+    expect(stripAnsi(`${title}abcdef`)).toBe('abcdef');
+    expect(stringWidth(`${title}abcdef`)).toBe(6);
+    expect(displayWidth(`${title}abcdef`)).toBe(6);
+
+    // The walk agrees: six columns is the whole budget the string needs, and the sequence itself
+    // costs none of it. The payload is `window title` — twelve printable columns a walk that
+    // stopped reading the OSC at the wrong byte would have to pay for.
+    expect(sliceToWidth(`${title}abcdef`, 6)).toBe(`${title}abcdef`);
+    expect(sliceToWidth(`${title}abcdef`, 3)).toBe(`${title}abc`);
+    expect(sliceToWidth(`${link}link text`, 4)).toBe(`${link}link`);
+    // Keeping the tail discards the head, so the sequence that opened the hyperlink goes with it.
+    expect(sliceEndToWidth(`${link}link text`, 4)).toBe('text');
+
+    // The same three statements on the other two terminators, so this pins the ST arm rather than
+    // recording that OSC strings happen to work: all three spellings are one indivisible token.
+    for (const terminator of ['\x07', '\x1b\\', ST]) {
+      const sequence = `\x1b]8;;https://example.com${terminator}`;
+      expect(stringWidth(`${sequence}link text`)).toBe(9);
+      expect(sliceToWidth(`${sequence}link text`, 9)).toBe(`${sequence}link text`);
+      expect(sliceToWidth(`${sequence}link text`, 4)).toBe(`${sequence}link`);
+      // …and no cut lands inside one: strip every whole sequence and no introducer survives.
+      expect(stripAnsi(sliceToWidth(`${sequence}link text`, 4))).toBe('link');
+    }
+  });
+
   it('drops a wide cluster whole rather than half-spending its columns', async () => {
     const { sliceEndToWidth, sliceToWidth } = await import('#src/utils/displayWidth.js');
 

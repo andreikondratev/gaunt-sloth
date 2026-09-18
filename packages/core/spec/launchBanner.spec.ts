@@ -34,6 +34,21 @@ const WIDE_FACE = [
   '  ▀██████████▀',
 ] as const;
 
+/**
+ * A caller-supplied frame that does NOT honour the 16-column face field: its rows run from 30
+ * columns down to the shipped 16, so the pad the face half is right-padded with is negative on the
+ * first three rows, exactly zero on the fourth (margin + 21 = the split column) and positive on the
+ * last. The five rows are one fixture because the pad has to be correct across the sign change,
+ * not merely at the end a shipped frame lives at.
+ */
+const OVER_WIDE_FACE = [
+  '▄'.repeat(30),
+  '█'.repeat(24),
+  '▀'.repeat(22),
+  '█'.repeat(21),
+  '▀'.repeat(16),
+] as const;
+
 /** The rendered line's columns from `at` onwards, counted in characters rather than UTF-16 units. */
 const columnsFrom = (line: string, at: number): string => [...line].slice(at).join('');
 
@@ -301,6 +316,42 @@ describe('core/launchBanner', () => {
       }
       // …and the padding is spaces, not a truncation of the art: the frame renders in full.
       expect(rows[ART + 3].face.trimEnd()).toBe(` ${WIDE_FACE[3]}`);
+    });
+
+    it('hands back a caller frame ALREADY past the split column unpadded, at every sign of the pad', async () => {
+      const { launchBannerRows } = await import('#src/core/launchBanner.js');
+      const displayWidth = stringWidth;
+
+      // The fixture's first three rows are wider than the split column, so the number of filler
+      // spaces the face half needs is negative. The pad is floored at zero, which makes it the
+      // right answer rather than merely a safe one: a row already at or past the split column is
+      // handed back exactly as it came in, with no filler and no cut.
+      expect(displayWidth(OVER_WIDE_FACE[0])).toBeGreaterThan(RIGHT);
+      const rows = launchBannerRows({
+        model: 'gpt-5',
+        provider: 'openai',
+        directory: '/home/mari/dev',
+        homeDir: '/home/mari',
+        columns: 120,
+        face: OVER_WIDE_FACE,
+      });
+
+      // Written out per row, because what is being pinned is the produced string: the margin plus
+      // the caller's own line, byte for byte, for every row whose pad would be negative or zero.
+      expect(rows[ART].face).toBe(` ${'▄'.repeat(30)}`);
+      expect(rows[ART + 1].face).toBe(` ${'█'.repeat(24)}`);
+      expect(rows[ART + 2].face).toBe(` ${'▀'.repeat(22)}`);
+      expect(rows[ART + 3].face).toBe(` ${'█'.repeat(21)}`);
+      // The one row whose pad is positive still gets its filler, so this is not "an odd frame
+      // turns the padding off": it is the same rule reading a different sign.
+      expect(rows[ART + 4].face).toBe(` ${'▀'.repeat(16)}${' '.repeat(5)}`);
+      expect(displayWidth(rows[ART + 4].face)).toBe(RIGHT);
+
+      // The rest of the row is assembled as usual — the fields are still there, so nothing above
+      // is satisfied by the banner having given up on this frame.
+      expect(rows[ART].right).toBe('┏┓         ┏┓┓   ┓');
+      expect(rows[ART + 3].right).toBe('gpt-5 (openai)');
+      expect(rows[ART + 4].right).toBe('~/dev');
     });
   });
 
