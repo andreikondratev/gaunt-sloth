@@ -50,7 +50,7 @@ import type {
 import type {
   ApprovalLifetime,
   PendingToolInterrupt,
-  ToolApprovalDecision,
+  ToolApprovalReply,
 } from '@gaunt-sloth/core/core/types.js';
 import { toolKindFor } from '#src/modules/acp/acpToolCalls.js';
 
@@ -226,12 +226,63 @@ export function rememberedAnswerNote(
 }
 
 /**
- * The gate decision an ACP permission outcome means.
+ * What an ACP permission outcome means — **both to the gate and to the archive**, which are two
+ * different questions with two different answers.
  *
- * **Every path that is not an explicit allow is a reject**, including an option id we do not
- * recognise and an outcome variant that postdates this code. That polarity is the whole safety
- * property: a client that answers with something unexpected must not be able to run a command,
- * and a future ACP outcome must fail toward refusing rather than toward executing.
+ * ## The safety polarity, unchanged: only an explicit allow runs anything
+ *
+ * A cancel, an option id we do not recognise and an outcome variant that postdates this code all
+ * refuse the call, exactly as they always have. That polarity is the whole safety property: a
+ * client that answers with something unexpected must not be able to run a command, and a future ACP
+ * outcome must fail toward refusing rather than toward executing. **Nothing below changes it**, and
+ * nothing below may: `approve` is the only arm of {@link @gaunt-sloth/core!core/types.ToolApprovalReply | ToolApprovalReply} that runs a tool,
+ * and the runner turns every other arm into the same refusal.
+ *
+ * ## And the part that is NOT the polarity: who the archive says refused
+ *
+ * [[EXT-110]] made the `/debug-dump` archive's human-answer field `readonly`, written only by
+ * `recordHumanAnswer` from the reply a surface hands back. So **what this function returns is what
+ * the archive believes a person did**, and for three of the cases below a bare `{ type: 'reject' }`
+ * said a human considered this command and refused it. That is the strongest statement the archive
+ * makes — the branch where the machine deferred and somebody took responsibility — and on those
+ * three it was false.
+ *
+ * The messages here already distinguished the cases in prose while the TYPE collapsed them. Each
+ * now leaves as the arm that says only what is known:
+ *
+ * - **`cancelled` → a teardown.** The prompt ended with nobody's answer on it, which is what
+ *   `teardown` already means, so no third value is invented for it. The tempting one would be named
+ *   for agency — *the user cancelled* — and **the wire cannot support that claim**: this outcome
+ *   arrives both when a person presses stop and when the client shuts down or drops the connection,
+ *   and nothing on the protocol tells those apart. Note this is the mirror of the reasoning that
+ *   made `teardown` a value of its own rather than a reuse of `no-human`: there the reused value
+ *   would have asserted LESS than the evidence, here a new one would assert MORE. The rule is the
+ *   same both times — say exactly what is known and no more.
+ * - **Any other outcome variant → unreadable.** The wire type's third arm is a custom or future
+ *   `outcome` string, so this branch is NOT the cancel branch and must not borrow its answer: a
+ *   variant we have never seen may well be an answer, and calling it a teardown would say the
+ *   prompt was never answered when it may have been.
+ * - **`selected` with an option id we do not offer → unreadable.** A client that answered, in a
+ *   vocabulary this build does not have. It is not a teardown — the prompt WAS answered — and it is
+ *   not a refusal, because which of four options was chosen is exactly what we cannot say.
+ * - **`reject-once` / `reject-always` → a refusal, and these two alone.** The fixed constraint this
+ *   function exists to hold: **nothing records a human refusal unless the client returned a refusal
+ *   option this code recognises.** A future editor of this switch that needs a new `reject` row
+ *   should be sure it can name the option the person pressed.
+ *
+ * **The next surface's author decides this again**, which is why the argument lives here rather
+ * than only in the ticket that made it.
+ *
+ * ## The whole of this surface's human-answer decisions
+ *
+ * This function is the only one. The two ACP apps (`acpAgentApp.ts`, `acpAgentAppV1.ts`) each wire
+ * exactly one `setToolApprovalCallback`, and both hand the client's outcome straight to this
+ * function — there is no second place, and no V1 twin of it. **Neither app wires
+ * `setAttackHaltCallback` at all**, so an `attack` verdict on an ACP session reaches §6.2's
+ * no-surface path and is archived as `no-human`, which is the true statement: on this surface the
+ * banner is never put in front of anybody.
+ *
+ * ## Scopes
  *
  * `allow-always` maps to the `always` scope, which persists to the project allow-list — the same
  * thing the terminal menu's *always approve* does. [[EXT-107]] — `reject-always` is now its mirror
@@ -240,10 +291,19 @@ export function rememberedAnswerNote(
  * an editor over ACP has to be the same refusal, or a user who learns the control on one surface
  * has learned something untrue about the others. Both labels say "remember" so the user is told
  * which pair of choices is written down.
+ *
+ * **The two unreadable arms and the teardown carry no scope and cannot**, which is the property
+ * that stops a reply nobody can read from leaving a standing allow or deny rule behind it.
  */
-export function decisionForOutcome(outcome: RequestPermissionOutcome): ToolApprovalDecision {
+export function decisionForOutcome(outcome: RequestPermissionOutcome): ToolApprovalReply {
+  if (outcome.outcome === 'cancelled') {
+    return { type: 'teardown', message: 'The client cancelled the permission request.' };
+  }
   if (outcome.outcome !== 'selected') {
-    return { type: 'reject', message: 'The client cancelled the permission request.' };
+    return {
+      type: 'unrecognised',
+      message: `The client answered with a permission outcome this build does not recognise (${String(outcome.outcome)}).`,
+    };
   }
   const optionId = (outcome as { optionId?: PermissionOptionId }).optionId;
   switch (optionId) {
@@ -257,7 +317,7 @@ export function decisionForOutcome(outcome: RequestPermissionOutcome): ToolAppro
       return { type: 'reject', message: 'The user rejected this tool call.' };
     default:
       return {
-        type: 'reject',
+        type: 'unrecognised',
         message: `The client selected an unknown permission option (${String(optionId)}).`,
       };
   }

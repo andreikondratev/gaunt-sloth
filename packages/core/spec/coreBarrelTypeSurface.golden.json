@@ -772,6 +772,11 @@
       "arity": 0
     },
     {
+      "name": "ToolApprovalUnrecognised",
+      "file": "core/types.d.ts",
+      "arity": 0
+    },
+    {
       "name": "ToolRejectScope",
       "file": "core/types.d.ts",
       "arity": 0

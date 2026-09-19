@@ -110,12 +110,24 @@ export type ApprovalCaptureAction = 'approve' | 'reject' | 'escalate' | 'halt' |
  * `no-human` and `teardown` are both non-answers and they are still two values, because they are
  * two different facts and a dump reader acts on them differently. `no-human` is [[EXT-29]] §6.2:
  * the surface never put the question to anybody, because no callback was wired — a CI run, a
- * server, a one-shot. `teardown` ([[EXT-110]]) is the opposite situation: the question WAS put to
- * a person, it was on their screen, and the session ended before they answered it. Collapsing them
- * would tell an incident review that a prompt nobody ever saw and a prompt someone was looking at
- * are the same event.
+ * server, a one-shot. `teardown` ([[EXT-110]]) is the opposite situation: the question was put to a
+ * surface and went away with no answer on it — a terminal prompt someone was looking at when the
+ * session ended, or ([[EXT-193]]) a protocol client reporting the request cancelled. It says
+ * **nobody answered**, and deliberately no more than that: on a protocol surface nothing
+ * distinguishes a person pressing stop from the connection dropping, so a value naming who ended it
+ * would assert what the wire cannot establish. Collapsing it with `no-human` would tell an incident
+ * review that a prompt nobody ever saw and a prompt that was put in front of somebody are the same
+ * event.
+ *
+ * `unrecognised` ([[EXT-193]]) is the third non-answer: something came back from the surface, and
+ * this build could not read it — a protocol client choosing an option id we never offered, or
+ * answering in a dialect that postdates this code. It is not `teardown`, which says the prompt
+ * ended with nobody's answer on it; it is not `no-human`, which says nobody was asked; and above
+ * all it is not `reject`, which is this record's strongest claim — that a person considered the
+ * command and refused it. **`reject` is reserved for a refusal the surface actually reported**, and
+ * every other value exists so that nothing else has to borrow it.
  */
-export type ApprovalHumanAnswer = 'approve' | 'reject' | 'no-human' | 'teardown';
+export type ApprovalHumanAnswer = 'approve' | 'reject' | 'no-human' | 'teardown' | 'unrecognised';
 
 /**
  * One rating call: what the rater was SHOWN and what it ANSWERED, captured at the send site.
@@ -300,7 +312,8 @@ export const NO_SURFACE_TO_ASK = 'no-surface-to-ask';
  * rather than an {@link ApprovalHumanAnswer}: a caller holding this has, by construction, the thing
  * a surface handed back, and nothing else can be passed in its place.
  *
- * - a {@link ToolApprovalReply} — what the approval prompt's callback returned;
+ * - a {@link ToolApprovalReply} — what the approval prompt's callback returned, including
+ *   [[EXT-193]]'s arm for a reply the surface could not read;
  * - an {@link AttackHaltReply} — what the attack banner's callback returned;
  * - {@link NO_SURFACE_TO_ASK} — §6.2: no callback was wired, so the question reached nobody.
  */
@@ -346,9 +359,13 @@ function humanAnswerFor(evidence: HumanAnswerEvidence): ApprovalHumanAnswer {
     if (evidence === 'teardown') return 'teardown';
     return 'no-human';
   }
-  // The approval prompt's seam.
+  // The approval prompt's seam. **Each arm has its own row**, and the two that are not a person's
+  // answer are named rather than reached by falling off the end: [[EXT-193]] added a third arm, and
+  // a table whose last line was a bare `return 'teardown'` would have absorbed it silently — the
+  // shape of the very defect this facility exists to make impossible.
   if (evidence.type === 'approve') return 'approve';
   if (evidence.type === 'reject') return 'reject';
+  if (evidence.type === 'unrecognised') return 'unrecognised';
   return 'teardown';
 }
 

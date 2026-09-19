@@ -268,13 +268,16 @@ export function createAcpAgentApp(options: AcpAgentAppOptions = {}): acp.AgentAp
             // wait rather than trusting this to end it.
             { cancellationSignal: abort.signal }
           );
-          const decision = decisionForOutcome(response.outcome);
-          // [[EXT-154]] — noted from the DECISION rather than from the option id, so the set holds
+          const reply = decisionForOutcome(response.outcome);
+          // [[EXT-154]] — noted from the REPLY rather than from the option id, so the set holds
           // exactly the answers that asked the runner to store something. A cancelled request and an
-          // option this build does not recognise both fail closed into a plain rejection above and
-          // are therefore not noted, which is the direction that cannot invent a promise.
-          if (decision.scope === 'always') rememberAsked.add(pending);
-          return decision;
+          // option this build does not recognise leave as arms that carry no scope at all
+          // ([[EXT-193]]) and are therefore not noted, which is the direction that cannot invent a
+          // promise — the narrowing below is what makes that unexpressible rather than merely false.
+          if ((reply.type === 'approve' || reply.type === 'reject') && reply.scope === 'always') {
+            rememberAsked.add(pending);
+          }
+          return reply;
         } finally {
           // Never allowed to become the callback's result. A notification that fails — the usual
           // reason being the connection going away mid-prompt — must not turn a decision the human

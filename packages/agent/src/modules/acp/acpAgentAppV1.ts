@@ -277,19 +277,24 @@ export function createAcpV1AgentApp(options: AcpAgentAppOptions = {}): acp.Agent
         // long before, which is why bounding the CLOSE was enough there and is not here.)
         //
         // Racing the signal ends the wait locally. `cancelled` is what the spec says the answer
-        // would have been, and {@link decisionForOutcome} turns it into a rejection — the same
-        // fail-closed polarity every other unrecognised answer gets.
+        // would have been, and the call is still refused — the same fail-closed polarity every
+        // other unreadable answer gets. [[EXT-193]] — what {@link decisionForOutcome} hands back
+        // for it is a TEARDOWN rather than a rejection, because a synthesised cancel is precisely a
+        // prompt that ended with nobody's answer on it; the refusal is the runner's, and the
+        // archive is spared a claim that a person refused this command.
         const outcome = await Promise.race([
           asked.then((response) => response.outcome),
           cancelledWhenAborted(abort.signal),
         ]);
-        const decision = decisionForOutcome(outcome);
-        // [[EXT-154]] — noted from the DECISION, so the set holds exactly the answers that asked the
+        const reply = decisionForOutcome(outcome);
+        // [[EXT-154]] — noted from the REPLY, so the set holds exactly the answers that asked the
         // runner to store something. The cancellation this race synthesises, and an option id this
-        // build does not know, both fail closed into a plain rejection and are therefore not noted —
-        // the direction that cannot invent a promise.
-        if (decision.scope === 'always') rememberAsked.add(pending);
-        return decision;
+        // build does not know, leave as arms that carry no scope at all ([[EXT-193]]) and are
+        // therefore not noted — the direction that cannot invent a promise.
+        if ((reply.type === 'approve' || reply.type === 'reject') && reply.scope === 'always') {
+          rememberAsked.add(pending);
+        }
+        return reply;
       });
 
       // [[EXT-154]] — **and the answer comes back.** The runner records a remembering answer only

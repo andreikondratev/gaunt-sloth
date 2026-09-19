@@ -119,10 +119,11 @@ describe('[[TUI-C27]] — the approvals gate records what it was shown, and reco
     /**
      * What the human answers at an escalation. Absent → nobody to ask (§6.2).
      *
-     * [[EXT-110]] — `teardown` is the one value here that is NOT a human answering: it is what a
-     * surface returns when the session ended with the prompt still on screen.
+     * [[EXT-110]] — `teardown` is not a human answering: it is what a surface returns when the
+     * session ended with the prompt still on screen. [[EXT-193]] — nor is `unrecognised`, which is
+     * what a protocol surface returns when a reply came back that it cannot read as an answer.
      */
-    human?: 'approve' | 'reject' | 'teardown';
+    human?: 'approve' | 'reject' | 'teardown' | 'unrecognised';
     /**
      * [[TUI-C68]] §6.1 — what the human answers at the attack banner. Absent → no banner wired.
      * [[EXT-110]] — and `teardown` for a banner still up when the session went away.
@@ -172,6 +173,15 @@ describe('[[TUI-C27]] — the approvals gate records what it was shown, and reco
         // that keys off the prose instead of the arm.
         if (answer === 'teardown') {
           return { type: 'teardown', message: 'Session ended before approval.' };
+        }
+        // [[EXT-193]] — what the ACP handler hands back for a reply it cannot read. The message is
+        // the shape that surface sends, so this fixture cannot pass against an implementation that
+        // keys off the prose instead of the arm.
+        if (answer === 'unrecognised') {
+          return {
+            type: 'unrecognised',
+            message: 'The client selected an unknown permission option (maybe-later).',
+          };
         }
         return { type: 'reject' };
       });
@@ -567,6 +577,42 @@ describe('[[TUI-C27]] — the approvals gate records what it was shown, and reco
     });
     expect(refused.records[0].action).toBe('reject');
     expect(refused.records[0].humanAnswer).toBe('reject');
+  });
+
+  /**
+   * [[EXT-193]] — **the third non-answer: a reply came back and the surface could not read it.**
+   *
+   * A protocol surface hands the gate whatever its client sent. When that is an option id this
+   * build never offered — or an outcome variant that postdates this code — the prompt was answered
+   * in a vocabulary we do not have, and the honest record says exactly that. Recording it as
+   * `reject` repeats the finding above on a different branch: the archive claiming a person
+   * considered the command and refused it, on evidence that does not establish it.
+   *
+   * Three assertions, each of which fails against a different wrong answer:
+   *
+   * - `action: 'reject'` — the GATE is untouched. Only an explicit allow ever runs a tool, and an
+   *   answer nobody can read is not one; this is what makes the node a change to what the archive
+   *   says rather than to what the gate does.
+   * - `humanAnswer: 'unrecognised'` — not `reject` (the defect), and not `teardown` either, which
+   *   would say the prompt was never answered when it was.
+   * - `scope: undefined` — nothing is remembered from an answer nobody can read, so it cannot leave
+   *   a standing allow or deny rule for the next session to inherit.
+   *
+   * The refusal control sits in the cell above, driven through this same fixture with only the
+   * reply changed: without it, an implementation that stopped recording refusals at all would pass
+   * everything here.
+   */
+  it('archives an answer it cannot read as unreadable, still refuses the call, and remembers nothing', async () => {
+    const unreadable = await driveAndDump({
+      calls: [{ command: 'rm -rf ./dist' }],
+      script: [],
+      approvals: { escalate: [{ type: 'shell', matcher: 'exact', pattern: 'rm -rf ./dist' }] },
+      human: 'unrecognised',
+    });
+
+    expect(unreadable.records[0].action).toBe('reject');
+    expect(unreadable.records[0].humanAnswer).toBe('unrecognised');
+    expect(unreadable.records[0].scope).toBeUndefined();
   });
 
   /**

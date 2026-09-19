@@ -2706,15 +2706,21 @@ export class GthAgentRunner {
     // whether a person answered at all.
     recordHumanAnswer(record, reply);
 
-    // [[EXT-110]] — the prompt went away without an answer, so the call is refused and NOTHING
+    // [[EXT-110]] — the prompt went away without an answer, and [[EXT-193]] — something came back
+    // that the surface could not read as one. Either way the call is refused and NOTHING
     // else happens. Three things are deliberately skipped, and each would be a smaller copy of
-    // the same misattribution: no sticky grant and no deny entry, because a session that ended
-    // must not leave a standing rule behind it (the teardown reply carries no scope, so neither
-    // is even expressible); and no {@link ApprovalOutcome} report, because that callback is
-    // documented as firing once per HUMAN-ANSWERED approval and there was no human here. The
+    // the same misattribution: no sticky grant and no deny entry, because neither a session that
+    // ended nor an answer nobody can read may leave a standing rule behind it (neither reply arm
+    // carries a scope, so neither is even expressible); and no {@link ApprovalOutcome} report,
+    // because that callback is documented as firing once per HUMAN-ANSWERED approval and would
+    // have to name this one `approve` or `reject` — the choice that cannot be made on either arm,
+    // and the claim the whole branch exists to stop making. On a teardown the
     // surface is gone in any case — the bridge settles its outcome promise with `null` on the way
     // out — so there is nobody left to tell.
-    if (reply.type === 'teardown') {
+    //
+    // **The two arms return the identical refusal**, which is the point: the arms of
+    // {@link ToolApprovalReply} differ in what the ARCHIVE is told, never in what the gate does.
+    if (reply.type === 'teardown' || reply.type === 'unrecognised') {
       return { type: 'reject', ...(reply.message ? { message: reply.message } : {}) };
     }
     const decision: ToolApprovalDecision = reply;

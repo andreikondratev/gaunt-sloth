@@ -448,3 +448,78 @@ describe('the approvals gate on an ACP session under default config', () => {
     expect(agent.decisions[0]?.type).toBe('approve');
   });
 });
+
+/**
+ * [[EXT-193]] — **the gate's polarity, measured through a real client on the real ACP stack.**
+ *
+ * The node changed what `decisionForOutcome` hands the archive for three of its cases, and the one
+ * thing that had to survive it untouched is what the AGENT ends up being told: only an explicit
+ * allow runs a tool, and every other answer refuses the call. That property cannot be read off the
+ * handler any more, because the handler no longer returns the gate's decision for those cases — the
+ * runner derives it. So it is asserted where it is actually decided: `agent.decisions` is the value
+ * the graph resumes with, one whole client-request-runner round trip downstream of the change.
+ *
+ * The allow cell is not decoration. Every refusal assertion here is satisfied by a handler that
+ * refuses everything, which would be the safest possible gate and a useless one — and it is the
+ * failure the node names, so it is driven through the same harness with only the answer changed.
+ */
+describe('[[EXT-193]] the answers an ACP client can send, and what the agent is told', () => {
+  it('refuses a cancelled request, and says that is what happened', async () => {
+    const { permissionRequests, agent } = await gatedTurn(
+      workspaceWith('gate-cancelled'),
+      raterModel(),
+      () => ({ outcome: 'cancelled' }) as acpV2.RequestPermissionOutcome
+    );
+
+    expect(permissionRequests).toHaveLength(1);
+    // The archive is told a teardown (asserted at the seam in acpPermissionAnswerEvidence.spec.ts);
+    // the AGENT is told the same refusal it always was.
+    expect(agent.decisions[0]).toEqual({
+      type: 'reject',
+      message: 'The client cancelled the permission request.',
+    });
+  });
+
+  it('refuses an option id it never offered, and names the option rather than the user', async () => {
+    const { permissionRequests, agent } = await gatedTurn(
+      workspaceWith('gate-unknown-option'),
+      raterModel(),
+      () => ({ outcome: 'selected', optionId: 'maybe-later' }) as acpV2.RequestPermissionOutcome
+    );
+
+    expect(permissionRequests).toHaveLength(1);
+    expect(agent.decisions[0]).toEqual({
+      type: 'reject',
+      message: 'The client selected an unknown permission option (maybe-later).',
+    });
+  });
+
+  /**
+   * The outcome union's third arm — a custom or future `outcome` string — which the wire schema
+   * accepts and this suite therefore drives end to end rather than only at the function. It is not
+   * a cancel and must not be reported as one, and it must not run the tool either.
+   */
+  it('refuses an outcome variant that postdates this build, without calling it a cancellation', async () => {
+    const { permissionRequests, agent } = await gatedTurn(
+      workspaceWith('gate-future-outcome'),
+      raterModel(),
+      () => ({ outcome: '_zed/deferred' }) as acpV2.RequestPermissionOutcome
+    );
+
+    expect(permissionRequests).toHaveLength(1);
+    expect(agent.decisions[0]?.type).toBe('reject');
+    expect((agent.decisions[0] as { message?: string }).message).toContain('_zed/deferred');
+    expect((agent.decisions[0] as { message?: string }).message).not.toContain('cancelled');
+  });
+
+  it('runs the tool when the user chose Allow once, exactly as before', async () => {
+    const { permissionRequests, agent } = await gatedTurn(
+      workspaceWith('gate-allow-once'),
+      raterModel(),
+      () => ({ outcome: 'selected', optionId: 'allow-once' }) as acpV2.RequestPermissionOutcome
+    );
+
+    expect(permissionRequests).toHaveLength(1);
+    expect(agent.decisions[0]).toEqual({ type: 'approve' });
+  });
+});

@@ -590,12 +590,19 @@ export type ToolApprovalDecision =
   | { type: 'reject'; message?: string; scope?: ToolRejectScope };
 
 /**
- * [[EXT-110]] — **the session ended with the prompt still on screen, so nobody answered.**
+ * [[EXT-110]] — **the prompt went away with nobody's answer on it.**
  *
  * A surface that tears down an in-flight approval returns this instead of a
- * {@link ToolApprovalDecision}. The gate treats it as a refusal — the tool does not run, which is
- * the same fail-closed behaviour a teardown has always had — but the ARCHIVE no longer says a
- * person refused, because no person did.
+ * {@link ToolApprovalDecision}, and so ([[EXT-193]]) does a protocol surface whose client reports
+ * the request cancelled. The gate treats it as a refusal — the tool does not run, which is the same
+ * fail-closed behaviour a teardown has always had — but the ARCHIVE no longer says a person
+ * refused, because nothing here establishes that one did.
+ *
+ * **It claims exactly that much and no more.** A terminal knows its session ended; a protocol
+ * cancel arrives both when a person presses stop and when the client shuts down or drops the
+ * connection, and nothing on the wire tells those apart. So there is no arm naming who ended the
+ * prompt — one would assert agency the surface never reported, which is the defect this type was
+ * added to remove.
  *
  * **A separate arm rather than a flag on the reject arm**, and it carries no scope, so the one
  * thing a teardown must never do is not expressible: a reject arm with a `scope` records a deny
@@ -610,15 +617,49 @@ export interface ToolApprovalTeardown {
 }
 
 /**
- * [[EXT-110]] — everything a surface may hand back from a {@link ToolApprovalCallback}: a person's
- * {@link ToolApprovalDecision}, or {@link ToolApprovalTeardown} for a prompt nobody answered.
+ * [[EXT-193]] — **the surface got a reply it cannot read as an answer.**
  *
- * The two are kept apart at the seam because the gate cannot tell them apart any other way. A
+ * The prompt was put to somebody and something came back, but in a vocabulary this build does not
+ * have: a protocol client selecting an option id we never offered, or answering with an outcome
+ * variant that postdates this code. The gate treats it as a refusal, exactly as it treats a
+ * {@link ToolApprovalTeardown} — but the ARCHIVE says only what is known, which is that the reply
+ * was unreadable.
+ *
+ * **Why it is not folded into either neighbour.** It is not a
+ * {@link ToolApprovalDecision} with `type: 'reject'`, because that is the archive's strongest
+ * statement — a person considered this command and refused it — and nothing here establishes that.
+ * It is not a teardown either: a teardown says the prompt ended with nobody's answer on it, and
+ * this reply is an answer, just not one we can read. Both would be the same defect as the bare
+ * reject it replaces, one value along.
+ *
+ * **It deliberately does NOT claim a person acted.** A client can send an unreadable reply without
+ * anyone touching the keyboard, so the value stops at what the wire proves. That is the same rule
+ * that keeps a protocol cancel out of an *the-user-cancelled* value: say what is known and no more.
+ *
+ * Carries no scope, for {@link ToolApprovalTeardown}'s reason: an answer nobody can read must not
+ * be able to leave a standing allow or deny rule behind it.
+ */
+export interface ToolApprovalUnrecognised {
+  type: 'unrecognised';
+  /** What could not be read, for the transcript line the agent is handed. */
+  message?: string;
+}
+
+/**
+ * [[EXT-110]] — everything a surface may hand back from a {@link ToolApprovalCallback}: a person's
+ * {@link ToolApprovalDecision}, {@link ToolApprovalTeardown} for a prompt nobody answered, or
+ * [[EXT-193]]'s {@link ToolApprovalUnrecognised} for a reply that came back unreadable.
+ *
+ * The arms are kept apart at the seam because the gate cannot tell them apart any other way. A
  * teardown used to arrive as `{ type: 'reject', message: 'Session ended before approval.' }`, which
  * is byte-for-byte a shape a human pressing *reject* also produces — so the record was written from
  * control flow rather than from evidence that a person answered.
+ *
+ * **Every arm but `approve` refuses the call, and adding one never changes that.** The arms differ
+ * in what the archive is told, never in what the gate does.
  */
-export type ToolApprovalReply = ToolApprovalDecision | ToolApprovalTeardown;
+export type ToolApprovalReply =
+  ToolApprovalDecision | ToolApprovalTeardown | ToolApprovalUnrecognised;
 
 /**
  * Callback the {@link @gaunt-sloth/core!core/GthAgentRunner.GthAgentRunner | GthAgentRunner} invokes when a run suspends on a tool-approval
@@ -627,7 +668,8 @@ export type ToolApprovalReply = ToolApprovalDecision | ToolApprovalTeardown;
  * silently hang or auto-approve.
  *
  * [[EXT-110]] — a surface tearing the prompt down before anyone answered returns
- * {@link ToolApprovalTeardown} rather than a decision. Returning a plain
+ * {@link ToolApprovalTeardown} rather than a decision, and [[EXT-193]] — one handed a reply it
+ * cannot read returns {@link ToolApprovalUnrecognised}. Returning a plain
  * {@link ToolApprovalDecision} still type-checks and is unchanged: every surface that only ever
  * hands back a person's answer needs no edit.
  */

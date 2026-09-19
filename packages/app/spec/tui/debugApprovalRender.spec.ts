@@ -340,6 +340,23 @@ describe('TUI-C27 — renderApprovalDetails (the Auto-mode debug tab)', () => {
     expect(out).toContain('a person was asked: no — nobody was at the keyboard');
   });
 
+  /**
+   * [[EXT-193]] — and the answer that came back unreadable, which reaches this tab from the
+   * protocol surfaces. The label has to say what it is rather than leaving a reader to infer a
+   * refusal from the `reject` on the line above: the whole point of the value is that the two are
+   * different facts, and a tab that rendered nothing for it would put the inference back.
+   */
+  it('says when the answer came back in a form it could not read', () => {
+    const out = renderApprovalDetails(
+      [capture({ stage: 'escalate-entry', action: 'reject', humanAnswer: 'unrecognised' })],
+      APPROVALS
+    );
+    expect(out).toContain(
+      'a person was asked: asked, but the answer came back in a form this build could not read'
+    );
+    expect(out).not.toContain('a person was asked: yes, and they refused');
+  });
+
   it('orders the calls most recent first, and numbers them so the order is not guessed at', () => {
     // The log hands them over oldest-first; the tab is an 8-row viewport, so the call a person
     // opened it about would otherwise be a scroll to the bottom of fifty records.
