@@ -1,0 +1,241 @@
+{
+  "$comment": "GENERATED — do not hand-edit. The public runtime (value) surface of the batch barrel, read from packages/batch/dist/index.js by scripts/value-surface.mjs and compared against this file by spec/batchBarrelValueSurface.spec.ts. Regenerate with: pnpm --filter @gaunt-sloth/batch run build && pnpm --filter @gaunt-sloth/batch run value-surface:generate",
+  "exports": [
+    {
+      "name": "DEFAULT_CELL_CONCURRENCY",
+      "kind": "number"
+    },
+    {
+      "name": "DEFAULT_EVAL_PASS_THRESHOLD",
+      "kind": "number"
+    },
+    {
+      "name": "DEFAULT_JUDGE_DRIFT_FILTER",
+      "kind": "object"
+    },
+    {
+      "name": "DEFAULT_JUDGE_DRIFT_TOLERANCE",
+      "kind": "number"
+    },
+    {
+      "name": "DEFAULT_WORKFLOW_CONCURRENCY",
+      "kind": "number"
+    },
+    {
+      "name": "EVAL_JUDGE_DEFAULT_TIMEOUT_MS",
+      "kind": "number"
+    },
+    {
+      "name": "EvalVerdictSchema",
+      "kind": "object"
+    },
+    {
+      "name": "HARDLINE_NO_RATING_REASON",
+      "kind": "string"
+    },
+    {
+      "name": "HARDLINE_REFUSAL_MARKER",
+      "kind": "string"
+    },
+    {
+      "name": "MAX_JUDGE_DRIFT_TOLERANCE",
+      "kind": "number"
+    },
+    {
+      "name": "NEGOTIATION_BOUND_MARKER",
+      "kind": "string"
+    },
+    {
+      "name": "NO_EXPECTATION",
+      "kind": "string"
+    },
+    {
+      "name": "NO_RATING_CALL_MARKER",
+      "kind": "string"
+    },
+    {
+      "name": "RATER_PROMPT_NOTE_NAMES",
+      "kind": "array"
+    },
+    {
+      "name": "UNRECOGNIZED_LABEL",
+      "kind": "string"
+    },
+    {
+      "name": "WAIVER_SHARE_WARN_THRESHOLD",
+      "kind": "number"
+    },
+    {
+      "name": "aggregateToolCoverage",
+      "kind": "function"
+    },
+    {
+      "name": "availableReporterNames",
+      "kind": "function"
+    },
+    {
+      "name": "bindCellContent",
+      "kind": "function"
+    },
+    {
+      "name": "buildBatchSummary",
+      "kind": "function"
+    },
+    {
+      "name": "buildBlindExport",
+      "kind": "function"
+    },
+    {
+      "name": "buildClassificationReport",
+      "kind": "function"
+    },
+    {
+      "name": "buildConfusionMatrix",
+      "kind": "function"
+    },
+    {
+      "name": "buildJudgeMessages",
+      "kind": "function"
+    },
+    {
+      "name": "buildMatrix",
+      "kind": "function"
+    },
+    {
+      "name": "buildRaterClassifier",
+      "kind": "function"
+    },
+    {
+      "name": "collectTags",
+      "kind": "function"
+    },
+    {
+      "name": "computeMetric",
+      "kind": "function"
+    },
+    {
+      "name": "computeToolCoverage",
+      "kind": "function"
+    },
+    {
+      "name": "createTextReporter",
+      "kind": "function"
+    },
+    {
+      "name": "deepMerge",
+      "kind": "function"
+    },
+    {
+      "name": "diffRelabel",
+      "kind": "function"
+    },
+    {
+      "name": "diffRuns",
+      "kind": "function"
+    },
+    {
+      "name": "driveReporters",
+      "kind": "function"
+    },
+    {
+      "name": "evaluatePredicate",
+      "kind": "function"
+    },
+    {
+      "name": "evaluatePredicates",
+      "kind": "function"
+    },
+    {
+      "name": "expandSweep",
+      "kind": "function"
+    },
+    {
+      "name": "extractClassificationValue",
+      "kind": "function"
+    },
+    {
+      "name": "formatTally",
+      "kind": "function"
+    },
+    {
+      "name": "judgeEvalCase",
+      "kind": "function"
+    },
+    {
+      "name": "parseEvalSuite",
+      "kind": "function"
+    },
+    {
+      "name": "parseJudgeDriftFilter",
+      "kind": "function"
+    },
+    {
+      "name": "parseMetricPredicate",
+      "kind": "function"
+    },
+    {
+      "name": "parseOverFile",
+      "kind": "function"
+    },
+    {
+      "name": "readRaw",
+      "kind": "function"
+    },
+    {
+      "name": "renderClassificationReport",
+      "kind": "function"
+    },
+    {
+      "name": "renderComparison",
+      "kind": "function"
+    },
+    {
+      "name": "renderConfusionMatrix",
+      "kind": "function"
+    },
+    {
+      "name": "renderMetric",
+      "kind": "function"
+    },
+    {
+      "name": "renderRelabelDiff",
+      "kind": "function"
+    },
+    {
+      "name": "renderRunDiff",
+      "kind": "function"
+    },
+    {
+      "name": "renderToolCoverage",
+      "kind": "function"
+    },
+    {
+      "name": "resolveReporters",
+      "kind": "function"
+    },
+    {
+      "name": "runBatchMatrix",
+      "kind": "function"
+    },
+    {
+      "name": "runDeterministicChecks",
+      "kind": "function"
+    },
+    {
+      "name": "runEvalSuite",
+      "kind": "function"
+    },
+    {
+      "name": "runWorkflow",
+      "kind": "function"
+    },
+    {
+      "name": "writeBatchOutput",
+      "kind": "function"
+    },
+    {
+      "name": "writeEvalOutput",
+      "kind": "function"
+    }
+  ]
+}

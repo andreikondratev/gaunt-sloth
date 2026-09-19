@@ -1,0 +1,109 @@
+{
+  "$comment": "GENERATED — do not hand-edit. The public runtime (value) surface of the agent package's GATED DEEP SUBPATHS, resolved through the package exports map by scripts/deep-subpath-surface.mjs and compared against this file by spec/agentDeepSubpathValueSurface.spec.ts. The root barrel has its own golden, agentBarrelValueSurface.golden.json. Regenerate both with: pnpm --filter @gaunt-sloth/agent run build && pnpm --filter @gaunt-sloth/agent run value-surface:generate",
+  "$reasons": {
+    "consumer-repo": "imported by a consumer repository through this exact subpath — the only @gaunt-sloth/agent/… path either pukeko-robot-controller or galvanized-pukeko names. That repository builds against the published package at a pinned version, so no literal import inside this repository is on its behalf and no build here re-proves it.",
+    "computed-specifier": "reached only by a COMPUTED import specifier, which no type checker can follow: packages/agent/src/builtInToolsConfig.ts looks the module path up in the AVAILABLE_BUILT_IN_TOOLS table and calls get(config) on whatever comes back. The await import() is wrapped in a try/catch that only displayWarning()s, so a module that stops resolving or stops exporting get does not crash — the tool silently vanishes from the agent's toolset and the user gets one warning line.",
+    "unwatched": "published by the \"./*.js\" wildcard and named by no literal import specifier in any package's production src/, so no build in this repository re-proves anything about it. Whatever reaches it reaches it at runtime."
+  },
+  "$gatedElsewhere": [
+    {
+      "module": "index.js",
+      "why": "the root barrel — pinned by spec/agentBarrelValueSurface.golden.json, which is the twin of this file, and the path pukeko-robot-controller imports startAgUiServer from"
+    }
+  ],
+  "$everythingElse": "Everything else the \"./*.js\" wildcard publishes is named by a LITERAL import specifier in some package's production src/ — #src/…, a relative path, or @gaunt-sloth/agent/… from a sibling — so tsc resolves that edge and re-proves the names it takes on every build, on every cell of the matrix. That is an earlier and louder gate than a golden, and duplicating it here would buy churn rather than coverage. Measured by listLiterallyImportedModules() in core's scripts/surface/deep-subpath-surface.mjs, and the spec asserts that nothing falls outside both that scan and this golden.",
+  "subpaths": [
+    {
+      "subpath": "middleware/frontendImageInjectionMiddleware.js",
+      "reason": "consumer-repo",
+      "exports": [
+        {
+          "name": "DEFAULT_CAPTURE_TOOL_NAME",
+          "kind": "string"
+        },
+        {
+          "name": "createFrontendImageInjectionMiddleware",
+          "kind": "function"
+        },
+        {
+          "name": "imageBlockFor",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "tools/gthChecklistTool.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "CHECKLIST_TOOL_NAME",
+          "kind": "string"
+        },
+        {
+          "name": "formatChecklist",
+          "kind": "function"
+        },
+        {
+          "name": "get",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "tools/gthGrepTool.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "GREP_TOOL_NAME",
+          "kind": "string"
+        },
+        {
+          "name": "formatGrepOutput",
+          "kind": "function"
+        },
+        {
+          "name": "get",
+          "kind": "function"
+        },
+        {
+          "name": "globToRegExp",
+          "kind": "function"
+        },
+        {
+          "name": "resolveGrepFileSet",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "tools/gthStatusUpdateTool.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "get",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "tools/gthWebFetchTool.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "get",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "tools/showA2UISurfaceTool.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "get",
+          "kind": "function"
+        }
+      ]
+    }
+  ]
+}

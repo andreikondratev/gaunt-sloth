@@ -1,0 +1,101 @@
+{
+  "$comment": "GENERATED — do not hand-edit. The public runtime (value) surface of the agent barrel, read from packages/agent/dist/index.js by scripts/value-surface.mjs and compared against this file by spec/agentBarrelValueSurface.spec.ts. Regenerate with: pnpm --filter @gaunt-sloth/agent run build && pnpm --filter @gaunt-sloth/agent run value-surface:generate",
+  "exports": [
+    {
+      "name": "A2AClientWrapper",
+      "kind": "class"
+    },
+    {
+      "name": "AGUI_CONTEXT_COMPACTED_EVENT",
+      "kind": "string"
+    },
+    {
+      "name": "AVAILABLE_BUILT_IN_TOOLS",
+      "kind": "object"
+    },
+    {
+      "name": "DEFAULT_AGUI_HOST",
+      "kind": "string"
+    },
+    {
+      "name": "MIDDLEWARE_INJECTED_KEY",
+      "kind": "string"
+    },
+    {
+      "name": "OAuthClientProviderImpl",
+      "kind": "class"
+    },
+    {
+      "name": "convertMessage",
+      "kind": "function"
+    },
+    {
+      "name": "convertMessages",
+      "kind": "function"
+    },
+    {
+      "name": "createA2AAgentTool",
+      "kind": "function"
+    },
+    {
+      "name": "createAcpAgentApp",
+      "kind": "function"
+    },
+    {
+      "name": "createAcpAgentRouter",
+      "kind": "function"
+    },
+    {
+      "name": "createAcpV1AgentApp",
+      "kind": "function"
+    },
+    {
+      "name": "createAuthProviderAndAuthenticate",
+      "kind": "function"
+    },
+    {
+      "name": "createInteractiveSession",
+      "kind": "function"
+    },
+    {
+      "name": "createOAuthRedirectServer",
+      "kind": "function"
+    },
+    {
+      "name": "createResolvers",
+      "kind": "function"
+    },
+    {
+      "name": "getDefaultTools",
+      "kind": "function"
+    },
+    {
+      "name": "isMiddlewareInjected",
+      "kind": "function"
+    },
+    {
+      "name": "markMiddlewareInjected",
+      "kind": "function"
+    },
+    {
+      "name": "prepareMcpTools",
+      "kind": "function"
+    },
+    {
+      "name": "resolveAgentFactory",
+      "kind": "function"
+    },
+    {
+      "name": "resolveMiddleware",
+      "kind": "function"
+    },
+    {
+      "name": "startAcpServer",
+      "kind": "function"
+    },
+    {
+      "name": "startAgUiServer",
+      "kind": "function"
+    }
+  ]
+}
