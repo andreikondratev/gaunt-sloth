@@ -65,6 +65,44 @@ const seedOneConversation = (tmpHome: string): void => {
   }
 };
 
+/**
+ * **The readline prompt, empty and accepting input.** Every `write` in this file waits for this
+ * first, and the reason is a mechanism rather than a timing guess.
+ *
+ * `rl.question(prompt)` installs its line callback and THEN writes the prompt, so the prompt
+ * characters cannot reach the terminal before the session is waiting for a line — whereas a line
+ * that arrives while no question is pending is **dropped**, not buffered (measured directly
+ * against `node:readline/promises`: a line written before `question()` never resolves it; one
+ * written from the prompt's own output event always does). Answer text is therefore not a
+ * readiness signal: on this surface the turn still has its termination notice, its run-end report
+ * and its history write to do after the answer streams, and the Esc watcher owns stdin for all of
+ * it. Anything typed in that window is swallowed, which is what a slow Windows runner exposes and
+ * a fast Linux one hides.
+ *
+ * The locator is a regex because tui-test joins the buffer's rows, each padded to the full width,
+ * into one string: `  >` followed by a run of spaces is an empty prompt row and cannot be the
+ * `  > something` row of a prompt that has already been typed into. `strict: false` because this
+ * asserts that such a row EXISTS, not that it is unique.
+ *
+ * **The `g` flag is required, not stylistic.** tui-test resolves a regex locator with
+ * `block.matchAll(pattern)`, and `String.prototype.matchAll` throws a TypeError on a non-global
+ * pattern — so a locator written without it fails as a type error from inside the poll rather than
+ * as a missing element.
+ */
+const EMPTY_PROMPT = / {2}> {20}/gu;
+
+/** Wait for the prompt to be back and armed, then type. */
+const typeAtPrompt = async (
+  terminal: {
+    getByText(t: RegExp | string, o?: { strict?: boolean }): unknown;
+    write(s: string): void;
+  },
+  line: string
+): Promise<void> => {
+  await expect(terminal.getByText(EMPTY_PROMPT, { strict: false })).toBeVisible();
+  terminal.write(line);
+};
+
 test.describe('gth code readline — /history reads the store, and /reasoning names the surface (GS2-88)', () => {
   const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gth-e2e-hist-on-home-'));
 
@@ -87,7 +125,7 @@ test.describe('gth code readline — /history reads the store, and /reasoning na
   test('lists the seeded conversation, and blames nothing', async ({ terminal }) => {
     await expect(terminal.getByText('ready to code')).toBeVisible();
 
-    terminal.write('/history');
+    await typeAtPrompt(terminal, '/history');
     await expect(terminal.getByText('> /history')).toBeVisible();
     terminal.submit();
 
@@ -105,12 +143,14 @@ test.describe('gth code readline — /history reads the store, and /reasoning na
     await expect(terminal.getByText('ready to code')).toBeVisible();
 
     // A real committed turn first, so the claim being refused is one the session could make.
-    terminal.write('say something');
+    await typeAtPrompt(terminal, 'say something');
     await expect(terminal.getByText('> say something')).toBeVisible();
     terminal.submit();
     await expect(terminal.getByText('recall:', { strict: false })).toBeVisible();
 
-    terminal.write('/reasoning');
+    // The answer is on screen; the TURN is not over. `typeAtPrompt` waits for the prompt the
+    // session redraws when it is ready for the next line — see EMPTY_PROMPT above.
+    await typeAtPrompt(terminal, '/reasoning');
     await expect(terminal.getByText('> /reasoning')).toBeVisible();
     terminal.submit();
 
@@ -145,7 +185,7 @@ test.describe('gth code readline — /history names the config when the config i
   }) => {
     await expect(terminal.getByText('ready to code')).toBeVisible();
 
-    terminal.write('/history');
+    await typeAtPrompt(terminal, '/history');
     await expect(terminal.getByText('> /history')).toBeVisible();
     terminal.submit();
 
