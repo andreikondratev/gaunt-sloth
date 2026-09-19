@@ -169,7 +169,14 @@ export const TUI_KEY_BINDINGS: readonly KeyBindingGroup[] = [
         description: 'in the focused panel: search it, confirm, then next / previous match',
       },
       { keys: 'm', description: 'in the focused panel: maximise it, and back' },
-      { keys: 'Esc', description: 'leave the focused panel (first Esc clears an active search)' },
+      {
+        // The restore clause is the binding, not a nicety: leaving a MAXIMISED panel has to give
+        // the rows back in the same press, or the prompt it returns control to has nowhere to draw
+        // (TUI-C107).
+        keys: 'Esc',
+        description:
+          'leave the focused panel, restoring it if maximised (first Esc clears an active search)',
+      },
     ],
   },
   {

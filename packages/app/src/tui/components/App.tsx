@@ -1530,7 +1530,7 @@ export function App(props: TuiAppProps): React.ReactElement {
   //     path never registers gsloth's readline Esc handler, so Ink owns raw mode cleanly).
   //  3. Tab while the panel is visible and idle → focus/cycle the panel.
   //  4. While the panel is focused → Tab/Shift+Tab cycle sections, ↑/↓ scroll one line,
-  //     PageUp/PageDown page-step, m maximises, Esc unfocuses.
+  //     PageUp/PageDown page-step, m maximises, Esc leaves the pane (restoring a maximised one).
   useInput((input, key) => {
     // [[TUI-C79]] — **Ctrl+C is this app's, not Ink's**, and it is answered here before anything
     // else can claim it. `render()` takes `exitOnCtrlC: false` (`tuiSessionModule.tsx`), which is
@@ -1768,7 +1768,17 @@ export function App(props: TuiAppProps): React.ReactElement {
         }
         return;
       }
-      // Esc layering: clear an active search first (less-style), else unfocus the pane.
+      // Esc layering: clear an active search first (less-style), else LEAVE the pane — and leaving
+      // it drops the maximised view as well as focus, in the one press.
+      //
+      // TUI-C107 — focus and maximisation are one state as far as an exit is concerned, so an exit
+      // that dropped only one of them left the user with nothing to press. The prompt is unmounted
+      // while the pane holds focus (the render's `!debugFocused` guard), and a maximised pane takes
+      // the terminal height minus DEBUG_MAX_CHROME_ROWS, so the prompt has no rows to draw in even
+      // once focus is gone: dropping focus alone left the session with no visible prompt, and `m` —
+      // the key that would undo the maximisation — is handled inside this focused-only branch, so
+      // it no longer answered either. Same pairing, and the same reason, as the /debug toggle's
+      // "focus never lingers on a hidden panel" above.
       if (key.escape) {
         if (debugSearchQueryRef.current) {
           clearDebugSearch();
@@ -1776,6 +1786,7 @@ export function App(props: TuiAppProps): React.ReactElement {
         }
         setDebugFocused(false);
         debugFocusedRef.current = false;
+        setDebugMaximized(false);
         return;
       }
       // `/` opens the search input (scoped to pane focus — the seam).
