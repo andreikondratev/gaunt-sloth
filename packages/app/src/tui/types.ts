@@ -32,6 +32,7 @@ import type { CommandNoticeTone } from '#src/tui/components/CommandNotice.js';
 import type { DebugDumpInput } from '@gaunt-sloth/agent/modules/slashCommands.js';
 import type { ResumeResolution, ResumeTarget } from '@gaunt-sloth/agent/modules/sessionResume.js';
 import type { ConversationSummary } from '@gaunt-sloth/core/history/historyStore.js';
+import type { HistoryAvailability } from '@gaunt-sloth/core/history/historySlashProps.js';
 import type { MouseSubscribe } from '#src/tui/useMouse.js';
 
 /**
@@ -352,11 +353,15 @@ export interface TuiAppProps {
    */
   configSummary?: string[];
   /**
-   * GS2-7 (B20) — pre-rendered recent-session lines for `/history` and analytics lines for
-   * `/insights`, plus a fail-soft search provider for `/search`. All built by the session module
-   * from the local history store; omitted when no store is available (history off / DB
-   * missing), where the commands show an "unavailable" notice.
+   * GS2-7 (B20) / GS2-88 — pre-rendered recent-session lines for `/history` and analytics lines
+   * for `/insights`, a fail-soft search provider for `/search`, and WHY there is nothing when
+   * there is nothing. All four come from core's one `buildHistorySlashProps`, which the plain
+   * readline session uses too, so neither surface can serve a subset of the other. The summaries
+   * are present only when `historyAvailability` is `available`; the commands explain themselves
+   * from that field otherwise, and never name a cause it does not carry. Omitted entirely by the
+   * fixture agent, which loads no config and therefore established nothing about either.
    */
+  historyAvailability?: HistoryAvailability;
   historySummary?: string[];
   insightsSummary?: string[];
   historySearch?: (query: string) => string[];

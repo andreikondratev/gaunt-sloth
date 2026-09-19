@@ -55,6 +55,18 @@ Rules:
   state the surface can actually read — here a threshold surviving in the status under a disabled
   config can only have come from the config, since a session override cannot be recorded while the
   feature is off.
+- **A command with nothing to show names only a cause it has checked, and a cause it cannot check
+  is not a cause (DL-1, DL-4, DL-6).** The previous bullet is about a refusal; this one is about
+  the emptier case, where a command has no data. The states are different and the user's next move
+  differs with them — a feature switched off in the config, a store that is on and holds nothing
+  yet, a store that would not open, and a surface that never wired the data at all — so one body of
+  copy cannot serve them. The surface establishes which state it is in and passes that to the
+  command, and only the config state may quote a config key. This is DL-6 as much as DL-4: the
+  registry is shared between the full-screen TUI and the plain readline session, so a field one
+  surface populates and the other does not is a divergence, and an unwired field explained as a
+  config error is a false one. `/history` `/insights` `/search` carry `historyAvailability` for
+  this; `/reasoning` reads the ABSENCE of `turnReasonings` as the surface keeping no record, which
+  is a different statement from an empty record and must stay one.
 - **A notice the session raises in the middle of a turn is drawn where it happened, as a segment
   of that turn (DL-1, DL-4).** The involuntary compaction is the case: the provider rejected the
   turn for size, the session folded the older messages and retried, and the stream says so with a

@@ -1374,6 +1374,10 @@ export function App(props: TuiAppProps): React.ReactElement {
             // TUI-C19 — the actual validation warnings so `/config` renders the details the
             // standing advisory line points at.
             configWarnings: props.advisories,
+            // GS2-88 — the three summaries AND the reason they may be empty, so a command with
+            // nothing to show names the cause the session actually established rather than the
+            // config. Both surfaces pass all four, from the one core builder.
+            historyAvailability: props.historyAvailability,
             historySummary: props.historySummary,
             insightsSummary: props.insightsSummary,
             historySearch: props.historySearch,

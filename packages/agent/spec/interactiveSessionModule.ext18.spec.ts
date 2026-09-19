@@ -128,6 +128,19 @@ const sessionConfig = {
   exitMessage: 'exit hint',
 } as unknown as SessionConfig;
 
+// GS2-88 — the READ side of the history file, which the recorder/checkpointer stubs do not cover.
+// Every interactive session builds its `/history` `/insights` `/search` props at start from
+// `openHistoryStore(resolveHistoryDbPath(config.history?.dbPath))`, and a config naming no
+// `dbPath` — which is what the cells here pass — resolves the developer's real
+// `~/.gsloth/history.db`. Opening it is not read-only: the store migrates on every open, so a real
+// store predating a schema addition is rewritten by a spec that only meant to look at it. `null` is
+// the module's own fail-soft path, and no cell in this file asserts on history content.
+vi.mock('@gaunt-sloth/core/history/historyStore.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@gaunt-sloth/core/history/historyStore.js')>()),
+  resolveHistoryDbPath: () => '/gsloth-spec-never-a-real-store/history.db',
+  openHistoryStore: () => null,
+}));
+
 describe('interactiveSessionModule EXT-18 (--no-tui readline stdin re-ref)', () => {
   beforeEach(() => {
     vi.resetAllMocks();

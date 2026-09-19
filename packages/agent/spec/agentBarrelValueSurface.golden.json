@@ -26,6 +26,10 @@
       "kind": "class"
     },
     {
+      "name": "buildReadlineSlashContext",
+      "kind": "function"
+    },
+    {
       "name": "convertMessage",
       "kind": "function"
     },

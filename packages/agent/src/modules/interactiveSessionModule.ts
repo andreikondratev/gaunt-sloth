@@ -45,6 +45,10 @@ import {
   recordSessionSafe,
 } from '@gaunt-sloth/core/history/recordSession.js';
 import { openSessionCheckpointerSafe } from '@gaunt-sloth/core/history/sessionCheckpointer.js';
+import {
+  buildHistorySlashProps,
+  type HistorySlashProps,
+} from '@gaunt-sloth/core/history/historySlashProps.js';
 import { saveConversationGrantsSafe } from '@gaunt-sloth/core/core/approvals/conversationGrants.js';
 import {
   applyResumeTarget,
@@ -93,6 +97,7 @@ import {
   formatConfigSummary,
   parseSlashCommand,
   type DebugDumpInput,
+  type SlashCommandContext,
   type SlashCommandNotice,
 } from '#src/modules/slashCommands.js';
 
@@ -193,6 +198,87 @@ export interface SessionConfig {
   description: string;
   readyMessage: string;
   exitMessage: string;
+}
+
+/**
+ * GS2-88 — everything that varies between one `/command` dispatch on this surface and the next.
+ *
+ * Kept as a named input to {@link buildReadlineSlashContext} rather than spread through a closure
+ * so the context the plain readline session hands the shared registry is a VALUE a test can
+ * inspect. `packages/app/spec/tui/slashCommands.spec.ts` compares the keys it produces against the
+ * context fields the commands actually read, which is what makes a future command that reads a
+ * field this surface never populates fail loudly instead of degrading into a false explanation.
+ */
+export interface ReadlineSlashContextInput {
+  /** The session command (`chat` / `code`), which several commands report per-command config for. */
+  mode: SessionConfig['mode'];
+  /** The resolved config, for `/config` and `/debug-dump`. */
+  config: GthConfig;
+  /** Committed turns so far, for `/status`. */
+  turnCount: number;
+  /** EXT-161 — the compaction threshold in force, read fresh per dispatch. */
+  autocompact: AutocompactStatus | undefined;
+  /** GS2-20 — the live conversation id, which `/resume` moves mid-session. */
+  conversationId: number | undefined;
+  /** GS2-88 — the `/history` `/insights` `/search` inputs, built by core's one shared builder. */
+  history: HistorySlashProps;
+  /** GS2-56 — this surface's `/debug-dump` writer. */
+  dumpDebugSession: (input: DebugDumpInput) => { archiveDir: string };
+}
+
+/**
+ * GS2-88 — the plain readline (`--no-tui`) surface's slash-command context, in one place.
+ *
+ * **What this surface does NOT pass is as deliberate as what it does**, and each omission is
+ * commented where it is made. The registry is shared with the Ink TUI (GS2-8), so an omission is a
+ * divergence under GS2-87 and has to be one somebody chose — the defect this node fixes was four
+ * commands silently taking an "unavailable" branch and explaining it with a cause nobody had
+ * checked.
+ */
+export function buildReadlineSlashContext(input: ReadlineSlashContextInput): SlashCommandContext {
+  return {
+    mode: input.mode,
+    modelDisplayName: input.config.modelDisplayName ?? '',
+    // CFG-38 — the TUI's twin of this call passes the same field; the registry is one
+    // source, so a provider threaded on only one surface is a divergence, not a subset.
+    modelProviderType: input.config.modelProviderType,
+    turnCount: input.turnCount,
+    autocompact: input.autocompact,
+    // GS2-20 — the id `/status` names and `gth history resume` takes; live, so it follows
+    // a mid-session `/resume`.
+    conversationId: input.conversationId,
+    // No tool-detail panels or debug pane exist on this surface; their commands degrade
+    // below rather than vanishing from the catalog.
+    toolsExpanded: false,
+    debugVisible: false,
+    // TUI-C96 — and no slash-command menu either: `slashMenuQuery` is read by the Ink
+    // <PromptInput> alone, so a prefix resolves nowhere here. Stated rather than left to
+    // the default, because the unknown-command notice explains a shortened name in
+    // whichever of the two ways is true of the surface the user is looking at.
+    hasSlashMenu: false,
+    // CFG-25 — pass the session command so the panel prints the EFFECTIVE per-command
+    // filesystem value (e.g. `all` for `code`), not the top-level default.
+    configSummary: formatConfigSummary(input.config, input.mode),
+    // GS2-88 — `/history` `/insights` `/search` work here, from the same core builder the Ink TUI
+    // uses. The store is a local SQLite file and the formatters are pure, so there was never
+    // anything about these three a renderer owned; `historyAvailability` rides along so a command
+    // with nothing to show says which of the possible reasons actually applies.
+    ...input.history,
+    // GS2-56 — `/debug-dump` is available here. This surface keeps no on-screen
+    // transcript array, so `transcript` is empty; the real as-sent history lands in the
+    // archive's model-messages.json from the always-on snapshot (that is the point).
+    transcript: [],
+    resolvedConfig: input.config,
+    dumpDebugSession: input.dumpDebugSession,
+    // GS2-88 — `turnReasonings` is deliberately NOT passed, and its absence is the honest
+    // answer rather than an oversight. This surface's turns come off the string streaming path,
+    // where `answerTextOf` keeps the answer and drops the reasoning channel outright, so there is
+    // no per-turn thinking anywhere in this process to offer — at turn one or at turn fifty. The
+    // shared `/reasoning` reads the absence as the surface having no record, and says so; passing
+    // an empty array instead would assert this session had committed no turns, which is the false
+    // sentence GS2-88 exists to remove. Serving it here would mean moving this surface onto the
+    // typed-event stream, which is a different change.
+  };
 }
 
 /** GS2-20 — how a session is asked to start: fresh, or inside a stored conversation. */
@@ -317,6 +403,13 @@ export async function createInteractiveSession(
     // GS2-8 — the readline surface shares the SAME command registry as the Ink TUI (one source
     // of truth): every registered command parses, appears in /help, and dispatches here too.
     const registry = createCommandRegistry();
+    // GS2-88 — `/history` `/insights` `/search` are served here, from core's one builder, built
+    // once at session start exactly as the Ink TUI builds them. Built here rather than per
+    // dispatch so both surfaces show the same thing for the same session, and so a slash command
+    // never opens the store while the recorder is mid-write. Fail-soft: the builder never throws,
+    // and it reports WHY when it has nothing, so a session that cannot read the store says that
+    // instead of sending the user to change a config setting that was never the problem.
+    const historySlashProps: HistorySlashProps = buildHistorySlashProps(config);
     // Committed-turn counter for the /status command (mirrors the TUI's status-bar counter).
     // GS2-20 — a resumed conversation starts the count where it left off.
     let turnCount = bootResume?.turns.length ?? 0;
@@ -769,36 +862,19 @@ export async function createInteractiveSession(
           // resolution behind it is memoised per session, so this is a promise wrapper after the
           // first call and never touches the network twice.
           const autocompactStatus = await readAutocompactStatus(runner);
-          const result = dispatchSlashCommand(parsed, registry, {
-            mode: sessionConfig.mode,
-            modelDisplayName: config.modelDisplayName ?? '',
-            // CFG-38 — the TUI's twin of this call passes the same field; the registry is one
-            // source, so a provider threaded on only one surface is a divergence, not a subset.
-            modelProviderType: config.modelProviderType,
-            turnCount,
-            autocompact: autocompactStatus,
-            // GS2-20 — the id `/status` names and `gth history resume` takes; live, so it follows
-            // a mid-session `/resume`.
-            conversationId,
-            // No tool-detail panels or debug pane exist on this surface; their commands degrade
-            // below rather than vanishing from the catalog.
-            toolsExpanded: false,
-            debugVisible: false,
-            // TUI-C96 — and no slash-command menu either: `slashMenuQuery` is read by the Ink
-            // <PromptInput> alone, so a prefix resolves nowhere here. Stated rather than left to
-            // the default, because the unknown-command notice explains a shortened name in
-            // whichever of the two ways is true of the surface the user is looking at.
-            hasSlashMenu: false,
-            // CFG-25 — pass the session command so the panel prints the EFFECTIVE per-command
-            // filesystem value (e.g. `all` for `code`), not the top-level default.
-            configSummary: formatConfigSummary(config, sessionConfig.mode),
-            // GS2-56 — `/debug-dump` is now available here. This surface keeps no on-screen
-            // transcript array, so `transcript` is empty; the real as-sent history lands in the
-            // archive's model-messages.json from the always-on snapshot (that is the point).
-            transcript: [],
-            resolvedConfig: config,
-            dumpDebugSession,
-          });
+          const result = dispatchSlashCommand(
+            parsed,
+            registry,
+            buildReadlineSlashContext({
+              mode: sessionConfig.mode,
+              config,
+              turnCount,
+              autocompact: autocompactStatus,
+              conversationId,
+              history: historySlashProps,
+              dumpDebugSession,
+            })
+          );
           if (result.exit) {
             await endSession();
             break;

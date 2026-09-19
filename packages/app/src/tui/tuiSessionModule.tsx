@@ -25,7 +25,7 @@ import {
   recordSessionSafe,
 } from '@gaunt-sloth/core/history/recordSession.js';
 import { openSessionCheckpointerSafe } from '@gaunt-sloth/core/history/sessionCheckpointer.js';
-import { openHistoryStore, resolveHistoryDbPath } from '@gaunt-sloth/core/history/historyStore.js';
+import { buildHistorySlashProps } from '@gaunt-sloth/core/history/historySlashProps.js';
 import { saveConversationGrantsSafe } from '@gaunt-sloth/core/core/approvals/conversationGrants.js';
 import {
   applyResumeTarget,
@@ -35,11 +35,6 @@ import {
   type ResumeTarget,
 } from '@gaunt-sloth/agent/modules/sessionResume.js';
 import type { InteractiveSessionOptions } from '@gaunt-sloth/agent/modules/interactiveSessionModule.js';
-import {
-  formatConversationList,
-  formatInsightsSummary,
-  formatSearchResults,
-} from '@gaunt-sloth/core/history/historyFormat.js';
 import type { GthConfig } from '@gaunt-sloth/core/config.js';
 import type { GthRunStats } from '@gaunt-sloth/core/core/types.js';
 import { HumanMessage } from '@langchain/core/messages';
@@ -76,51 +71,6 @@ import { createMouseStdin } from '#src/tui/mouseStdin.js';
 import type { MouseEvent } from '#src/tui/mouseParser.js';
 import type { MouseSubscribe } from '#src/tui/useMouse.js';
 import type { DebugRequestExtras } from '@gaunt-sloth/agent/core/debugCapture.js';
-
-/** The `/history` `/insights` `/search` props, or `{}` when no store is available. */
-interface HistorySlashProps {
-  historySummary?: string[];
-  insightsSummary?: string[];
-  historySearch?: (query: string) => string[];
-}
-
-/**
- * GS2-7 (B20) — build the read-only history slash-command props from the local store, fail-soft.
- * If no DB is available (history never enabled / file missing / unopenable) it returns `{}`, so
- * `/history` `/insights` `/search` render their "history unavailable" notices. Never throws — a
- * store problem must not affect starting a session.
- */
-function buildHistorySlashProps(config: GthConfig): HistorySlashProps {
-  try {
-    const dbPath = resolveHistoryDbPath(config.history?.dbPath);
-    const store = openHistoryStore(dbPath, { create: false });
-    if (!store) return {};
-    try {
-      const historySummary = formatConversationList(store.listConversations(20));
-      const insightsSummary = formatInsightsSummary(store.insights());
-      // Search runs later (at dispatch), so it re-opens read-only per call rather than holding a
-      // connection open for the session; still fully fail-soft.
-      const historySearch = (query: string): string[] => {
-        try {
-          const s = openHistoryStore(dbPath, { create: false });
-          if (!s) return formatSearchResults([]);
-          try {
-            return formatSearchResults(s.search(query, 20));
-          } finally {
-            s.close();
-          }
-        } catch {
-          return formatSearchResults([]);
-        }
-      };
-      return { historySummary, insightsSummary, historySearch };
-    } finally {
-      store.close();
-    }
-  } catch {
-    return {};
-  }
-}
 
 /**
  * GS2-46 — the real `/debug-dump` writer, injected into `<App>` the same way `historySearch` is:
@@ -951,6 +901,10 @@ async function runTuiSession(
         dumpDebugSession={dumpDebugSessionWithModelRequest}
         advisories={startupAdvisories}
         mcpFailures={mcpFailures}
+        // GS2-7 (B20) / GS2-88 — `/history` `/insights` `/search`, from the builder core owns and
+        // every interactive surface shares, so this one cannot serve a different set from the
+        // plain readline session's. It carries `historyAvailability` as well as the summaries, so
+        // a command with nothing to show names the reason it actually established.
         {...buildHistorySlashProps(config)}
         // GS2-20 — the conversation `/status` names, what a bare `/resume` offers (read live, so
         // the session is never offered the conversation it has moved to), and the resumed

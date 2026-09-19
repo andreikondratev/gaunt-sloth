@@ -83,7 +83,16 @@ there opens a searchable command menu. A few worth knowing:
   cost, rate limits and where your traffic goes. A config that builds its own model object has no
   provider name to report, so those sessions show the model alone
 - `/verbose` — expand or collapse tool-call detail (Ctrl+T does the same, at any time)
-- `/reasoning` — reprint a turn's thinking (`/reasoning 2` for turn 2)
+- `/history` — the conversations recorded on this machine, most recent first; the same listing
+  `gth history list` prints. `/insights` is the analytics over the same store, and
+  `/search <terms>` runs a full-text search across it. All three read the local store and never the
+  network, and all three work on both surfaces. When they have nothing to show they say which of
+  the reasons applies — recording switched off in your config, on with nothing recorded yet, or a
+  store that would not open
+- `/reasoning` — reprint a turn's thinking (`/reasoning 2` for turn 2). **Full-screen TUI only.**
+  The plain readline surface (`--no-tui`) streams the answer and keeps no per-turn thinking record,
+  so there is nothing there to reprint; the command says so rather than pretending the session is
+  empty
 - `/approvals` — show the current mode, the rater, the allow/deny counts, what you have approved so
   far, what is refused and which MCP annotation hints you believe. In the TUI it also opens a
   picker: the four modes as rows, arrow keys to move, Enter to choose, Esc to keep the one you are

@@ -1903,4 +1903,160 @@ describe('readline/TUI registry parity (GS2-8 single source of truth)', () => {
     expect(names).not.toContain('mode');
     expect(names).not.toContain('tools');
   });
+
+  /**
+   * GS2-88 — **the parity direction: a command may not read a context field the readline surface
+   * never populates.**
+   *
+   * The cells above prove there is ONE registry. This one proves the second surface can actually
+   * serve it. The registry is where a command is declared, but the context is where a surface
+   * either answers it or does not, and a command whose field is missing does not fail — it takes
+   * its "unavailable" branch and explains itself with a cause nobody checked. That is exactly how
+   * `/history` `/insights` `/search` and `/reasoning` came to tell every `--no-tui` user that
+   * their config had switched history off.
+   *
+   * **Both halves are measured rather than listed.** The fields commands read come from running
+   * every registered command against a recording proxy; the fields the readline surface passes
+   * come from calling the surface's own context builder. A hand-written list of either would be
+   * correct the day it was written and silently wrong afterwards, which is the failure this cell
+   * exists to catch.
+   *
+   * A deliberate divergence is allowed, and has to be named below with its reason — GS2-87's rule
+   * that a divergence between the surfaces is a decision somebody made, never an omission nobody
+   * noticed.
+   */
+  describe('every context field a command reads is one the readline surface passes (GS2-88)', () => {
+    /**
+     * Fields the plain readline session cannot serve because the thing they describe does not
+     * exist there. Each command's copy says so in its own words; none of them names a cause.
+     */
+    const CANNOT_BE_SERVED_HERE: Record<string, string> = {
+      // TUI-C63 — no Ink components and no mouse layer, so there is no keyboard of its own to
+      // append to `/help`; the command simply prints the command list.
+      keyBindings:
+        'the readline session has no key bindings to describe, and /help must not grow keys ' +
+        'that do not exist here',
+      // TUI-C37 — no mouse layer at all, so `/mouse` reports itself unavailable rather than
+      // claiming a state it cannot change.
+      mouseEnabled: 'there is no terminal mouse reporting on this surface to report or toggle',
+      // TUI-C18 / GS2-88 — the string streaming path keeps the answer and drops the reasoning
+      // channel, so there is no per-turn thinking in this process to offer. Absent is the honest
+      // value and `/reasoning` reports the surface, not a session state.
+      turnReasonings:
+        'this surface records no per-turn thinking, and /reasoning says that rather than ' +
+        'claiming the session has committed no turns',
+    };
+
+    /**
+     * Fields this surface COULD serve and does not. Kept separate from the group above on
+     * purpose: calling a gap deliberate is how a list like this stops meaning anything.
+     *
+     * `configWarnings` is the only one. The readline session opens no warning-capture window
+     * around `initConfig`, so it has no captured advisories to re-render — the warnings print as
+     * they happen there instead of being redrawn by `/config`. The consequence is a subset, not a
+     * false explanation: `/config` shows the resolved summary and names no cause it has not
+     * checked, which is the floor this node sets. Closing it is its own change, since capture has
+     * to be opened around config load on this surface too.
+     */
+    const NOT_WIRED_YET: Record<string, string> = {
+      configWarnings:
+        'the readline session captures no load-time warnings, so /config renders the resolved ' +
+        'summary alone — a smaller answer, not a wrong one',
+    };
+
+    it('the readline context covers every field the commands read, bar the named divergences', async () => {
+      const { createCommandRegistry, dispatchSlashCommand, parseSlashCommand } =
+        await import('@gaunt-sloth/agent/modules/slashCommands.js');
+      const { buildReadlineSlashContext } =
+        await import('@gaunt-sloth/agent/modules/interactiveSessionModule.js');
+
+      // What the readline surface actually passes, taken from its own builder rather than a list.
+      const readlineKeys = new Set(
+        Object.keys(
+          buildReadlineSlashContext({
+            mode: 'chat',
+            config: { modelDisplayName: 'm' } as never,
+            turnCount: 0,
+            autocompact: undefined,
+            conversationId: undefined,
+            history: {
+              historyAvailability: 'available',
+              historySummary: [],
+              insightsSummary: [],
+              historySearch: () => [],
+            },
+            dumpDebugSession: () => ({ archiveDir: '/tmp/never' }),
+          })
+        )
+      );
+      // A control on the measurement itself: a builder that returned an empty object would make
+      // every later assertion vacuous, and a typo in the import would look like a clean pass.
+      for (const known of ['mode', 'turnCount', 'configSummary', 'historyAvailability']) {
+        expect(readlineKeys).toContain(known);
+      }
+
+      // What the commands read, recorded from a run of every one of them against a fully
+      // populated context. Every field is defined, so a command's inner branches are reached too.
+      const read = new Set<string>();
+      const full: Record<string, unknown> = {
+        mode: 'chat',
+        modelDisplayName: 'gpt-5',
+        modelProviderType: 'openai',
+        turnCount: 1,
+        autocompact: undefined,
+        conversationId: 1,
+        toolsExpanded: false,
+        debugVisible: false,
+        verbose: false,
+        mouseEnabled: false,
+        configSummary: ['a config line'],
+        configWarnings: [],
+        historyAvailability: 'available',
+        historySummary: ['a history line'],
+        insightsSummary: ['an insights line'],
+        historySearch: () => ['a search line'],
+        turnReasonings: ['a thought'],
+        transcript: [],
+        resolvedConfig: {},
+        dumpDebugSession: () => ({ archiveDir: '/tmp/never' }),
+        keyBindings: [],
+        hasSlashMenu: false,
+      };
+      const recording = new Proxy(full, {
+        get(target, prop) {
+          if (typeof prop === 'string') read.add(prop);
+          return target[prop as string];
+        },
+      }) as unknown as SlashCommandContext;
+
+      const registry = createCommandRegistry();
+      for (const command of registry) {
+        // Each command with no argument and with one, since an argument reaches other branches.
+        for (const suffix of ['', ' 1']) {
+          try {
+            dispatchSlashCommand(
+              parseSlashCommand(`/${command.name}${suffix}`)!,
+              registry,
+              recording
+            );
+          } catch {
+            // A command that throws on a synthetic argument has still recorded what it read.
+          }
+        }
+      }
+      // The control for the other half: if nothing were recorded the comparison would pass on an
+      // empty set, which is the shape of this assertion that cannot fail.
+      expect(read.size).toBeGreaterThan(5);
+      expect(read).toContain('historyAvailability');
+
+      const named = { ...CANNOT_BE_SERVED_HERE, ...NOT_WIRED_YET };
+      const unserved = [...read].filter(
+        (field) => field in full && !readlineKeys.has(field) && !(field in named)
+      );
+      expect(unserved).toEqual([]);
+      // And the named lists do not rot the other way: a field that IS served now must come off
+      // them, or a real gap could hide behind a stale entry.
+      expect(Object.keys(named).filter((field) => readlineKeys.has(field))).toEqual([]);
+    });
+  });
 });

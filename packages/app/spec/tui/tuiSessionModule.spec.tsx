@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
 import type { SessionConfig } from '@gaunt-sloth/agent/modules/interactiveSessionModule.js';
 import type { CommandLineConfigOverrides } from '@gaunt-sloth/core/config.js';
@@ -142,11 +145,23 @@ vi.mock('@gaunt-sloth/core/history/recordSession.js', () => ({
 // addition is rewritten by a spec that only meant to look at it. `null` is the module's own
 // fail-soft path (the slash commands then carry their "history unavailable" notices), and no cell
 // in this file asserts on history content.
-vi.mock('@gaunt-sloth/core/history/historyStore.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@gaunt-sloth/core/history/historyStore.js')>()),
-  resolveHistoryDbPath: () => '/gsloth-spec-never-a-real-store/history.db',
-  openHistoryStore: () => null,
-}));
+//
+// GS2-88 — the cells that DO assert on history content opt back into the real store by flipping
+// `useRealStore`, and every one of them passes an explicit `dbPath` under a temp dir. Default off,
+// so a cell that forgets cannot reach the developer's file.
+const useRealStore = vi.hoisted(() => ({ on: false }));
+vi.mock('@gaunt-sloth/core/history/historyStore.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@gaunt-sloth/core/history/historyStore.js')>();
+  return {
+    ...actual,
+    resolveHistoryDbPath: (dbPath?: string, ensureDir?: boolean) =>
+      useRealStore.on
+        ? actual.resolveHistoryDbPath(dbPath, ensureDir)
+        : '/gsloth-spec-never-a-real-store/history.db',
+    openHistoryStore: (dbPath: string, options?: Parameters<typeof actual.openHistoryStore>[1]) =>
+      useRealStore.on ? actual.openHistoryStore(dbPath, options) : null,
+  };
+});
 vi.mock('@gaunt-sloth/agent/resolvers.js', () => ({ createResolvers: vi.fn() }));
 const resolvedFactory = vi.hoisted(() => vi.fn());
 const resolveAgentFactoryMock = vi.hoisted(() => vi.fn());
@@ -1211,5 +1226,103 @@ describe('createTuiSession — answering an open prompt on every teardown path (
       expect(setToolApprovalCallbackMock).not.toHaveBeenCalled();
       expect(setAttackHaltCallbackMock).not.toHaveBeenCalled();
     });
+  });
+});
+
+/**
+ * GS2-88 — **the Ink TUI's half of the wiring claim**, and the half that pairs with
+ * `agent/spec/interactiveSessionModule.historySlash.spec.ts`.
+ *
+ * Both surfaces build these props from ONE core builder, so what is asserted here is that this
+ * session hands the App a state it established from the CONFIG. The seeded store is identical on
+ * both sides of the pair and only `history.enabled` moves, which is what stops the difference
+ * coming from whether a database file happened to be there — the mistake the previous builder
+ * made, since it consulted the file and never the switch.
+ */
+describe('createTuiSession — the /history /insights /search props it hands the App (GS2-88)', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    systemUtilsMock.env = {};
+    systemUtilsMock.stdout.isTTY = true;
+    resolveAgentFactoryMock.mockReturnValue(resolvedFactory);
+    runnerInitMock.mockResolvedValue(undefined);
+    runnerGetAgentMock.mockReturnValue({});
+    runnerCleanupMock.mockResolvedValue(undefined);
+    renderMock.mockReturnValue({
+      clear: vi.fn(),
+      waitUntilExit: vi.fn().mockResolvedValue(undefined),
+    });
+  });
+
+  let dir: string;
+  let dbPath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(resolve(tmpdir(), 'gsloth-tui-histslash-'));
+    dbPath = resolve(dir, 'history.db');
+    useRealStore.on = true;
+  });
+  afterEach(() => {
+    useRealStore.on = false;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** One real recorded turn, written by this spec rather than by the session under test. */
+  const seedOneTurn = async (): Promise<void> => {
+    const { HistoryStore } = await import('@gaunt-sloth/core/history/historyStore.js');
+    const store = HistoryStore.open(dbPath, { create: true })!;
+    store.record({ command: 'chat', model: 'seeded-model', prompt: 'the widget factory' });
+    store.close();
+  };
+
+  /** The four history props the session put on the App element. */
+  const historyProps = async (
+    history: Record<string, unknown>
+  ): Promise<{
+    historyAvailability?: string;
+    historySummary?: string[];
+    insightsSummary?: string[];
+    historySearch?: (q: string) => string[];
+  }> => {
+    renderMock.mockClear();
+    initConfigMock.mockResolvedValue({ history });
+    const { createTuiSession } = await import('#src/tui/tuiSessionModule.js');
+    await createTuiSession(sessionConfig, overrides);
+    const appElement = renderMock.mock.calls[0][0] as {
+      props: {
+        historyAvailability?: string;
+        historySummary?: string[];
+        insightsSummary?: string[];
+        historySearch?: (q: string) => string[];
+      };
+    };
+    return appElement.props;
+  };
+
+  it('reads the store when history is on, and says so', async () => {
+    await seedOneTurn();
+    const props = await historyProps({ dbPath });
+    expect(props.historyAvailability).toBe('available');
+    expect(props.historySummary?.join('\n')).toContain('the widget factory');
+    expect(props.insightsSummary?.join('\n')).toContain('Sessions: 1');
+    expect(props.historySearch?.('widget').join('\n')).toContain('widget');
+  });
+
+  it('reports the CONFIG as the reason when the config is the reason, store or no store', async () => {
+    // The very same seeded file is sitting there. A builder deciding on the file would hand the
+    // App the rows; this one hands it the switch the user actually set.
+    await seedOneTurn();
+    const props = await historyProps({ enabled: false, dbPath });
+    expect(props.historyAvailability).toBe('disabled');
+    expect(props.historySummary).toBeUndefined();
+    expect(props.insightsSummary).toBeUndefined();
+    expect(props.historySearch).toBeUndefined();
+  });
+
+  it('distinguishes history on with nothing recorded from history switched off', async () => {
+    const empty = await historyProps({ dbPath });
+    expect(empty.historyAvailability).toBe('empty');
+    const off = await historyProps({ enabled: false, dbPath });
+    expect(off.historyAvailability).toBe('disabled');
   });
 });

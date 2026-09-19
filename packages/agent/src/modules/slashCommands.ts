@@ -43,6 +43,7 @@ import {
 import type { ApprovalGrant } from '@gaunt-sloth/core/core/approvals/grants.js';
 import { describeApprovalEntry } from '@gaunt-sloth/core/core/approvals/matcher.js';
 import type { ConversationCompaction } from '@gaunt-sloth/core/core/compaction.js';
+import type { HistoryAvailability } from '@gaunt-sloth/core/history/historySlashProps.js';
 import { deferExitOutput } from '@gaunt-sloth/core/core/exitOutputChannel.js';
 import { modelProviderLabel } from '@gaunt-sloth/core/core/modelLabel.js';
 import { MOUSE_SELECTION_HINT } from '@gaunt-sloth/core/config/mouse.js';
@@ -127,29 +128,52 @@ export interface SlashCommandContext {
    */
   configWarnings?: string[];
   /**
-   * GS2-7 (B20) / GS2-19 — pre-rendered recent-conversation lines for `/history`. The App builds
-   * these fail-soft from the local history store (see `formatConversationList`); omitted when no
-   * store is available (history never enabled / DB missing), in which case `/history` shows an
-   * "unavailable" notice.
+   * GS2-88 — **why** `/history` `/insights` `/search` have what they have, established by the
+   * surface rather than inferred here from an empty summary.
+   *
+   * Every interactive surface builds this and the three fields below with core's one
+   * `buildHistorySlashProps`, so neither can serve a subset of the other. The store is a local
+   * SQLite file and the formatters are pure, so there is nothing about these commands a renderer
+   * could own.
+   *
+   * **Absent means this surface provides no history at all**, and the commands then say exactly
+   * that — they do not name the store and they do not name the config, because from here neither
+   * has been looked at. That default is the whole node: a readline session that passed nothing
+   * used to render as "your config turned history off" to a user whose config had done no such
+   * thing.
+   */
+  historyAvailability?: HistoryAvailability;
+  /**
+   * GS2-7 (B20) / GS2-19 — pre-rendered recent-conversation lines for `/history`, built fail-soft
+   * from the local history store (see `formatConversationList`). Omitted unless
+   * {@link SlashCommandContext.historyAvailability} is `available`, in which case `/history`
+   * explains itself from that field instead.
    */
   historySummary?: string[];
   /**
    * GS2-7 (B20) — pre-rendered analytics lines for `/insights` (see `formatInsightsSummary`),
-   * built fail-soft by the App; omitted when no store is available.
+   * built fail-soft; omitted unless {@link SlashCommandContext.historyAvailability} is `available`.
    */
   insightsSummary?: string[];
   /**
-   * GS2-7 (B20) — a fail-soft search provider for `/search <query>`, bound by the App to the local
-   * history store (returns already-formatted result lines). Injected (rather than the command
-   * touching the DB) so the registry stays pure and testable with a stub. Omitted when no store is
-   * available, in which case `/search` reports that history is unavailable.
+   * GS2-7 (B20) — a fail-soft search provider for `/search <query>`, bound to the local history
+   * store (returns already-formatted result lines). Injected (rather than the command touching the
+   * DB) so the registry stays pure and testable with a stub. Omitted unless
+   * {@link SlashCommandContext.historyAvailability} is `available`.
    */
   historySearch?: (query: string) => string[];
   /**
    * TUI-C18 — the reasoning text of each committed assistant turn, in transcript order (index 0 =
    * turn 1). `''` for a turn that produced no thinking layer. Drives `/reasoning`, which reprints a
-   * committed turn's thinking. The App builds this from the transcript; omitted (empty) where there
-   * are no committed turns yet.
+   * committed turn's thinking. The Ink TUI builds this from its transcript, and an EMPTY array
+   * there truthfully means no turn has been committed yet.
+   *
+   * **GS2-88 — absent is a different fact from empty, and the two must not be merged.** The plain
+   * readline surface keeps no transcript and its string streaming path drops the reasoning channel
+   * outright (`answerTextOf` in `GthAbstractAgent`), so it has no per-turn thinking to offer at
+   * any point in the session. It therefore passes nothing, and `/reasoning` reports the surface's
+   * own limit instead of claiming the session has committed no turns — which it had, by the
+   * dozen, when this field's absence was read as emptiness.
    */
   turnReasonings?: string[];
   /**
@@ -344,26 +368,68 @@ export function configNotice(
   };
 }
 
-/** Shared "history is unavailable" body (history off / DB missing), reused by all three commands. */
-const HISTORY_UNAVAILABLE_LINES = [
-  'No local session history is available in this session.',
-  'Recording is on by default (local only); `history.enabled: false` in your gsloth config turns ' +
-    'it off.',
-];
+/**
+ * GS2-88 — the "nothing to show" body for `/history` `/insights` `/search`, chosen by the reason
+ * the surface actually established.
+ *
+ * **Only the `disabled` arm names the config**, because it is the only one where the config is the
+ * answer. Every other arm reports what was found. The previous single body named `history.enabled`
+ * whatever the cause, so a user who had history on and a surface that never wired it was sent to
+ * change a setting that was never the problem — which is this node.
+ */
+function historyUnavailableLines(availability: HistoryAvailability | undefined): string[] {
+  switch (availability) {
+    case 'disabled':
+      return [
+        'Local session history is switched off in your gsloth config.',
+        'Remove `history.enabled: false` (or set it to `true`) to record and search sessions ' +
+          'again; everything stays local to this machine.',
+      ];
+    case 'empty':
+      return [
+        'Local session history is on, and nothing has been recorded yet.',
+        'Sessions are recorded as they finish a turn, so this fills in as you use gsloth.',
+      ];
+    case 'unreadable':
+      return [
+        'Local session history is on, but its store could not be read.',
+        'The database file is there and would not open — it may be locked by another process, ' +
+          'or damaged. Your config is not the problem.',
+      ];
+    case 'available':
+      // The store was read and produced nothing at all. The formatters have their own
+      // empty-store lines, so this is only reachable if one ever returns an empty array.
+      return ['Local session history is on, and it holds nothing to show yet.'];
+    default:
+      // No availability at all: this surface passed nothing, so nothing about the store or the
+      // config has been established here and neither may be blamed.
+      return [
+        'This session does not provide local session history.',
+        'Run `gth history list`, `gth history search <terms>` or `gth insights` to read the same ' +
+          'records outside a session.',
+      ];
+  }
+}
 
-/** The `/history` notice (GS2-7): recent recorded sessions, or an "unavailable" fallback. */
-export function historyNotice(summary: string[] | undefined): SlashCommandNotice {
+/** The `/history` notice (GS2-7): recent recorded sessions, or why there are none (GS2-88). */
+export function historyNotice(
+  summary: string[] | undefined,
+  availability?: HistoryAvailability
+): SlashCommandNotice {
   return {
     title: 'Recent sessions',
-    lines: summary && summary.length > 0 ? summary : HISTORY_UNAVAILABLE_LINES,
+    lines: summary && summary.length > 0 ? summary : historyUnavailableLines(availability),
   };
 }
 
-/** The `/insights` notice (GS2-7): local analytics summary, or an "unavailable" fallback. */
-export function insightsNotice(summary: string[] | undefined): SlashCommandNotice {
+/** The `/insights` notice (GS2-7): local analytics summary, or why there is none (GS2-88). */
+export function insightsNotice(
+  summary: string[] | undefined,
+  availability?: HistoryAvailability
+): SlashCommandNotice {
   return {
     title: 'Session insights (local only)',
-    lines: summary && summary.length > 0 ? summary : HISTORY_UNAVAILABLE_LINES,
+    lines: summary && summary.length > 0 ? summary : historyUnavailableLines(availability),
   };
 }
 
@@ -374,7 +440,8 @@ export function insightsNotice(summary: string[] | undefined): SlashCommandNotic
  */
 export function searchNotice(
   args: string[],
-  search: ((query: string) => string[]) | undefined
+  search: ((query: string) => string[]) | undefined,
+  availability?: HistoryAvailability
 ): SlashCommandNotice {
   const query = args.join(' ').trim();
   if (!query) {
@@ -384,7 +451,7 @@ export function searchNotice(
     };
   }
   if (!search) {
-    return { title: `Search: "${query}"`, lines: HISTORY_UNAVAILABLE_LINES };
+    return { title: `Search: "${query}"`, lines: historyUnavailableLines(availability) };
   }
   return { title: `Search: "${query}"`, lines: search(query) };
 }
@@ -1270,8 +1337,28 @@ export function approvalsTrustNotice(change: McpAnnotationTrustChange): SlashCom
  *
  * The App renders a `reprintReasoning` result as a fresh reasoning block (reusing the TUI-C15
  * styling) and a `notice` result via the shared `CommandNotice`.
+ *
+ * **GS2-88 — `undefined` is the surface saying it keeps no thinking record, and is answered as
+ * that.** It is not the same claim as an empty array, which is a surface that keeps the record and
+ * has nothing in it yet. Collapsing the two is how this command came to tell a plain-session user
+ * with a long conversation behind them that the session had no committed turns.
  */
-export function resolveReasoning(reasonings: string[], args: string[]): SlashCommandResult {
+export function resolveReasoning(
+  reasonings: string[] | undefined,
+  args: string[]
+): SlashCommandResult {
+  if (!reasonings) {
+    return {
+      notice: {
+        title: 'No thinking is recorded in this session',
+        lines: [
+          'This session keeps no per-turn thinking record, so there is none to reprint — ' +
+            'whatever it has already answered.',
+          'The full-screen TUI does keep one, so /reasoning works there.',
+        ],
+      },
+    };
+  }
   const count = reasonings.length;
   const has = (i: number): boolean => (reasonings[i] ?? '').trim().length > 0;
 
@@ -1979,20 +2066,22 @@ export function createCommandRegistry(): SlashCommand[] {
       description: 'Show recent recorded sessions (local history)',
       availableDuringRun: true,
       // Read-only discovery, mirroring /config: render the App's fail-soft, pre-built summary.
-      run: (ctx) => ({ notice: historyNotice(ctx.historySummary) }),
+      run: (ctx) => ({ notice: historyNotice(ctx.historySummary, ctx.historyAvailability) }),
     },
     {
       name: 'search',
       description: 'Search recorded session history (/search <terms>)',
       availableDuringRun: true,
       // Dynamic query, so it calls the App-injected fail-soft search provider (stubbable in tests).
-      run: (ctx, args) => ({ notice: searchNotice(args, ctx.historySearch) }),
+      run: (ctx, args) => ({
+        notice: searchNotice(args, ctx.historySearch, ctx.historyAvailability),
+      }),
     },
     {
       name: 'insights',
       description: 'Show local analytics over recorded sessions (tokens, cost, top tools)',
       availableDuringRun: true,
-      run: (ctx) => ({ notice: insightsNotice(ctx.insightsSummary) }),
+      run: (ctx) => ({ notice: insightsNotice(ctx.insightsSummary, ctx.historyAvailability) }),
     },
     {
       name: 'model',
@@ -2017,7 +2106,7 @@ export function createCommandRegistry(): SlashCommand[] {
       availableDuringRun: true,
       // Pure: resolve the target from the App-provided committed reasonings; the App renders the
       // reprint (reusing TUI-C15 styling) or the friendly notice.
-      run: (ctx, args) => resolveReasoning(ctx.turnReasonings ?? [], args),
+      run: (ctx, args) => resolveReasoning(ctx.turnReasonings, args),
     },
     {
       name: 'debug-dump',
