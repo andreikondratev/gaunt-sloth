@@ -61,7 +61,10 @@ command that spans twenty lines is shown whole rather than cut down to its first
   outright the next time the agent tries it and in every later session. It is the mirror of
   **always**, in the same folder and the same entry grammar, and you can read and edit it — or lift
   one refusal from inside a session with `/approvals undeny <number>`, which is what `/approvals`
-  numbers each refusal for. Shown whenever an entry can be formed, which is more often than
+  numbers each refusal for. **In an editor over ACP this answer is *Reject and remember*, and
+  `/approvals` is offered there too** — the agent advertises it to the client, so it appears in the
+  editor's own command list and lists and lifts the same refusals.
+  Shown whenever an entry can be formed, which is more often than
   **session**/**always** are offered: a command the gate cannot read (`ls && rm -rf build`) can be
   refused permanently even though it can never be approved permanently, and so can a
   **catastrophic** one.

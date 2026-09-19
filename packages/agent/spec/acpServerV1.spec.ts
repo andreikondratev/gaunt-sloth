@@ -1308,7 +1308,7 @@ describe('the ACP v1 agent — session/request_permission', () => {
       // Its own message, beside the model's — never spliced into it. Asserted as the whole string
       // rather than with `toContain`, which a single merged message would satisfy just as well.
       expect(messages).toContain(
-        "Rejected and remembered — this exact call is saved to this project's approvals settings and will be refused without asking in future sessions."
+        "Rejected and remembered — this exact call is saved to this project's approvals settings and will be refused without asking in future sessions. Run /approvals to see what is refused and lift this one."
       );
       expect(existsSync(join(writable, 'shell-denylist.json'))).toBe(true);
     });

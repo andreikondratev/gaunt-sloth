@@ -142,17 +142,30 @@ unambiguous meaning — and there is no per-prompt "turn the gate down from here
 - **Choosing is a picker on a TTY, a text list off it.** `/approvals` with no argument renders
   `ApprovalsPicker` (four postures — Write is a modifier of Manual and stays settable by name); the
   readline session prints the same choices as text from the same builder, so the two cannot offer
-  different modes. A surface with no slash commands — the ACP and AG-UI servers — renders neither,
-  so no copy from this builder reaches a server surface, and AG-UI renders no approvals string at
-  all. **ACP renders its own, though** — the permission request's title, the explanation built from
+  different modes. AG-UI has no command layer, renders neither, and renders no approvals string at
+  all. **ACP has one command and renders neither either, which is a choice rather than an absence:**
+  its `/approvals` shows the refusal list alone, because the posture copy names a mode switch that
+  surface does not offer and a control offered and then refused is the failure this section is
+  written against. **ACP renders its own, though** — the permission request's title, the explanation built from
   the rater's verdict, the matched `approvals.escalate` entry and the grant preview, its four option
   labels, and the confirmation a remembering answer earns — so there the boundary above **is**
   crossed, and every claim in that copy has to be re-earned rather than inherited from here. One of
   them already is: ACP's two remembering answers are labelled *Allow and remember* and *Reject and
   remember*, the pair of scopes that reach a project file — one menu item may not mean two lifetimes
   across the three surfaces that offer it. The confirmation is re-earned in the same way and says so
-  in that surface's own words: an editor has no menu key to name and no `/approvals` to point at, so
-  copy that names either is copy that does not belong there.
+  in that surface's own words: an editor has no menu key to name, so copy that names one does not
+  belong there. It does have `/approvals`, and the two refusal confirmations name it — see the next
+  bullet.
+- **A saved refusal is liftable from the surface that saved it (DL-4, DL-5, DL-6).** *Reject and
+  remember* writes to a project file on every surface that offers it, so every surface that offers
+  it must also be able to list what is refused and take one back; telling a user to open a terminal,
+  or to delete a file they were never told about, is not an escape hatch. In an editor that is
+  `/approvals`, advertised through ACP's own `available_commands_update` so the client draws it in
+  its command UI (DL-5: the protocol's affordance, not a private extension), and the two refusal
+  confirmations name it where the refusal is saved, which is the moment the user needs it. What it
+  lists is the shared refusal notice, with the same three origin words the terminal uses (DL-6) —
+  **a list that cannot say which of configured, saved and this-conversation an entry is leaves the
+  user unable to tell what they can lift**, which is the same dead end one step along.
 - **A confirmation states what LANDED, and waits for it if it has to (DL-4).** The two answers that
   promise a project file — *always approve* and *always reject* — ask for something the runner may
   not be able to do: a store whose file cannot be written records the answer for this session

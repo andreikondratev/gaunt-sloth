@@ -758,10 +758,12 @@ export function approvalPostureChoices(current: ApprovalRung): ApprovalPostureCh
  * readline session is what prints it, and that is where every `--no-tui`, piped / non-TTY, CI or
  * missing-Ink run lands.
  *
- * **A surface with no slash-command layer renders nothing from here.** The ACP and AG-UI servers
- * have none, so `/approvals` reaches them in no form at all and this list appears on neither. Do
- * not read a server's tool-approval gate as this list arriving there: that gate asks about a single
- * pending call in the protocol's own request shape and carries no posture copy.
+ * **A surface with no slash-command layer renders nothing from here**, which the AG-UI server still
+ * has none of. ACP is no longer in that set — [[EXT-142]] gave it one command, advertised through
+ * `available_commands_update` — but it renders {@link approvalsRefusalsNotice} and deliberately not
+ * this posture list, because the copy around it names a mode switch that surface does not offer.
+ * Do not read a server's tool-approval gate as this list arriving there either: that gate asks
+ * about a single pending call in the protocol's own request shape and carries no posture copy.
  *
  * The same {@link approvalPostureChoices} the TTY picker renders, so the two cannot list different
  * modes or describe them differently — the text fallback is a rendering of the picker, not a

@@ -533,8 +533,11 @@ describe('the ACP v2 agent — session lifecycle', () => {
     // it too, so it also pins that notifications were sent at all.
     expect(new Set(updateSessionIds)).toEqual(new Set([sessionId]));
 
-    // The user message is reported first, so the client knows where the prompt landed.
-    expect(view.updates[0].sessionUpdate).toBe('user_message');
+    // [[EXT-142]] — the session's own first update is the command advertisement, sent once when
+    // the session is created and before any turn.
+    expect(view.updates[0].sessionUpdate).toBe('available_commands_update');
+    // The TURN's first update is the user message, so the client knows where the prompt landed.
+    expect(view.updates[1].sessionUpdate).toBe('user_message');
     expect(view.textOf(view.userMessages)).toBe('say hello');
     // Then running, and eventually idle with the stop reason.
     expect(view.states.map((s) => s.state)).toEqual(['running', 'idle']);

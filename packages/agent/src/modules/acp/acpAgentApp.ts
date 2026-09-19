@@ -78,6 +78,12 @@ import {
   acpTerminationMeta,
 } from '#src/modules/acp/acpStopReason.js';
 import {
+  acpAvailableCommandsV2,
+  parseAcpSessionCommand,
+  runAcpSessionCommand,
+  type AcpCommandInvocation,
+} from '#src/modules/acp/acpCommands.js';
+import {
   ACP_AGENT_NAME,
   ACP_AGENT_TITLE,
   CLOSE_TURN_DRAIN_MS,
@@ -178,6 +184,27 @@ export function createAcpAgentApp(options: AcpAgentAppOptions = {}): acp.AgentAp
 
   const sendState = async (session: AcpSession, state: acp.StateUpdate): Promise<void> => {
     await sendUpdate(session, { sessionUpdate: 'state_update', ...state } as acp.SessionUpdate);
+  };
+
+  /**
+   * [[EXT-142]] — tell the client which commands this session offers, so the escape hatch for a
+   * saved refusal is something the editor draws rather than something the user has to know.
+   *
+   * **Scheduled rather than awaited**, for the reason the prompt handler gives below: the
+   * `session/new` response has to reach the client before any `session/update` naming the session
+   * it creates, and a `setImmediate` runs after the microtask that writes that response. Sent once
+   * per session — the set is static, so there is nothing to re-send.
+   *
+   * A send that fails is dropped: the connection going away must not take a session creation down
+   * with it, and nothing about the session depends on the client having received this.
+   */
+  const announceCommands = (session: AcpSession): void => {
+    setImmediate(() => {
+      void sendUpdate(session, {
+        sessionUpdate: 'available_commands_update',
+        availableCommands: acpAvailableCommandsV2(),
+      } as acp.SessionUpdate).catch(() => undefined);
+    });
   };
 
   /**
@@ -428,6 +455,68 @@ export function createAcpAgentApp(options: AcpAgentAppOptions = {}): acp.AgentAp
     }
   };
 
+  /**
+   * [[EXT-142]] — run one advertised command as a turn of its own.
+   *
+   * A command is not a prompt: nothing reaches the model, no tool is called, and the runner is
+   * asked one question and answers it synchronously. It is still a TURN on the wire, because that
+   * is the only thing v2 gives a client to hang an answer on — the user message it echoes, the
+   * agent message carrying the answer, and the idle state that says the turn is over. A client that
+   * never saw the idle update would leave the session looking busy forever.
+   *
+   * Never rejects, exactly as {@link runTurn} does not: this runs detached from a `session/prompt`
+   * that has already been answered, so a throw would be an unhandled rejection rather than an error
+   * anyone sees.
+   */
+  const runCommandTurn = async (
+    session: AcpSession,
+    prompt: acp.ContentBlock[],
+    invocation: AcpCommandInvocation
+  ): Promise<void> => {
+    let stopReason: acp.StopReason = 'end_turn';
+    // The same occupancy `runTurn` takes, so the concurrency check in `session/prompt` covers a
+    // command exactly as it covers a model turn. Without it a prompt arriving mid-command would be
+    // accepted, and its `state_update`s would interleave with this one's — telling the client a
+    // turn had ended while another was still running.
+    session.abort = new AbortController();
+    try {
+      const userMessage: acp.SessionUpdate = {
+        sessionUpdate: 'user_message',
+        messageId: randomUUID(),
+        content: prompt,
+      };
+      session.replayLog.push(userMessage);
+      await sendUpdate(session, userMessage);
+      await sendState(session, { state: 'running' });
+
+      const answer: acp.SessionUpdate = {
+        sessionUpdate: 'agent_message',
+        messageId: randomUUID(),
+        content: [{ type: 'text', text: runAcpSessionCommand(session.runner, invocation) }],
+      };
+      session.replayLog.push(answer);
+      await sendUpdate(session, answer);
+    } catch (error) {
+      stopReason = '_error';
+      const message = error instanceof Error ? error.message : String(error);
+      displayWarning(
+        `ACP session ${session.sessionId}: /${invocation.command.name} failed — ${message}`
+      );
+      await sendUpdate(session, {
+        sessionUpdate: 'agent_message',
+        messageId: randomUUID(),
+        content: [
+          { type: 'text', text: `The ${invocation.command.name} command failed: ${message}` },
+        ],
+      }).catch(() => undefined);
+    } finally {
+      session.abort = null;
+      await sendState(session, { state: 'idle', stopReason } as acp.StateUpdate).catch(
+        () => undefined
+      );
+    }
+  };
+
   const closeSession = async (session: AcpSession): Promise<void> => {
     session.closed = true;
     session.cancelled = true;
@@ -515,7 +604,7 @@ export function createAcpAgentApp(options: AcpAgentAppOptions = {}): acp.AgentAp
         await runner.init(resolveAcpSessionCommand(config), config, new MemorySaver());
 
         const sessionId = randomUUID();
-        sessions.set(sessionId, {
+        const session: AcpSession = {
           sessionId,
           cwd,
           runner,
@@ -525,7 +614,11 @@ export function createAcpAgentApp(options: AcpAgentAppOptions = {}): acp.AgentAp
           closed: false,
           cancelled: false,
           replayLog: [],
-        });
+        };
+        sessions.set(sessionId, session);
+        // [[EXT-142]] — after the session exists, so the update names a session the client is about
+        // to be told about; see {@link announceCommands} for why it is scheduled rather than sent.
+        announceCommands(session);
         return { sessionId };
       } finally {
         pendingSessions -= 1;
@@ -584,12 +677,19 @@ export function createAcpAgentApp(options: AcpAgentAppOptions = {}): acp.AgentAp
       // starting it inline) is what keeps the acknowledgement first on the wire — a client that
       // saw a `session/update` for a prompt it had not yet been told was accepted would be right
       // to treat it as a protocol error.
+      // [[EXT-142]] — an advertised command is recognised BEFORE the turn starts, because it is not
+      // a prompt: the client rendered it from `available_commands_update` and sends it as prompt
+      // text only because neither dialect has an invoke method for it. Everything else — which is
+      // very nearly everything — is untouched and goes to the model.
+      const invocation = parseAcpSessionCommand(params.prompt);
       setImmediate(() => {
         // A close that landed in the gap between accepting the prompt and this tick wins: starting
         // the turn now would run it against a session already torn down, and nothing would be
         // waiting for it.
         if (session.closed) return;
-        session.turn = runTurn(session, params.prompt);
+        session.turn = invocation
+          ? runCommandTurn(session, params.prompt, invocation)
+          : runTurn(session, params.prompt);
       });
       return {};
     })

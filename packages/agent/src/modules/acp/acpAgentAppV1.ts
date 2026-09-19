@@ -69,6 +69,11 @@ import {
 import { acpStopReasonFor, acpTerminationMeta } from '#src/modules/acp/acpStopReason.js';
 import { permissionRequestForV1 } from '#src/modules/acp/acpPermissionsV1.js';
 import {
+  acpAvailableCommandsV1,
+  parseAcpSessionCommand,
+  runAcpSessionCommand,
+} from '#src/modules/acp/acpCommands.js';
+import {
   ACP_AGENT_NAME,
   ACP_AGENT_TITLE,
   CLOSE_TURN_DRAIN_MS,
@@ -193,6 +198,28 @@ export function createAcpV1AgentApp(options: AcpAgentAppOptions = {}): acp.Agent
     await session.client.notify(acp.CLIENT_METHODS.session_update, {
       sessionId: session.sessionId,
       update,
+    });
+  };
+
+  /**
+   * [[EXT-142]] — tell the client which commands this session offers.
+   *
+   * **v1 carries this update too**, which is what makes the lift reachable in the dialect Zed
+   * speaks: the v1 `SessionUpdate` union has the same `available_commands_update` member as v2, and
+   * neither dialect gates it behind a capability. A v2-only bridge would have shipped the escape
+   * hatch to the protocol no shipping editor uses.
+   *
+   * **Scheduled rather than awaited**: the `session/new` response has to reach the client before
+   * any `session/update` naming the session it creates, and a `setImmediate` runs after the
+   * microtask that writes that response. Sent once per session — the set is static — and a send
+   * that fails is dropped, because nothing about the session depends on the client having it.
+   */
+  const announceCommands = (session: AcpV1Session): void => {
+    setImmediate(() => {
+      void sendUpdate(session, {
+        sessionUpdate: 'available_commands_update',
+        availableCommands: acpAvailableCommandsV1(),
+      } as acp.SessionUpdate).catch(() => undefined);
     });
   };
 
@@ -470,7 +497,7 @@ export function createAcpV1AgentApp(options: AcpAgentAppOptions = {}): acp.Agent
         await runner.init(resolveAcpSessionCommand(config), config, new MemorySaver());
 
         const sessionId = randomUUID();
-        sessions.set(sessionId, {
+        const session: AcpV1Session = {
           sessionId,
           cwd,
           runner,
@@ -478,7 +505,11 @@ export function createAcpV1AgentApp(options: AcpAgentAppOptions = {}): acp.Agent
           abort: null,
           turn: null,
           cancelled: false,
-        });
+        };
+        sessions.set(sessionId, session);
+        // [[EXT-142]] — after the session exists, so the update names a session the client is about
+        // to be told about; see {@link announceCommands} for why it is scheduled rather than sent.
+        announceCommands(session);
         return { sessionId };
       } finally {
         pendingSessions -= 1;
@@ -509,6 +540,24 @@ export function createAcpV1AgentApp(options: AcpAgentAppOptions = {}): acp.Agent
           { sessionId: params.sessionId },
           'A prompt is already running in this session. Wait for it to answer.'
         );
+      }
+      // [[EXT-142]] — an advertised command is recognised BEFORE a turn starts, because it is not a
+      // prompt: the client rendered it from `available_commands_update` and sends it as prompt text
+      // only because the dialect has no invoke method for it. Everything else goes to the model.
+      //
+      // v1's answer is simpler than v2's: there is no `state_update` to close, the still-open
+      // `session/prompt` request IS the end of the turn, and the note goes out as an
+      // `agent_message_chunk` carrying its own `messageId` — the same channel and the same reason
+      // the [[EXT-154]] remembered-answer note uses, since a change of id is what starts a new
+      // message in this dialect.
+      const invocation = parseAcpSessionCommand(params.prompt);
+      if (invocation) {
+        await sendUpdate(session, {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: randomUUID(),
+          content: { type: 'text', text: runAcpSessionCommand(session.runner, invocation) },
+        } as acp.SessionUpdate);
+        return { stopReason: 'end_turn' };
       }
       // Started synchronously and recorded before anything can suspend: `runTurn` assigns
       // `session.abort` before its first await, and `session.turn` is what a concurrent

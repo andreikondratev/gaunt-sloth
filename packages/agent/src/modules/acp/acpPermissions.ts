@@ -193,10 +193,16 @@ export function permissionRequestFor(options: {
  * ## The copy is this surface's, not the terminal's
  *
  * Re-earned rather than pasted across, as the guidelines require of every claim ACP renders. The
- * client is an editor: there is no menu key to name, no `/approvals undeny` to point at (an editor
- * has no slash commands — the gap [[EXT-142]] owns), and *allow-list* / *deny-list* are the
+ * client is an editor: there is no menu key to name, and *allow-list* / *deny-list* are the
  * terminal's vocabulary for something an editor user only ever meets as project settings. What
  * carries over is the answer's own word — *remembered* — because that is what the option said.
+ *
+ * **The two refusal sentences DO name the lift**, which is [[EXT-142]]'s half: the answer that
+ * saves a refusal is the moment the trap is set, and the command that undoes it is advertised to
+ * this client through `available_commands_update` (`acpCommands.ts`), so naming it here is a
+ * pointer at something the editor is already drawing rather than terminal vocabulary. The two
+ * approval sentences name nothing, because an approval is not a trap and the control that lists
+ * grants is not on this surface.
  *
  * ## Three cases, where the terminal surfaces have two
  *
@@ -219,9 +225,9 @@ export function rememberedAnswerNote(
     return 'Allowed for this one call only — nothing was remembered, so the next identical call will ask again.';
   }
   if (landed === 'always')
-    return "Rejected and remembered — this exact call is saved to this project's approvals settings and will be refused without asking in future sessions.";
+    return "Rejected and remembered — this exact call is saved to this project's approvals settings and will be refused without asking in future sessions. Run /approvals to see what is refused and lift this one.";
   if (landed === 'session')
-    return "Rejected for this session only — this project's approvals settings could not be written, so the next session will ask about this call again.";
+    return "Rejected for this session only — this project's approvals settings could not be written, so the next session will ask about this call again. Run /approvals to see what is refused and lift this one.";
   return 'Rejected for this one call only — nothing was remembered, so the next identical call will ask again.';
 }
 
