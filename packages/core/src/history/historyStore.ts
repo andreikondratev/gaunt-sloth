@@ -48,7 +48,17 @@ export interface SessionRecord {
   conversationId?: number;
   /** ISO-8601 timestamp; defaults to now when omitted. */
   ts?: string;
-  /** Project / working directory the run happened in. */
+  /**
+   * The PROJECT ROOT the turn was recorded under — every write site fills this from
+   * `getProjectDir()`, which is the discovered config root when discovery matched above the
+   * session, the `--config` override's own directory when one was given, and the working directory
+   * only when neither applied.
+   *
+   * **It is not where the user was**, and the two coincide only in the common case: a session
+   * opened in a subdirectory of a configured project records the PARENT. Nothing may render this
+   * value under a phrase that places the session in it, and the row carries no second path to
+   * recover the working directory from.
+   */
   project?: string;
   /** Originating command (ask/chat/code/exec/…). */
   command?: string;
@@ -85,7 +95,15 @@ export interface SessionSearchResult extends SessionRecord {
 export interface ConversationMeta {
   /** ISO-8601 start timestamp; defaults to now when omitted. */
   ts?: string;
-  /** Project / working directory the conversation happened in. */
+  /**
+   * The PROJECT ROOT the conversation was opened under — `getProjectDir()` at the moment the row
+   * was written, on the same terms as {@link SessionRecord.project}: the discovered config root,
+   * the `--config` override's directory, or the working directory only as a fallback.
+   *
+   * **Not where the user was.** This is also the value a resume's workspace check compares against
+   * the resuming session's own `getProjectDir()`, so what goes in here decides which conversations
+   * a later session is allowed to reopen.
+   */
   project?: string;
   /** Originating command (chat/code/ask/exec/…). */
   command?: string;
@@ -109,6 +127,11 @@ export interface ConversationSummary {
   id: number;
   /** When the conversation was opened. */
   startedTs: string;
+  /**
+   * The conversation's PROJECT ROOT as recorded when it was opened — see
+   * {@link ConversationMeta.project} for what that value is and, just as importantly, what it is
+   * not. A surface rendering it must name it as the project root; it is not where the session was.
+   */
   project?: string;
   command?: string;
   model?: string;
@@ -234,6 +257,11 @@ export class HistoryStore {
     // upgraded in place have identical schemas. `conversations.grants` follows the same rule: the
     // session-scoped approval grants a resume restores, as one opaque JSON document owned by the
     // approvals layer (`core/approvals/conversationGrants.ts`); this store never reads inside it.
+    //
+    // Both tables carry a `project` column, and both hold the PROJECT ROOT the row was written
+    // under — not the working directory the session was in. See {@link SessionRecord.project} and
+    // {@link ConversationMeta.project}; the distinction is load-bearing because a resume's
+    // workspace check reads `conversations.project` and refuses on it.
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS conversations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

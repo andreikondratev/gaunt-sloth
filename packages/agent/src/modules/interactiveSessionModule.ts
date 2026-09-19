@@ -271,6 +271,9 @@ export async function createInteractiveSession(
     ? bootResume.conversationId
     : (openConversationSafe(config, {
         command: sessionConfig.mode,
+        // The conversation's PROJECT ROOT, not the directory this session is in: `getProjectDir()`
+        // is the discovered config root whenever one was found above us. It is what the resume
+        // workspace check compares, so nothing may render it as where the user was.
         project: getProjectDir(),
         model: config.modelDisplayName,
         threadId: checkpointer.threadId,
@@ -720,6 +723,8 @@ export async function createInteractiveSession(
       recordSessionSafe(config, {
         conversationId, // GS2-19: group every turn under this session's conversation
         command: sessionConfig.mode,
+        // The turn's PROJECT ROOT, not the directory this session is in — see the same field on
+        // the conversation row above.
         project: getProjectDir(),
         model: config.modelDisplayName,
         prompt: userInput,

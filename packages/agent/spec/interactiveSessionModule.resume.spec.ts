@@ -241,7 +241,9 @@ describe('interactiveSessionModule — resume (GS2-20)', () => {
     const banner = notices().find((n) => n.title === `Resumed conversation #${id}`);
     expect(banner).toBeDefined();
     expect(banner!.lines.join(' ')).toContain('2 turns recorded under gth code, with seed-model');
-    expect(banner!.lines.join(' ')).toContain('in /proj');
+    // The stored path is named as the project root it is, not placed under a preposition — see the
+    // GS2-113 cells in sessionResume.spec.ts for why that distinction is load-bearing.
+    expect(banner!.lines.join(' ')).toContain('with project root /proj');
     expect(banner!.lines.join(' ')).toContain('Approvals you granted in it are in force again');
     const shown = displayed();
     expect(shown).toContain('  > first prompt');

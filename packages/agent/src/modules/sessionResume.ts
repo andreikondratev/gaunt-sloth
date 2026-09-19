@@ -87,7 +87,16 @@ export interface ResumeSessionContext {
   config: HistoryConfigView;
   /** The session's checkpointer — the saver the thread is looked up in, and whether it is durable. */
   checkpointer: { saver: BaseCheckpointSaver; durable: boolean };
-  /** The directory this session works in, compared with the conversation's stored `project`. */
+  /**
+   * This session's PROJECT ROOT — `getProjectDir()`, the same accessor the conversation's stored
+   * `project` was written from, compared with it below.
+   *
+   * It is **not** the directory the session works in, and the two differ whenever config discovery
+   * matched above the session or a `--config` override moved the root. Both sides of the
+   * comparison answering the same question is what makes the refusal coherent; feeding a working
+   * directory in on one side and a project root on the other would change which conversations
+   * resume reopens.
+   */
   workspace: string;
 }
 
@@ -219,6 +228,18 @@ const plural = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? '' 
  * on record, and under which command and model — the facts a person needs to confirm they picked
  * the right id. It also states the one thing a resume changes that nothing on screen shows: the
  * approvals granted in that conversation are in force again.
+ *
+ * **The stored `project` is named as the conversation's PROJECT ROOT, and never as where the
+ * session was.** It is `getProjectDir()` as of the moment the conversation was opened: the
+ * discovered config root when discovery matched above the session, the `--config` override's own
+ * directory when one was given, and the working directory only when neither applied. So a session
+ * opened in a subdirectory of a configured project recorded its PARENT, and a sentence placing the
+ * session *in* that path is false for exactly the user who most needs it right, while reading
+ * perfectly for everyone whose config sat where they opened the session.
+ *
+ * Where the user actually was is not recoverable here — the row holds one path, and its provenance
+ * is not on it — so this banner claims nothing about it. What it does hold is the value the
+ * workspace-mismatch refusal gates on, which is the fact worth printing beside the id.
  */
 export function resumedConversationNotice(target: ResumeTarget): SlashCommandNotice {
   const { summary } = target;
@@ -227,7 +248,7 @@ export function resumedConversationNotice(target: ResumeTarget): SlashCommandNot
   return {
     title: `Resumed conversation #${target.conversationId}`,
     lines: [
-      `Started ${summary.startedTs}${summary.project ? ` in ${summary.project}` : ''}.`,
+      `Started ${summary.startedTs}${summary.project ? `, with project root ${summary.project}` : ''}.`,
       `${recorded}${model}.`,
       target.turns.length > 0
         ? 'The recorded turns are shown below; the model continues from where it left off.'

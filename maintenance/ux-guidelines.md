@@ -231,6 +231,21 @@ unambiguous meaning — and there is no per-prompt "turn the gate down from here
 - **Close the picker before applying the choice.** A landed resume replaces the screen and re-keys
   the transcript, and the open list is a snapshot of the conversations as they were before it.
 
+## The resumed-conversation banner (DL-4 transparency)
+
+- **A stored path is named by what it is, never by a preposition of place.** The banner reports the
+  conversation's **project root** — the value every history row's `project` column holds, which is
+  the discovered config root, a `--config` override's own directory, or the working directory only
+  when neither applied. Rendering it as somewhere the session *was* is false for a session opened
+  in a subdirectory of a configured project, and silently true for everyone else, so the phrasing
+  is what has to carry the distinction. This is the launch banner's location rule applied to a
+  recorded value: where the user actually was is not on the row, so the banner claims nothing about
+  it rather than guessing.
+- **Say the fact a later session is judged on.** The project root is the value the
+  workspace-mismatch refusal compares, so naming it is what lets a user predict which sessions can
+  reopen this conversation — a bare path under a location phrase tells them nothing they can act
+  on.
+
 ## Abstentions the agent resolves (DL-4 transparency, DL-1 nothing important is silent, EXT-65)
 
 When the approvals gate cannot statically read a command — it composes, substitutes or redirects —

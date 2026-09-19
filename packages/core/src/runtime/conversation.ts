@@ -196,6 +196,9 @@ export async function runConversation(
         // false.
         recordSessionSafe(config, {
           command,
+          // The turn's PROJECT ROOT, not the directory this run is in: `getProjectDir()` is the
+          // discovered config root whenever one was found above us. Nothing may render it as
+          // where the user was.
           project: getProjectDir(),
           model: config.modelDisplayName,
           prompt: userMessage,

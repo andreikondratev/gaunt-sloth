@@ -5,7 +5,7 @@
  * thing faked, because this module's contract with it is one call.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import type { BaseCheckpointSaver } from '@langchain/langgraph';
@@ -16,6 +16,12 @@ import {
 } from '@gaunt-sloth/core/history/recordSession.js';
 import { openSessionCheckpointerSafe } from '@gaunt-sloth/core/history/sessionCheckpointer.js';
 import { saveConversationGrantsSafe } from '@gaunt-sloth/core/core/approvals/conversationGrants.js';
+import {
+  getCurrentWorkDir,
+  getProjectDir,
+  peekProjectDir,
+  setProjectDir,
+} from '@gaunt-sloth/core/utils/systemUtils.js';
 import type { ApprovalGrant } from '@gaunt-sloth/core/core/approvals/grants.js';
 import {
   applyResumeTarget,
@@ -428,7 +434,9 @@ describe('sessionResume — the banner and the picker', () => {
   it('the banner names the id, when it started, the turns, the command and the model, and the grants', () => {
     const notice = resumedConversationNotice(target);
     expect(notice.title).toBe('Resumed conversation #12');
-    expect(notice.lines[0]).toBe('Started 2026-09-01T10:00:00.000Z in /work/here.');
+    // The stored path is named as the PROJECT ROOT it is, not placed under a preposition — see the
+    // GS2-113 cells at the bottom of this file for why the phrasing is load-bearing.
+    expect(notice.lines[0]).toBe('Started 2026-09-01T10:00:00.000Z, with project root /work/here.');
     expect(notice.lines[1]).toBe('2 turns recorded under gth code, with gemma4:12b.');
     expect(notice.lines[2]).toContain('recorded turns are shown below');
     expect(notice.lines[3]).toContain('Approvals you granted in it are in force again');
@@ -453,5 +461,206 @@ describe('sessionResume — the banner and the picker', () => {
     expect(none.title).toBe('No other conversation can be resumed');
     expect(none.lines.join(' ')).toContain('Nothing was changed.');
     expect(resumeSameConversationNotice(12).title).toBe('Already in conversation #12');
+  });
+});
+
+/**
+ * What the banner's first line CLAIMS, read back off the sentence.
+ *
+ * Parsed rather than compared to a literal, because a literal comparison cannot tell a true
+ * sentence from a false one: with the session's working directory EQUAL to its project root — the
+ * common case — every phrasing of that line is true, so a cell arranged that way passes whatever
+ * the code says. These cells evaluate the claim against the world the line was rendered for
+ * instead, and arrange the world so the two directories differ.
+ *
+ * An unrecognised sentence THROWS rather than falling through to a default, so a later rewording
+ * cannot quietly turn these cells into assertions that cannot fail.
+ */
+type LocationClaim =
+  { kind: 'session-was-in'; dir: string } | { kind: 'project-root-is'; dir: string };
+
+const readLocationClaim = (line: string): LocationClaim => {
+  const asRoot = /^Started \S+, with project root (.+)\.$/.exec(line);
+  if (asRoot) return { kind: 'project-root-is', dir: asRoot[1] };
+  const asPlace = /^Started \S+ in (.+)\.$/.exec(line);
+  if (asPlace) return { kind: 'session-was-in', dir: asPlace[1] };
+  throw new Error(`the banner's first line makes no claim this cell can evaluate: ${line}`);
+};
+
+/** Is that claim TRUE of the directories the line was rendered for? */
+const claimHolds = (
+  claim: LocationClaim,
+  world: { workDir: string; projectRoot: string }
+): boolean =>
+  isSameWorkspace(
+    resolve(claim.dir),
+    resolve(claim.kind === 'session-was-in' ? world.workDir : world.projectRoot)
+  );
+
+describe('sessionResume — GS2-113, what the resumed banner says about the stored path', () => {
+  let dir: string;
+  let config: { history: { dbPath: string; enabled?: boolean } };
+  const closers: Array<() => void> = [];
+
+  beforeEach(() => {
+    dir = mkdtempSync(resolve(tmpdir(), 'gsloth-resume-location-'));
+    config = { history: { dbPath: resolve(dir, 'history.db') } };
+  });
+  afterEach(() => {
+    for (const close of closers.splice(0)) close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const durable = () => {
+    const ckpt = openSessionCheckpointerSafe(config, { notify: () => {} });
+    closers.push(() => ckpt.close());
+    expect(ckpt.durable).toBe(true);
+    return ckpt;
+  };
+
+  /**
+   * Put the process in the state a session opened at `workDir`, under a project config discovered
+   * at `projectRoot`, is actually in — and put it back afterwards. These are the two accessors
+   * every `project` write site and the resume check read: `setProjectDir` is what config discovery
+   * calls with the root it matched, and `INIT_CWD` is what `getCurrentWorkDir()` prefers.
+   */
+  const inWorld = async <T>(
+    world: { projectRoot: string; workDir: string },
+    body: () => Promise<T>
+  ): Promise<T> => {
+    const priorProjectDir = peekProjectDir();
+    const priorInitCwd = process.env.INIT_CWD;
+    mkdirSync(world.workDir, { recursive: true });
+    mkdirSync(world.projectRoot, { recursive: true });
+    setProjectDir(world.projectRoot);
+    process.env.INIT_CWD = world.workDir;
+    try {
+      return await body();
+    } finally {
+      setProjectDir(priorProjectDir);
+      if (priorInitCwd === undefined) delete process.env.INIT_CWD;
+      else process.env.INIT_CWD = priorInitCwd;
+    }
+  };
+
+  /** A resumable conversation opened the way production opens one: `project: getProjectDir()`. */
+  const openAsProductionDoes = async (
+    saver: BaseCheckpointSaver,
+    threadId: string,
+    project = getProjectDir()
+  ): Promise<number> => {
+    const id = openConversationSafe(config, {
+      command: 'code',
+      project,
+      model: 'seed-model',
+      threadId,
+    })!;
+    recordSessionSafe(config, { conversationId: id, prompt: 'first', response: 'one' });
+    await checkpoint(saver, threadId);
+    return id;
+  };
+
+  const bannerLine = async (
+    ckpt: { saver: BaseCheckpointSaver; durable: boolean },
+    id: number
+  ): Promise<string> => {
+    const resolved = await resolveResumeTarget(
+      { config, checkpointer: ckpt, workspace: getProjectDir() },
+      id
+    );
+    expect(resolved.ok).toBe(true);
+    return resumedConversationNotice((resolved as { target: ResumeTarget }).target).lines[0];
+  };
+
+  it('the banner is TRUE for a session opened in a SUBDIRECTORY of a configured project', async () => {
+    const projectRoot = resolve(dir, 'project');
+    const workDir = resolve(projectRoot, 'nested', 'sub');
+
+    await inWorld({ projectRoot, workDir }, async () => {
+      // The premise, asserted rather than assumed: the two directories genuinely DIFFER here, and
+      // what the write sites record is the project root — not where the session is.
+      expect(getProjectDir()).toBe(projectRoot);
+      expect(getCurrentWorkDir()).toBe(workDir);
+      expect(isSameWorkspace(resolve(getProjectDir()), resolve(getCurrentWorkDir()))).toBe(false);
+
+      const ckpt = durable();
+      const id = await openAsProductionDoes(ckpt.saver, 'thread-sub');
+      const line = await bannerLine(ckpt, id);
+
+      // The stored path is the project root, and that is what the sentence may claim it is. A
+      // sentence placing the session IN it is false here, which is what this arrangement is for.
+      expect(claimHolds(readLocationClaim(line), { workDir, projectRoot })).toBe(true);
+      expect(readLocationClaim(line)).toEqual({ kind: 'project-root-is', dir: projectRoot });
+    });
+  });
+
+  it('CONTROL — with the working directory EQUAL to the project root, no phrasing can fail', async () => {
+    const projectRoot = resolve(dir, 'project');
+
+    await inWorld({ projectRoot, workDir: projectRoot }, async () => {
+      expect(isSameWorkspace(resolve(getProjectDir()), resolve(getCurrentWorkDir()))).toBe(true);
+
+      const ckpt = durable();
+      const id = await openAsProductionDoes(ckpt.saver, 'thread-at-root');
+      const line = await bannerLine(ckpt, id);
+      expect(claimHolds(readLocationClaim(line), { workDir: projectRoot, projectRoot })).toBe(true);
+
+      // The trap itself, as an assertion rather than a comment. The sentence this banner used to
+      // render places the session IN the stored path; off the same stored row that sentence is
+      // TRUE in this arrangement and FALSE in the one above. So only the unequal arrangement can
+      // tell the two phrasings apart, and a cell written here would pass whatever the code said.
+      const placed = `Started 2026-09-01T10:00:00.000Z in ${projectRoot}.`;
+      expect(claimHolds(readLocationClaim(placed), { workDir: projectRoot, projectRoot })).toBe(
+        true
+      );
+      expect(
+        claimHolds(readLocationClaim(placed), {
+          workDir: resolve(projectRoot, 'nested', 'sub'),
+          projectRoot,
+        })
+      ).toBe(false);
+    });
+  });
+
+  it('CONTROL — the workspace refusal is unchanged: it still gates on the PROJECT ROOT, from a subdirectory too', async () => {
+    const projectRoot = resolve(dir, 'project');
+    const workDir = resolve(projectRoot, 'nested', 'sub');
+    const otherRoot = resolve(dir, 'other');
+
+    await inWorld({ projectRoot, workDir }, async () => {
+      mkdirSync(otherRoot, { recursive: true });
+      const ckpt = durable();
+      const mine = await openAsProductionDoes(ckpt.saver, 'thread-mine');
+      const theirs = await openAsProductionDoes(ckpt.saver, 'thread-theirs', otherRoot);
+
+      // Recorded under THIS session's project root: it resumes, even though the session is two
+      // levels below that root. Being below the root is not a mismatch, and this ticket does not
+      // make it one.
+      const allowed = await resolveResumeTarget(
+        { config, checkpointer: ckpt, workspace: getProjectDir() },
+        mine
+      );
+      expect(allowed.ok).toBe(true);
+
+      // Recorded under another project root: still refused, still naming both paths.
+      const refused = await resolveResumeTarget(
+        { config, checkpointer: ckpt, workspace: getProjectDir() },
+        theirs
+      );
+      expect(refused).toEqual({
+        ok: false,
+        refusal: {
+          kind: 'workspace-mismatch',
+          id: theirs,
+          stored: otherRoot,
+          current: projectRoot,
+        },
+      });
+
+      // …and neither answer was decided by the working directory: it is neither of the two roots,
+      // so moving either side of the comparison onto it would flip both of the cells above.
+      expect(isSameWorkspace(resolve(getCurrentWorkDir()), projectRoot)).toBe(false);
+      expect(isSameWorkspace(resolve(getCurrentWorkDir()), otherRoot)).toBe(false);
+    });
   });
 });

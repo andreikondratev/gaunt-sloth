@@ -308,6 +308,9 @@ export async function runSingleShot(
     // GS2-16 threads token/tool analytics; costUsd is intentionally left unset (no reliable price).
     recordSessionSafe(config, {
       command,
+      // The run's PROJECT ROOT, not the directory this run is in: `getProjectDir()` is the
+      // discovered config root whenever one was found above us. Nothing may render it as where
+      // the user was.
       project: getProjectDir(),
       model: config.modelDisplayName,
       prompt: content,
