@@ -77,13 +77,13 @@ jobs:
     # reported as a visible SKIP by scripts/eval-gate.mjs.
     environment: integration tests
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Enable Corepack
         run: corepack enable
 
       - name: Use Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '24.x'
           cache: 'pnpm'
@@ -161,7 +161,7 @@ jobs:
       # the job. Whole dir, so a suite-per-subdir run from a directory input is covered as well.
       - name: Upload eval results
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: eval-results
           path: eval-out/
