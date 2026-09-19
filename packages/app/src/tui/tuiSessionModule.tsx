@@ -634,6 +634,50 @@ async function runTuiSession(
   const approvalBridge = createApprovalBridge();
   const attackHaltBridge = createAttackHaltBridge();
   const negotiationBridge = createNegotiationBridge();
+  /**
+   * [[EXT-194]] — **the one place a still-open prompt is answered**, so no teardown path can answer
+   * one bridge and forget the other. That is not hypothetical: the `catch` below answered the
+   * approval prompt and not the attack banner, so a session that threw with a banner on screen left
+   * that prompt unanswered entirely — no reply, no record, nothing — while the sentence "every
+   * still-open prompt is answered on teardown" stayed true of the exit path a reader would check
+   * first. A second line in the `catch` would have fixed that instance and left a third bridge to be
+   * forgotten the same way; one closure that answers all of them cannot be half-called.
+   *
+   * [[EXT-110]] is what they are answered WITH: a teardown, which refuses the call exactly as a
+   * reject did while leaving the archive able to say that nobody was at the keyboard.
+   *
+   * `negotiationBridge` is deliberately absent. Nothing there is being answered — a round is an
+   * event the run reports on its way past — so there is nothing outstanding to release.
+   *
+   * ## Every way this session can end, and what each one answers
+   *
+   * **Read the reason before the list.** The first four have nothing to answer, and not one of them
+   * is safe because somebody checked it. They are safe because **a prompt cannot be open until
+   * `setToolApprovalCallback` and `setAttackHaltCallback` have run**, and that wiring sits below
+   * every one of them — the first three leave before the bridges are even constructed, a few lines
+   * above. Move the wiring up and those ends become live, silently and with nothing to say so. That
+   * invariant, not the list, is what makes the next asymmetry cheap to find.
+   *
+   *  1. the hermetic fixture branch's `return` — nothing wired
+   *  2. the `--resume` refusal's `exit(1)` — nothing wired
+   *  3. a throw before the `try` (config load, checkpointer open, resume resolution, runner
+   *     construction) — nothing wired
+   *  4. a throw inside the `try` but before the wiring (`runner.init`) — reaches 6 and answers both
+   *     bridges, which by then exist with nothing outstanding on either
+   *  5. `onExit` — every deliberate exit, Ctrl+C included, via [[TUI-C79]]'s ladder: answers both
+   *  6. the `catch` — a render-phase throw, the one exit that can carry a live prompt: answers both
+   *  7. the session's `finally` — runs after 5 and 6 have answered; not an answering seam
+   *  8. `createTuiSession`'s outer `finally` — the exit-output drain; the bridges are out of scope
+   *
+   * The answer deliberately does NOT live in 7, where no future branch could miss it. A `finally`
+   * runs after `runner.cleanup()`, and a suspended run has to be released BEFORE cleanup rather than
+   * after — so unforgettable placement would buy its reliability by changing fail-closed ordering.
+   * It would also make 5 and 6 redundant, and the test that pins each of them would stop biting.
+   */
+  const answerOpenPrompts = (): void => {
+    approvalBridge.abortPending();
+    attackHaltBridge.abortPending();
+  };
   // B5: TUI code/chat ask for the LEAN backend, which is the only one Gaunt Sloth ships — the
   // `config.agent.backend` seam is still read but can name nothing else. Mirrors the readline path
   // in createInteractiveSession, askCommand, and execCommand — the TUI is the default interactive
@@ -924,15 +968,13 @@ async function runTuiSession(
         readApprovalCaptures={() => runner.getApprovalCaptures()}
         onTurnComplete={logTurn}
         onExit={async () => {
-          // Fail-closed: answer any approval still awaiting a decision before tearing down,
-          // so a suspended run can never hang on an unanswered prompt. The attack banner gets the
-          // same treatment — and [[EXT-110]] is what each of them answers WITH: a teardown, which
-          // refuses the call exactly as before while leaving the archive able to say that nobody
-          // was at the keyboard. Ctrl+C at either of those prompts reaches this,
-          // because [[TUI-C79]] routes it through <App>'s `quit()` rather than through an Ink
-          // unmount that would have torn the session down without running any of this.
-          approvalBridge.abortPending();
-          attackHaltBridge.abortPending();
+          // Fail-closed: answer every prompt still awaiting a decision before tearing down, so a
+          // suspended run can never hang on an unanswered one. Ctrl+C at either of those prompts
+          // reaches this, because [[TUI-C79]] routes it through <App>'s `quit()` rather than
+          // through an Ink unmount that would have torn the session down without running any of
+          // this. Before `runner.cleanup()`, which is the ordering: the suspended run is released
+          // first, then cleaned up.
+          answerOpenPrompts();
           await runner.cleanup();
           stopSessionLogging();
         }}
@@ -968,7 +1010,10 @@ async function runTuiSession(
     mouseSession?.dispose();
   } catch (err) {
     mouseSession?.dispose();
-    approvalBridge.abortPending();
+    // [[EXT-194]] — the render-phase throw is the one exit that can carry a prompt nobody answered:
+    // <App> never reached its own quit, so `onExit` above never ran and this is the only teardown
+    // there is. The same closure as that path, in the same position before `runner.cleanup()`.
+    answerOpenPrompts();
     await runner.cleanup();
     stopSessionLogging();
     throw err;

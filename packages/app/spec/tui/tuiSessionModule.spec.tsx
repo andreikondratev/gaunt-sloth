@@ -2,6 +2,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PassThrough } from 'node:stream';
 import type { SessionConfig } from '@gaunt-sloth/agent/modules/interactiveSessionModule.js';
 import type { CommandLineConfigOverrides } from '@gaunt-sloth/core/config.js';
+// [[EXT-194]] — the two prompt seams a teardown has to answer. Type-only, so the `core/types.js`
+// factory mock below is untouched by these.
+import type {
+  AttackHaltReply,
+  PendingAttackHalt,
+  PendingToolInterrupt,
+  ToolApprovalReply,
+} from '@gaunt-sloth/core/core/types.js';
+// [[EXT-194]] — core's single writer of the archive's human-answer field, so these cells assert on
+// what the archive ends up saying rather than stopping at the reply. It is a real import, not a
+// mock: the point is the chain, and a stubbed writer would agree with whatever it was told.
+import {
+  recordHumanAnswer,
+  type ApprovalDecisionCapture,
+} from '@gaunt-sloth/core/core/shell/approvalCapture.js';
 
 // ── ink render ────────────────────────────────────────────────────────────────
 // The render instance must expose clear() + waitUntilExit() (createTuiSession awaits the
@@ -17,6 +32,11 @@ vi.mock('@gaunt-sloth/core/config.js', () => ({ initConfig: initConfigMock }));
 const runnerInitMock = vi.fn();
 const runnerGetAgentMock = vi.fn();
 const runnerCleanupMock = vi.fn();
+// [[EXT-194]] — the two human-in-the-loop seams, named so a cell can read back the callback the
+// session wired and open a prompt on the session's own bridge through it. Everything else in this
+// factory can stay anonymous; these two are the only ones a test has to reach into.
+const setToolApprovalCallbackMock = vi.fn();
+const setAttackHaltCallbackMock = vi.fn();
 vi.mock('@gaunt-sloth/core/core/GthAgentRunner.js', () => {
   const GthAgentRunner = vi.fn();
   GthAgentRunner.prototype.init = runnerInitMock;
@@ -25,10 +45,10 @@ vi.mock('@gaunt-sloth/core/core/GthAgentRunner.js', () => {
   GthAgentRunner.prototype.processMessagesWithEvents = vi.fn();
   GthAgentRunner.prototype.resetThread = vi.fn();
   GthAgentRunner.prototype.clearConversation = vi.fn();
-  GthAgentRunner.prototype.setToolApprovalCallback = vi.fn();
+  GthAgentRunner.prototype.setToolApprovalCallback = setToolApprovalCallbackMock;
   // [[EXT-150]] — the return leg of the approval conversation, wired beside the callback above.
   GthAgentRunner.prototype.setApprovalOutcomeCallback = vi.fn();
-  GthAgentRunner.prototype.setAttackHaltCallback = vi.fn();
+  GthAgentRunner.prototype.setAttackHaltCallback = setAttackHaltCallbackMock;
   GthAgentRunner.prototype.setNegotiationDisplay = vi.fn();
   // CFG-26 — the session module seeds the status bar from the resolved posture and wires the
   // `/approvals` family through the runner.
@@ -918,5 +938,278 @@ describe('createTuiSession — deferred exit output (TUI-C56, TUI-C104)', () => 
       expect.arrayContaining([writeFailure.message]),
       expect.objectContaining({ gate: 'always' })
     );
+  });
+});
+
+/**
+ * [[EXT-194]] — **the session actually invoking the teardown answer**, on each path that can carry
+ * a prompt.
+ *
+ * ## The gap these cells close
+ *
+ * [[EXT-110]] left two specs that are each correct and do not meet.
+ * `approvalBridgeTeardown.spec.ts` drives the production bridges and proves they EMIT a teardown
+ * reply; `packages/core/spec/approvalCapture.spec.ts` proves such a reply ARCHIVES as a teardown.
+ * Nothing between them ran a session and watched it call `abortPending` at all — the two are joined
+ * by the type, not by a run. Measured rather than assumed: deleting the approval abort from the
+ * `onExit` path left the whole suite green (10197 passed), so the facility was protected everywhere
+ * except at the point where it is invoked, which is the one place a refactor is most likely to
+ * touch. A fix that is correct and uninvoked is indistinguishable from no fix.
+ *
+ * So these cells import nothing of the bridges themselves. They start a real `createTuiSession`,
+ * open a prompt through the callback the session wired onto its own bridge, end the session the way
+ * that path ends it, and read what came back out — then carry the reply on into core's single
+ * writer of the archive field, so the whole chain is asserted end to end with no stand-in at any
+ * step.
+ *
+ * ## One describe per teardown path
+ *
+ * The defect this node fixed was an ASYMMETRY between paths, not a wrong line, so the set of paths
+ * is a deliverable: the next asymmetry is only cheap to find if the paths are written down. The
+ * authoritative list, with the construction-order reason four of them answer nothing, is the
+ * comment above `answerOpenPrompts` in `tuiSessionModule.tsx`. These describes are the half of it
+ * that can fail.
+ *
+ * The `--resume` boot refusal is the one enumerated path with no cell here. It is pinned already,
+ * in `tuiSessionModule.resume.spec.tsx`, which asserts that path reaches neither `runner.init` nor
+ * `render` — so nothing can be wired and no prompt can be open. A second copy would not add a
+ * check, only a place for the two to disagree.
+ */
+describe('createTuiSession — answering an open prompt on every teardown path (EXT-194)', () => {
+  beforeEach(renderPhaseBeforeEach);
+
+  const interrupt: PendingToolInterrupt = {
+    name: 'run_shell_command',
+    args: { command: 'rm -rf ./dist' },
+  };
+
+  const halt: PendingAttackHalt = {
+    command: 'rm -rf ./dist',
+    reason: 'The command structure evidences an injected instruction.',
+  };
+
+  /** A capture record in the state the gate hands to `recordHumanAnswer`. */
+  const captureRecord = (): ApprovalDecisionCapture => ({
+    at: '2026-09-19T10:00:00.000Z',
+    tool: 'run_shell_command',
+    rung: 'auto',
+    budget: {
+      consecutiveRejections: 0,
+      rejectionsSinceHuman: 0,
+      maxConsecutive: 3,
+      maxBeforeHuman: 5,
+    },
+  });
+
+  /**
+   * Put BOTH prompts on screen and then end the session the way `endSession` says.
+   *
+   * Inside `waitUntilExit` is the only moment that works: by then the session has wired its
+   * callbacks onto its own bridges, and it has not yet begun tearing down. The prompts are opened
+   * through those wired callbacks rather than through a bridge the test built, which is the whole
+   * point — a bridge of the test's own would answer whatever the test taught it to.
+   */
+  const withBothPromptsOpen = (
+    endSession: (element: { props: { onExit: () => Promise<void> } }) => Promise<void>
+  ): { approval?: Promise<ToolApprovalReply>; halt?: Promise<AttackHaltReply> } => {
+    const replies: { approval?: Promise<ToolApprovalReply>; halt?: Promise<AttackHaltReply> } = {};
+    renderMock.mockImplementation((element: unknown) => ({
+      clear: vi.fn(),
+      waitUntilExit: vi.fn(async () => {
+        const approvalCallback = setToolApprovalCallbackMock.mock.calls[0][0] as (
+          pending: PendingToolInterrupt
+        ) => Promise<ToolApprovalReply>;
+        const haltCallback = setAttackHaltCallbackMock.mock.calls[0][0] as (
+          pending: PendingAttackHalt
+        ) => Promise<AttackHaltReply>;
+        replies.approval = approvalCallback(interrupt);
+        replies.halt = haltCallback(halt);
+        await endSession(element as { props: { onExit: () => Promise<void> } });
+      }),
+    }));
+    return replies;
+  };
+
+  /**
+   * What the session left each prompt holding, once it has finished ending — plus what the archive
+   * is told about each, which is the half `approvalBridgeTeardown.spec.ts` cannot reach from here.
+   *
+   * **A prompt the session never answers is a promise that never settles**, which is the real
+   * defect: the suspended run holds it for ever. So `UNANSWERED` is a value rather than a hang.
+   * Awaiting the reply directly would work, but it would fail as a bare 10-second timeout that
+   * names neither which prompt went unanswered nor why — and with both prompts open in every cell,
+   * one unanswered prompt would take the other's assertion down with it and make the two
+   * indistinguishable. Read as a value, each bridge's claim fails on its own and says so.
+   *
+   * No timer is involved, so there is nothing here to flake on a loaded machine. `abortPending`
+   * resolves synchronously, the session has already returned by the time this is called, and one
+   * turn of the macrotask queue runs strictly after every microtask queued behind it — so a prompt
+   * that is going to be answered has been answered before the check.
+   */
+  const UNANSWERED = 'never answered — the session left this prompt pending';
+
+  const teardownState = async (replies: {
+    approval?: Promise<ToolApprovalReply>;
+    halt?: Promise<AttackHaltReply>;
+  }): Promise<{
+    approval: ToolApprovalReply | typeof UNANSWERED;
+    halt: AttackHaltReply | typeof UNANSWERED;
+    approvalArchived: string;
+    haltArchived: string;
+  }> => {
+    expect(replies.approval).toBeDefined();
+    expect(replies.halt).toBeDefined();
+    let approval: ToolApprovalReply | typeof UNANSWERED = UNANSWERED;
+    let halt: AttackHaltReply | typeof UNANSWERED = UNANSWERED;
+    void replies.approval!.then((reply) => {
+      approval = reply;
+    });
+    void replies.halt!.then((reply) => {
+      halt = reply;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // The archive half runs only on a reply that exists, because `recordHumanAnswer` takes the
+    // surface's own reply and there is nothing to hand it otherwise — which is the point of the
+    // [[EXT-110]] signature, and why an unanswered prompt archives as nothing at all.
+    const archived = (reply: ToolApprovalReply | AttackHaltReply | typeof UNANSWERED): string => {
+      if (reply === UNANSWERED) return UNANSWERED;
+      const record = captureRecord();
+      recordHumanAnswer(record, reply);
+      return record.humanAnswer ?? 'no field written';
+    };
+
+    return {
+      approval,
+      halt,
+      approvalArchived: archived(approval),
+      haltArchived: archived(halt),
+    };
+  };
+
+  /**
+   * Path 5 — `onExit`, every exit a person takes deliberately, Ctrl+C included.
+   *
+   * <App> is mocked here, so this cell calls the prop itself; the real <App> calls it from its own
+   * quit ladder, and that Ink hands Ctrl+C to that ladder instead of unmounting underneath it is
+   * pinned by the `exitOnCtrlC` cell above. What this cell owns is what is INSIDE `onExit`.
+   */
+  describe('the exit path — <App> quits', () => {
+    it('answers an approval prompt left on screen, and the archive says teardown', async () => {
+      const replies = withBothPromptsOpen(async (element) => {
+        await element.props.onExit();
+      });
+      const { createTuiSession } = await import('#src/tui/tuiSessionModule.js');
+
+      await createTuiSession(sessionConfig, overrides);
+
+      const { approval, approvalArchived } = await teardownState(replies);
+      expect(approval).toMatchObject({ type: 'teardown' });
+      expect(approvalArchived).toBe('teardown');
+    });
+
+    it('answers an attack banner left on screen, and the archive says teardown', async () => {
+      const replies = withBothPromptsOpen(async (element) => {
+        await element.props.onExit();
+      });
+      const { createTuiSession } = await import('#src/tui/tuiSessionModule.js');
+
+      await createTuiSession(sessionConfig, overrides);
+
+      const { halt, haltArchived } = await teardownState(replies);
+      // §6.1's polarity is untouched: `run-anyway` is the only value that runs anything.
+      expect(halt).toBe('teardown');
+      expect(halt).not.toBe('run-anyway');
+      expect(haltArchived).toBe('teardown');
+    });
+  });
+
+  /**
+   * Path 6 — the render-phase throw. **This is the defect [[EXT-194]] was filed for.**
+   *
+   * The session dies without <App> ever reaching its quit, so `onExit` never runs and this `catch`
+   * is the only teardown there is. It answered the approval prompt and not the attack banner, so a
+   * session that threw with a banner up left that prompt unanswered entirely — not answered wrongly,
+   * not recorded as the wrong thing, but never answered at all, with the suspended run left holding
+   * a promise that could no longer settle.
+   */
+  describe('the throw path — the session dies with the prompts still up', () => {
+    it('answers an approval prompt left on screen, and the archive says teardown', async () => {
+      const replies = withBothPromptsOpen(async () => {
+        throw new Error('boom');
+      });
+      const { createTuiSession } = await import('#src/tui/tuiSessionModule.js');
+
+      await expect(createTuiSession(sessionConfig, overrides)).rejects.toThrow('boom');
+
+      const { approval, approvalArchived } = await teardownState(replies);
+      expect(approval).toMatchObject({ type: 'teardown' });
+      expect(approvalArchived).toBe('teardown');
+    });
+
+    it('answers an attack banner left on screen, and the archive says teardown', async () => {
+      const replies = withBothPromptsOpen(async () => {
+        throw new Error('boom');
+      });
+      const { createTuiSession } = await import('#src/tui/tuiSessionModule.js');
+
+      await expect(createTuiSession(sessionConfig, overrides)).rejects.toThrow('boom');
+
+      const { halt, haltArchived } = await teardownState(replies);
+      expect(halt).toBe('teardown');
+      expect(halt).not.toBe('run-anyway');
+      expect(haltArchived).toBe('teardown');
+    });
+
+    it('still reports the failure it was given, rather than the teardown replacing it', async () => {
+      // The answer must not become the error. A teardown that threw — or swallowed — would take
+      // `startSession`'s fallback decision away from the real cause.
+      const replies = withBothPromptsOpen(async () => {
+        throw new Error('the real cause');
+      });
+      const { createTuiSession } = await import('#src/tui/tuiSessionModule.js');
+
+      await expect(createTuiSession(sessionConfig, overrides)).rejects.toThrow('the real cause');
+
+      const { approval, halt } = await teardownState(replies);
+      expect(approval).toMatchObject({ type: 'teardown' });
+      expect(halt).toBe('teardown');
+    });
+  });
+
+  /**
+   * Paths 1 and 4 — the two ends that answer nothing, and the reason they are allowed to.
+   *
+   * Neither is safe because someone checked it; both are safe because no prompt can be OPEN there.
+   * That is a claim about wiring, so it is asserted as one. These are also the negative twin of the
+   * cells above, which read `setToolApprovalCallbackMock.mock.calls[0][0]` and would throw outright
+   * if that seam were never wired — so "not wired here" is measured against a file that proves the
+   * same mock is wired on the paths that reach it.
+   */
+  describe('the ends that answer nothing, because nothing can be pending', () => {
+    it('wires no prompt seam on the hermetic fixture branch, which leaves before the bridges exist', async () => {
+      systemUtilsMock.env = { GTH_TUI_E2E_FIXTURE: '/fixtures/never-read.json' };
+      createFixtureTuiAgentMock.mockReturnValue({});
+      const { createTuiSession } = await import('#src/tui/tuiSessionModule.js');
+
+      await createTuiSession(sessionConfig, overrides);
+
+      expect(renderMock).toHaveBeenCalledTimes(1);
+      expect(setToolApprovalCallbackMock).not.toHaveBeenCalled();
+      expect(setAttackHaltCallbackMock).not.toHaveBeenCalled();
+    });
+
+    it('wires no prompt seam when runner.init throws, which is before the callbacks are attached', async () => {
+      runnerInitMock.mockRejectedValue(new Error('init failed'));
+      const { createTuiSession } = await import('#src/tui/tuiSessionModule.js');
+
+      await expect(createTuiSession(sessionConfig, overrides)).rejects.toThrow('init failed');
+
+      // The bridges exist by now — they are built above the `try` — but nothing is wired to them,
+      // so the teardown in the `catch` has nothing to answer and cannot hang waiting to.
+      expect(renderMock).not.toHaveBeenCalled();
+      expect(setToolApprovalCallbackMock).not.toHaveBeenCalled();
+      expect(setAttackHaltCallbackMock).not.toHaveBeenCalled();
+    });
   });
 });
