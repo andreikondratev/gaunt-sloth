@@ -37,7 +37,8 @@
   ],
   "scripts": {
     "build": "tsc",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "value-surface:generate": "node scripts/generate-value-surface.mjs"
   },
   "peerDependencies": {
     "@gaunt-sloth/batch": "*"

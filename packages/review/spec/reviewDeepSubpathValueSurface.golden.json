@@ -1,0 +1,90 @@
+{
+  "$comment": "GENERATED — do not hand-edit. The public runtime (value) surface of the review package's GATED DEEP SUBPATHS, resolved through the package exports map by scripts/deep-subpath-surface.mjs and compared against this file by spec/reviewDeepSubpathValueSurface.spec.ts. The root barrel has its own golden, reviewBarrelValueSurface.golden.json. Regenerate both with: pnpm --filter @gaunt-sloth/review run build && pnpm --filter @gaunt-sloth/review run value-surface:generate",
+  "$reasons": {
+    "computed-specifier": "reached only by a COMPUTED import specifier, which no type checker can follow. Both call sites look the module up in a table — packages/review/src/commands/commandUtils.ts in REQUIREMENTS_SOURCES / CONTENT_SOURCES, packages/app/src/commands/commandUtils.ts in its own copy of the same two tables holding the published spellings — then destructure get from whatever the import returns and call get(config, id). Neither wraps that in a try/catch, so a module that stops resolving or stops exporting get throws at the user; nothing in this repository goes red for it first.",
+    "unwatched": "published by the \"./*.js\" wildcard and named by no literal import specifier in any package's production src/, so no build in this repository re-proves anything about it. Whatever reaches it reaches it at runtime."
+  },
+  "$gatedElsewhere": [
+    {
+      "module": "index.js",
+      "why": "the root barrel — pinned by spec/reviewBarrelValueSurface.golden.json, which is the twin of this file"
+    },
+    {
+      "module": "modules/types.js",
+      "why": "a types-only module: tsc emits it as \"export {}\", so it has no runtime surface for a consumer to take or for a change to break silently. The no-values premise is checked against the emitted modules/types.d.ts by spec/reviewDeepSubpathValueSurface.spec.ts rather than taken on trust"
+    }
+  ],
+  "$everythingElse": "Everything else the \"./*.js\" wildcard publishes is named by a LITERAL import specifier in some package's production src/ — #src/…, a relative path, or @gaunt-sloth/review/… from a sibling — so tsc resolves that edge and re-proves the names it takes on every build, on every cell of the matrix. That is an earlier and louder gate than a golden, and duplicating it here would buy churn rather than coverage. Measured by listLiterallyImportedModules() in core's scripts/surface/deep-subpath-surface.mjs, and the spec asserts that nothing falls outside both that scan and this golden.",
+  "subpaths": [
+    {
+      "subpath": "sources/fileSource.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "get",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "sources/ghIssueSource.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "get",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "sources/ghPrDiffSource.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "get",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "sources/gitDiffSource.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "get",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "sources/jiraIssueLegacySource.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "get",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "sources/jiraIssueSource.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "get",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "sources/textSource.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "get",
+          "kind": "function"
+        }
+      ]
+    }
+  ]
+}

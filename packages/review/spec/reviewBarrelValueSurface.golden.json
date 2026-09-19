@@ -1,0 +1,393 @@
+{
+  "$comment": "GENERATED — do not hand-edit. The public runtime (value) surface of the review barrel, read from packages/review/dist/index.js by scripts/value-surface.mjs and compared against this file by spec/reviewBarrelValueSurface.spec.ts. Regenerate with: pnpm --filter @gaunt-sloth/review run build && pnpm --filter @gaunt-sloth/review run value-surface:generate",
+  "exports": [
+    {
+      "name": "APPROVAL_POSTURES",
+      "kind": "array"
+    },
+    {
+      "name": "APPROVAL_PROTECTION_DOCS_LINES",
+      "kind": "array"
+    },
+    {
+      "name": "APPROVAL_PROTECTION_DOCS_URL",
+      "kind": "string"
+    },
+    {
+      "name": "APPROVAL_RUNGS",
+      "kind": "array"
+    },
+    {
+      "name": "APPROVAL_RUNG_DESCRIPTIONS",
+      "kind": "object"
+    },
+    {
+      "name": "APPROVAL_RUNG_LABELS",
+      "kind": "object"
+    },
+    {
+      "name": "APPROVAL_WRITE_MODIFIER_HINT",
+      "kind": "string"
+    },
+    {
+      "name": "BUILT_IN_TOOL_ACCESS",
+      "kind": "object"
+    },
+    {
+      "name": "CONFLICTING_CONFIG_SOURCES_MESSAGE",
+      "kind": "string"
+    },
+    {
+      "name": "CONTENT_SOURCES",
+      "kind": "object"
+    },
+    {
+      "name": "ConfigDiscoveryError",
+      "kind": "class"
+    },
+    {
+      "name": "DEFAULT_APPROVAL_RUNG",
+      "kind": "string"
+    },
+    {
+      "name": "DEFAULT_CONFIG",
+      "kind": "object"
+    },
+    {
+      "name": "DEFAULT_SCAFFOLD_MODEL",
+      "kind": "string"
+    },
+    {
+      "name": "DEFAULT_SCAFFOLD_PROVIDER",
+      "kind": "string"
+    },
+    {
+      "name": "DEV_COMMAND_TOOL_NAMES",
+      "kind": "array"
+    },
+    {
+      "name": "DEV_TOOL_NAMES",
+      "kind": "array"
+    },
+    {
+      "name": "EXTERNALLY_EMITTED_BUILT_IN_TOOL_NAMES",
+      "kind": "array"
+    },
+    {
+      "name": "GH_READ_FILE_DEFAULT_MAX_BYTES",
+      "kind": "number"
+    },
+    {
+      "name": "GH_READ_FILE_TOOL_NAME",
+      "kind": "string"
+    },
+    {
+      "name": "GTH_GH_READ_FILE_TOOL_NAME",
+      "kind": "string"
+    },
+    {
+      "name": "MissingProviderKeyError",
+      "kind": "class"
+    },
+    {
+      "name": "PROFILE_NAME_RE",
+      "kind": "regexp"
+    },
+    {
+      "name": "REQUIREMENTS_SOURCES",
+      "kind": "object"
+    },
+    {
+      "name": "RUNG_TOOL_DESCRIPTION_SUFFIXES",
+      "kind": "object"
+    },
+    {
+      "name": "SHELL_DEFAULT_MAX_OUTPUT_BYTES",
+      "kind": "number"
+    },
+    {
+      "name": "SHELL_DEFAULT_MAX_TIMEOUT_MS",
+      "kind": "number"
+    },
+    {
+      "name": "SHELL_DEFAULT_TIMEOUT_MS",
+      "kind": "number"
+    },
+    {
+      "name": "SHELL_TOOL_NAME",
+      "kind": "string"
+    },
+    {
+      "name": "TOKEN_BUDGET_FORMS",
+      "kind": "string"
+    },
+    {
+      "name": "TOKEN_BUDGET_MILLION",
+      "kind": "number"
+    },
+    {
+      "name": "TOKEN_BUDGET_THOUSAND",
+      "kind": "number"
+    },
+    {
+      "name": "TOOL_ANNOTATION_HINTS",
+      "kind": "array"
+    },
+    {
+      "name": "TokenBudgetError",
+      "kind": "class"
+    },
+    {
+      "name": "WRITE_FILE_TOOL_NAME",
+      "kind": "string"
+    },
+    {
+      "name": "applyRungAwareToolDescriptions",
+      "kind": "function"
+    },
+    {
+      "name": "availableDefaultConfigs",
+      "kind": "array"
+    },
+    {
+      "name": "buildProfileScaffold",
+      "kind": "function"
+    },
+    {
+      "name": "commandAnswersApprovals",
+      "kind": "function"
+    },
+    {
+      "name": "commandCarriesUserProvenance",
+      "kind": "function"
+    },
+    {
+      "name": "createNamedProfile",
+      "kind": "function"
+    },
+    {
+      "name": "extractChangedPathsFromDiff",
+      "kind": "function"
+    },
+    {
+      "name": "findProjectConfigPath",
+      "kind": "function"
+    },
+    {
+      "name": "formatTokenBudget",
+      "kind": "function"
+    },
+    {
+      "name": "get",
+      "kind": "function"
+    },
+    {
+      "name": "getContentFromSource",
+      "kind": "function"
+    },
+    {
+      "name": "getEffectiveDevToolsConfig",
+      "kind": "function"
+    },
+    {
+      "name": "getGhReadFileMaxBytes",
+      "kind": "function"
+    },
+    {
+      "name": "getRequirementsFromSource",
+      "kind": "function"
+    },
+    {
+      "name": "getReviewPreamble",
+      "kind": "function"
+    },
+    {
+      "name": "getRungToolDescriptionSuffix",
+      "kind": "function"
+    },
+    {
+      "name": "getShellMaxOutputBytes",
+      "kind": "function"
+    },
+    {
+      "name": "getShellMaxTimeoutMs",
+      "kind": "function"
+    },
+    {
+      "name": "getShellTimeoutMs",
+      "kind": "function"
+    },
+    {
+      "name": "getToolPreviewLines",
+      "kind": "function"
+    },
+    {
+      "name": "ghReadFileImpl",
+      "kind": "function"
+    },
+    {
+      "name": "hasAnyConfig",
+      "kind": "function"
+    },
+    {
+      "name": "hasProjectConfig",
+      "kind": "function"
+    },
+    {
+      "name": "initConfig",
+      "kind": "function"
+    },
+    {
+      "name": "isAccessClassGrantedAtRung",
+      "kind": "function"
+    },
+    {
+      "name": "isApprovalRung",
+      "kind": "function"
+    },
+    {
+      "name": "isBuiltInToolEntryEnabled",
+      "kind": "function"
+    },
+    {
+      "name": "isConfigDiscoveryError",
+      "kind": "function"
+    },
+    {
+      "name": "isDeterministicRung",
+      "kind": "function"
+    },
+    {
+      "name": "isFilesystemToolRegistered",
+      "kind": "function"
+    },
+    {
+      "name": "isGhReadFileToolEnabled",
+      "kind": "function"
+    },
+    {
+      "name": "isGrantedAtRung",
+      "kind": "function"
+    },
+    {
+      "name": "isMissingProviderKeyError",
+      "kind": "function"
+    },
+    {
+      "name": "isNegotiatingRung",
+      "kind": "function"
+    },
+    {
+      "name": "isRatedRung",
+      "kind": "function"
+    },
+    {
+      "name": "isShellToolEnabled",
+      "kind": "function"
+    },
+    {
+      "name": "isToolGatedAtRung",
+      "kind": "function"
+    },
+    {
+      "name": "isUsableModel",
+      "kind": "function"
+    },
+    {
+      "name": "isUserProvenanceRung",
+      "kind": "function"
+    },
+    {
+      "name": "isWriteFileToolRegistered",
+      "kind": "function"
+    },
+    {
+      "name": "loadConfiguredConsoleLevel",
+      "kind": "function"
+    },
+    {
+      "name": "loadConfiguredTui",
+      "kind": "function"
+    },
+    {
+      "name": "loadGlobalRawConfig",
+      "kind": "function"
+    },
+    {
+      "name": "normalizeBuiltInTools",
+      "kind": "function"
+    },
+    {
+      "name": "parseTokenBudget",
+      "kind": "function"
+    },
+    {
+      "name": "resolveApprovals",
+      "kind": "function"
+    },
+    {
+      "name": "resolveConfig",
+      "kind": "function"
+    },
+    {
+      "name": "resolveConfigExtends",
+      "kind": "function"
+    },
+    {
+      "name": "resolveGatedToolNames",
+      "kind": "function"
+    },
+    {
+      "name": "resolveIdentityProfileConfigPath",
+      "kind": "function"
+    },
+    {
+      "name": "resolveInterruptToolNames",
+      "kind": "function"
+    },
+    {
+      "name": "resolvePrIdFromArg",
+      "kind": "function"
+    },
+    {
+      "name": "resolvePrRepoContext",
+      "kind": "function"
+    },
+    {
+      "name": "resolveProfileConfigPath",
+      "kind": "function"
+    },
+    {
+      "name": "resolveShellApprovalGate",
+      "kind": "function"
+    },
+    {
+      "name": "resolveTokenBudget",
+      "kind": "function"
+    },
+    {
+      "name": "review",
+      "kind": "function"
+    },
+    {
+      "name": "selectScopedPrompts",
+      "kind": "function"
+    },
+    {
+      "name": "stripRungToolDescriptionSuffix",
+      "kind": "function"
+    },
+    {
+      "name": "tryJsonConfig",
+      "kind": "function"
+    },
+    {
+      "name": "validateConfig",
+      "kind": "function"
+    },
+    {
+      "name": "validateProfileName",
+      "kind": "function"
+    }
+  ]
+}

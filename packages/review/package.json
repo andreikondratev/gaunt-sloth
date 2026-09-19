@@ -45,7 +45,8 @@
     "cli.js"
   ],
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "value-surface:generate": "node scripts/generate-value-surface.mjs"
   },
   "publishConfig": {
     "tag": "beta"

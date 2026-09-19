@@ -1,0 +1,13 @@
+{
+  "$comment": "GENERATED — do not hand-edit. The public runtime (value) surface of the JUnit reporter barrel, read from packages/eval-reporter-junit/dist/index.js by scripts/value-surface.mjs and compared against this file by spec/junitBarrelValueSurface.spec.ts. Regenerate with: pnpm --filter @gaunt-sloth/eval-reporter-junit run build && pnpm --filter @gaunt-sloth/eval-reporter-junit run value-surface:generate",
+  "exports": [
+    {
+      "name": "JUNIT_REPORTER_NAME",
+      "kind": "string"
+    },
+    {
+      "name": "createJUnitReporter",
+      "kind": "function"
+    }
+  ]
+}

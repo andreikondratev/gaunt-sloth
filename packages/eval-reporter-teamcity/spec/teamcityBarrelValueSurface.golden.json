@@ -1,0 +1,21 @@
+{
+  "$comment": "GENERATED — do not hand-edit. The public runtime (value) surface of the TeamCity reporter barrel, read from packages/eval-reporter-teamcity/dist/index.js by scripts/value-surface.mjs and compared against this file by spec/teamcityBarrelValueSurface.spec.ts. Regenerate with: pnpm --filter @gaunt-sloth/eval-reporter-teamcity run build && pnpm --filter @gaunt-sloth/eval-reporter-teamcity run value-surface:generate",
+  "exports": [
+    {
+      "name": "TEAMCITY_REPORTER_NAME",
+      "kind": "string"
+    },
+    {
+      "name": "createTeamCityReporter",
+      "kind": "function"
+    },
+    {
+      "name": "default",
+      "kind": "function"
+    },
+    {
+      "name": "escapeTeamCity",
+      "kind": "function"
+    }
+  ]
+}
