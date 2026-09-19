@@ -893,6 +893,81 @@ test.describe('gth chat TUI — debug pane `/` search (search fixture, TUI-C21)'
     await expect(terminal.getByText('line-30')).toBeVisible();
     await expect(terminal.getByText('1/1')).toBeVisible();
   });
+
+  /**
+   * TUI-C66 — the key legend has to describe the mode the keyboard is actually in.
+   *
+   * While the query is being typed the search input owns every printable character: the handler
+   * returns on Tab and the arrows, so `Tab`, `↑/↓` and `n`/`N` do nothing, and `m` — which the
+   * navigation legend offers as "maximise" — is typed into the query instead, corrupting the search
+   * of anyone who believed the row. Each key asserted absent below is asserted PRESENT in the
+   * navigation state first and again after Enter: a `not.toBeVisible()` on a screen that has not
+   * repainted passes for free, so without the pair this cell would stay green against the
+   * unconditional legend it exists to rule out.
+   */
+  test('legend names only the keys that answer while the query is typed', async ({ terminal }) => {
+    await expect(terminal.getByText('ready to chat')).toBeVisible();
+    terminal.write('go');
+    await expect(terminal.getByText('> go')).toBeVisible();
+    terminal.submit();
+    await expect(terminal.getByText('chat  ·  turns: 1  ·  ready')).toBeVisible();
+
+    terminal.write('/debug');
+    await expect(terminal.getByText('> /debug')).toBeVisible();
+    terminal.submit();
+    await expect(terminal.getByText('Subagents')).toBeVisible();
+    terminal.write('\t'); // Tab → focus the pane
+
+    // Focused, not searching: the navigation legend in full — the positive half of every negative.
+    await expect(terminal.getByText('Tab: section')).toBeVisible();
+    await expect(terminal.getByText('↑/↓: scroll')).toBeVisible();
+    await expect(terminal.getByText('n/N: next/prev')).toBeVisible();
+    await expect(terminal.getByText('m: maximise')).toBeVisible();
+
+    terminal.write('/'); // the pane becomes an input, and what the keys mean changes with it
+    // Wait on what the typing legend SAYS before reading what it no longer says, so the negatives
+    // below are a statement about the new row rather than about a screen mid-repaint.
+    await expect(terminal.getByText('Backspace: delete')).toBeVisible();
+    await expect(terminal.getByText('Enter: confirm')).toBeVisible();
+    await expect(terminal.getByText('Esc: cancel search')).toBeVisible();
+    await expect(terminal.getByText('Tab: section')).not.toBeVisible();
+    await expect(terminal.getByText('↑/↓: scroll')).not.toBeVisible();
+    await expect(terminal.getByText('n/N: next/prev')).not.toBeVisible();
+    await expect(terminal.getByText('m: maximise')).not.toBeVisible();
+
+    // One row at the 100 columns this suite runs at: the whole legend, open bracket to close, on a
+    // single serialized line. A row that outgrew the width would wrap its tail onto the next line
+    // and this fails as a width problem rather than as a puzzling missing string.
+    const typingRow = terminal
+      .serialize()
+      .view.split('\n')
+      .find((l) => l.includes('Enter: confirm'));
+    expect(typingRow).toBeDefined();
+    expect(typingRow).toContain('[Enter: confirm · Backspace: delete · Esc: cancel search]');
+
+    // Typing does not change the mode, so the row holds while the query grows and the search runs.
+    terminal.write('3');
+    terminal.write('0');
+    await expect(terminal.getByText('1/1')).toBeVisible();
+    await expect(terminal.getByText('Enter: confirm')).toBeVisible();
+
+    // Enter leaves typing mode keeping the query, and the navigation legend returns with it — now
+    // truthfully, because those keys answer again. This is also the row's widest state (`m:
+    // maximise` with `Esc: clear search`, 98 of the 98 cells the border leaves), so the same
+    // single-line read pins the width that TUI-C63 fixed.
+    terminal.submit();
+    await expect(terminal.getByText('Tab: section')).toBeVisible();
+    await expect(terminal.getByText('n/N: next/prev')).toBeVisible();
+    await expect(terminal.getByText('m: maximise')).toBeVisible();
+    await expect(terminal.getByText('Enter: confirm')).not.toBeVisible();
+
+    const navRow = terminal
+      .serialize()
+      .view.split('\n')
+      .find((l) => l.includes('Tab: section'));
+    expect(navRow).toBeDefined();
+    expect(navRow).toContain('m: maximise · Esc: clear search]');
+  });
 });
 
 // Hermetic home dir for the /debug-dump blocks (QA-6): writeDebugDump()'s ensureGlobalGslothDir()

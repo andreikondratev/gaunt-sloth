@@ -1122,6 +1122,14 @@ TUI-C11 viewport offset to jump to a match rather than re-inventing scrolling.
   and highlights every match in view, jumping the viewport to the first. `Enter` confirms (keeps the
   highlights, leaves typing mode); `n` / `N` step to the next / previous match with **wrap-around**;
   `Esc` clears the search (a second `Esc`, with no active search, unfocuses the pane).
+- **The key legend names the mode you are in (DL-1, DL-9).** Typing the query puts the pane in an
+  input mode that owns the keyboard: `Tab`, the arrows and `n`/`N` do nothing there, and `m` is a
+  printable character, so it extends the query instead of maximising the pane. The focused pane's
+  legend therefore lists only the keys that answer in the current mode — `Enter`, `Backspace` and
+  `Esc` while typing, the navigation set otherwise. A legend that outlives its mode is worse than a
+  short one: it does not merely fail to help, it sends the reader to a key that quietly damages
+  their own query. It stays **one row at 100 columns** in every state (DL-7 nothing wraps into the
+  chrome), which is what bounds the wording.
 - **Always answer "where am I?" (DL-1).** A search line shows the typed query and a **match indicator
   `3/12`** (current / total), or a friendly **`no matches`** when the query has no hits — never a
   silent empty result. Matches are highlighted (yellow), the current match distinctly (cyan), so the

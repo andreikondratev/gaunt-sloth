@@ -224,15 +224,25 @@ export function DebugPanel({
       <Box>
         <Text dimColor>
           {focused
-            ? // Both search keys are named, in the order they are pressed: typing the query puts the
-              // pane in an input mode that every printable character extends, so an `n` pressed
-              // before Enter grows the query instead of stepping a match. Naming Enter is what keeps
-              // the row from promising a sequence that does not work. The added clause is this short
-              // because the row must still fit one terminal row at 100 columns in its widest state
-              // (`Esc: clear search`).
-              `[Tab: section · ↑/↓: scroll · /, Enter: search · n/N: next/prev · m: ${
-                maximized ? 'restore' : 'maximise'
-              } · Esc: ${searchQuery ? 'clear search' : 'unfocus'}]`
+            ? searchActive
+              ? // While the query is being typed the search input owns the keyboard, so the keys
+                // below are not merely unavailable — they mean something else. `App.tsx`'s
+                // search-input branch returns on Tab and the arrows, and every printable character
+                // extends the query, so `m` pressed for "maximise" is typed into the search instead
+                // and quietly corrupts it. A legend that keeps offering them misdirects rather than
+                // helps, so this state names only the three keys that answer: Enter confirms
+                // (keeping the query and its highlights), Backspace trims, Esc cancels the search
+                // outright. 57 cells — comfortably inside the budget the navigation row fills.
+                '[Enter: confirm · Backspace: delete · Esc: cancel search]'
+              : // Both search keys are named, in the order they are pressed: typing the query puts
+                // the pane in an input mode that every printable character extends, so an `n`
+                // pressed before Enter grows the query instead of stepping a match. Naming Enter is
+                // what keeps the row from promising a sequence that does not work. The added clause
+                // is this short because the row must still fit one terminal row at 100 columns in
+                // its widest state (`Esc: clear search`), which it fills exactly at 98 cells.
+                `[Tab: section · ↑/↓: scroll · /, Enter: search · n/N: next/prev · m: ${
+                  maximized ? 'restore' : 'maximise'
+                } · Esc: ${searchQuery ? 'clear search' : 'unfocus'}]`
             : '[/debug to hide]'}
         </Text>
       </Box>

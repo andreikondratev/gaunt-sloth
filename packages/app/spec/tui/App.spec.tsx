@@ -2083,17 +2083,21 @@ describe('tui <App>', () => {
       for (const ch of 'needle') stdin.write(ch);
       await vi.waitFor(() => expect(lastFrame()).toContain('1/3'));
 
+      stdin.write('\r'); // confirm: leave typing mode, keep highlights (n/N now navigate)
+      await vi.waitFor(() => expect(lastFrame()).toContain('Tab: section'));
+
       // TUI-C63 — the legend has to stay ONE row, and this is the state that decides it: focused,
-      // with a live query, so `Esc` reads `clear search` (its longest form) and `m` reads `maximise`
-      // (longer than `restore`). ink-testing-library renders at 100 columns — the width the it-tui
-      // search case also uses — and the panel's border leaves 98 cells, which the row now fills
-      // exactly. So the opening `[Tab: section` and the closing bracket must land on the SAME frame
-      // line; a wrap moves the tail to the next one and costs the conversation a row.
+      // with a live query and NOT typing it, so `Esc` reads `clear search` (its longest form) and
+      // `m` reads `maximise` (longer than `restore`). ink-testing-library renders at 100 columns —
+      // the width the it-tui search case also uses — and the panel's border leaves 98 cells, which
+      // the row fills exactly. So the opening `[Tab: section` and the closing bracket must land on
+      // the SAME frame line; a wrap moves the tail to the next one and costs the conversation a
+      // row. The measurement waits for the Enter above because the state it measures is reached by
+      // leaving typing mode (TUI-C66): while the query is being typed the row is the short
+      // typing-mode legend, which would make this a width check on the wrong string.
       const legendRow = (lastFrame() ?? '').split('\n').find((l) => l.includes('Tab: section'));
       expect(legendRow).toBeDefined();
       expect(legendRow).toContain('clear search]');
-
-      stdin.write('\r'); // confirm: leave typing mode, keep highlights (n/N now navigate)
 
       // n steps forward; a third n wraps back to the first.
       stdin.write('n');
@@ -2113,6 +2117,64 @@ describe('tui <App>', () => {
         const f = lastFrame() ?? '';
         expect(f).not.toContain('3/3');
         expect(f).toContain('Tab: section'); // still focused (Esc cleared search, did not unfocus)
+      });
+      unmount();
+    });
+
+    // TUI-C66 — the legend has to describe the mode the keyboard is actually in. While the query is
+    // being typed the search input owns every printable character, so `Tab`, the arrows and `n`/`N`
+    // do nothing and `m` is typed into the query rather than maximising the pane. Each key asserted
+    // ABSENT below is asserted PRESENT in the navigation state first: a `not.toContain` on a frame
+    // that never drew the string passes for free, which would make this cell green against an
+    // unconditional legend.
+    it('names only the keys that answer while the query is typed, and restores the navigation legend on Enter', async () => {
+      const { stdin, lastFrame, unmount } = render(
+        <App {...baseProps} agent={longResultAgent()} initialMessage="go" />
+      );
+      await vi.waitFor(() => expect(lastFrame()).toContain('turns: 1'));
+      stdin.write('/debug');
+      await vi.waitFor(() => expect(lastFrame()).toContain('/debug'));
+      stdin.write('\r');
+      await vi.waitFor(() => expect(lastFrame()).toContain('worker'));
+      stdin.write(TAB);
+      await vi.waitFor(() => {
+        const f = lastFrame() ?? '';
+        expect(f).toContain('Tab: section');
+        expect(f).toContain('↑/↓: scroll');
+        expect(f).toContain('n/N: next/prev');
+        expect(f).toContain('m: maximise');
+      });
+
+      stdin.write('/'); // the pane becomes an input: what the keys mean changes with it
+      await vi.waitFor(() => {
+        const f = lastFrame() ?? '';
+        expect(f).toContain('[Enter: confirm · Backspace: delete · Esc: cancel search]');
+        expect(f).not.toContain('Tab: section');
+        expect(f).not.toContain('↑/↓: scroll');
+        expect(f).not.toContain('n/N: next/prev');
+        expect(f).not.toContain('m: maximise'); // the one that misleads: `m` extends the query
+      });
+
+      // One row at 100 columns, like the navigation state (57 cells against a 98-cell budget), so a
+      // future edit that lengthens it fails here rather than as a silently wrapped row.
+      const typingRow = (lastFrame() ?? '').split('\n').find((l) => l.includes('Enter: confirm'));
+      expect(typingRow).toBeDefined();
+      expect(typingRow).toContain('cancel search]');
+
+      // Typing does not change the mode, so the legend holds while the query grows.
+      for (const ch of '30') stdin.write(ch);
+      await vi.waitFor(() => expect(lastFrame()).toContain('1/1'));
+      expect(lastFrame()).toContain('Enter: confirm');
+
+      // Enter leaves typing mode keeping the query, and the navigation legend comes back with it —
+      // now truthfully, because those keys answer again.
+      stdin.write('\r');
+      await vi.waitFor(() => {
+        const f = lastFrame() ?? '';
+        expect(f).toContain('Tab: section');
+        expect(f).toContain('n/N: next/prev');
+        expect(f).toContain('m: maximise');
+        expect(f).not.toContain('Enter: confirm');
       });
       unmount();
     });
