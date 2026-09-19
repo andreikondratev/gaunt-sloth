@@ -1,0 +1,513 @@
+{
+  "$comment": "GENERATED — do not hand-edit. The public runtime (value) surface of the core package's GATED DEEP SUBPATHS, resolved through the package exports map by scripts/deep-subpath-surface.mjs and compared against this file by spec/coreDeepSubpathValueSurface.spec.ts. The root barrel has its own golden, coreBarrelValueSurface.golden.json. Regenerate both with: pnpm --filter @gaunt-sloth/core run build && pnpm --filter @gaunt-sloth/core run value-surface:generate",
+  "$reasons": {
+    "consumer-repo": "imported by a consumer repository through this exact subpath — the only @gaunt-sloth/core/… path either pukeko-robot-controller or galvanized-pukeko names. Nothing in this repository imports it on their behalf, so no build here re-proves it.",
+    "computed-specifier": "reached only by a COMPUTED import specifier, which no type checker can follow: packages/app/src/commands/configSetup.ts resolves @gaunt-sloth/core/providers/<id>.js from a variable and calls init() on it, and packages/core/src/config/loader.ts does the same for processJsonConfig(). The one spec that exercises the first call site mocks the module away, so before this golden nothing checked that these modules exist, resolve, or still export what is called on them.",
+    "unwatched": "published by the \"./*.js\" wildcard and named by no literal import specifier in any package's production src/, so no build in this repository re-proves anything about it. Whatever reaches it reaches it at runtime."
+  },
+  "$gatedElsewhere": [
+    {
+      "module": "index.js",
+      "why": "the root barrel — pinned by spec/coreBarrelValueSurface.golden.json, which is the twin of this file"
+    }
+  ],
+  "$everythingElse": "Everything else the \"./*.js\" wildcard publishes is named by a LITERAL import specifier in some package's production src/ — #src/…, a relative path, or @gaunt-sloth/core/… from a sibling — so tsc resolves that edge and re-proves the names it takes on every build, on every cell of the matrix. That is an earlier and louder gate than a golden, and duplicating it here would buy churn rather than coverage. Measured by listLiterallyImportedModules() in scripts/deep-subpath-surface.mjs, and the spec asserts that nothing falls outside both that scan and this golden.",
+  "subpaths": [
+    {
+      "subpath": "config.js",
+      "reason": "consumer-repo",
+      "exports": [
+        {
+          "name": "APPROVAL_POSTURES",
+          "kind": "array"
+        },
+        {
+          "name": "APPROVAL_PROTECTION_DOCS_LINES",
+          "kind": "array"
+        },
+        {
+          "name": "APPROVAL_PROTECTION_DOCS_URL",
+          "kind": "string"
+        },
+        {
+          "name": "APPROVAL_RUNGS",
+          "kind": "array"
+        },
+        {
+          "name": "APPROVAL_RUNG_DESCRIPTIONS",
+          "kind": "object"
+        },
+        {
+          "name": "APPROVAL_RUNG_LABELS",
+          "kind": "object"
+        },
+        {
+          "name": "APPROVAL_WRITE_MODIFIER_HINT",
+          "kind": "string"
+        },
+        {
+          "name": "BUILT_IN_TOOL_ACCESS",
+          "kind": "object"
+        },
+        {
+          "name": "CONFLICTING_CONFIG_SOURCES_MESSAGE",
+          "kind": "string"
+        },
+        {
+          "name": "ConfigDiscoveryError",
+          "kind": "class"
+        },
+        {
+          "name": "DEFAULT_APPROVAL_RUNG",
+          "kind": "string"
+        },
+        {
+          "name": "DEFAULT_CONFIG",
+          "kind": "object"
+        },
+        {
+          "name": "DEFAULT_SCAFFOLD_MODEL",
+          "kind": "string"
+        },
+        {
+          "name": "DEFAULT_SCAFFOLD_PROVIDER",
+          "kind": "string"
+        },
+        {
+          "name": "DEV_COMMAND_TOOL_NAMES",
+          "kind": "array"
+        },
+        {
+          "name": "DEV_TOOL_NAMES",
+          "kind": "array"
+        },
+        {
+          "name": "EXTERNALLY_EMITTED_BUILT_IN_TOOL_NAMES",
+          "kind": "array"
+        },
+        {
+          "name": "GH_READ_FILE_DEFAULT_MAX_BYTES",
+          "kind": "number"
+        },
+        {
+          "name": "GH_READ_FILE_TOOL_NAME",
+          "kind": "string"
+        },
+        {
+          "name": "MissingProviderKeyError",
+          "kind": "class"
+        },
+        {
+          "name": "PROFILE_NAME_RE",
+          "kind": "regexp"
+        },
+        {
+          "name": "RUNG_TOOL_DESCRIPTION_SUFFIXES",
+          "kind": "object"
+        },
+        {
+          "name": "SHELL_DEFAULT_MAX_OUTPUT_BYTES",
+          "kind": "number"
+        },
+        {
+          "name": "SHELL_DEFAULT_MAX_TIMEOUT_MS",
+          "kind": "number"
+        },
+        {
+          "name": "SHELL_DEFAULT_TIMEOUT_MS",
+          "kind": "number"
+        },
+        {
+          "name": "SHELL_TOOL_NAME",
+          "kind": "string"
+        },
+        {
+          "name": "TOKEN_BUDGET_FORMS",
+          "kind": "string"
+        },
+        {
+          "name": "TOKEN_BUDGET_MILLION",
+          "kind": "number"
+        },
+        {
+          "name": "TOKEN_BUDGET_THOUSAND",
+          "kind": "number"
+        },
+        {
+          "name": "TOOL_ANNOTATION_HINTS",
+          "kind": "array"
+        },
+        {
+          "name": "TokenBudgetError",
+          "kind": "class"
+        },
+        {
+          "name": "WRITE_FILE_TOOL_NAME",
+          "kind": "string"
+        },
+        {
+          "name": "applyRungAwareToolDescriptions",
+          "kind": "function"
+        },
+        {
+          "name": "availableDefaultConfigs",
+          "kind": "array"
+        },
+        {
+          "name": "buildProfileScaffold",
+          "kind": "function"
+        },
+        {
+          "name": "commandAnswersApprovals",
+          "kind": "function"
+        },
+        {
+          "name": "commandCarriesUserProvenance",
+          "kind": "function"
+        },
+        {
+          "name": "createNamedProfile",
+          "kind": "function"
+        },
+        {
+          "name": "findProjectConfigPath",
+          "kind": "function"
+        },
+        {
+          "name": "formatTokenBudget",
+          "kind": "function"
+        },
+        {
+          "name": "getEffectiveDevToolsConfig",
+          "kind": "function"
+        },
+        {
+          "name": "getGhReadFileMaxBytes",
+          "kind": "function"
+        },
+        {
+          "name": "getRungToolDescriptionSuffix",
+          "kind": "function"
+        },
+        {
+          "name": "getShellMaxOutputBytes",
+          "kind": "function"
+        },
+        {
+          "name": "getShellMaxTimeoutMs",
+          "kind": "function"
+        },
+        {
+          "name": "getShellTimeoutMs",
+          "kind": "function"
+        },
+        {
+          "name": "getToolPreviewLines",
+          "kind": "function"
+        },
+        {
+          "name": "hasAnyConfig",
+          "kind": "function"
+        },
+        {
+          "name": "hasProjectConfig",
+          "kind": "function"
+        },
+        {
+          "name": "initConfig",
+          "kind": "function"
+        },
+        {
+          "name": "isAccessClassGrantedAtRung",
+          "kind": "function"
+        },
+        {
+          "name": "isApprovalRung",
+          "kind": "function"
+        },
+        {
+          "name": "isBuiltInToolEntryEnabled",
+          "kind": "function"
+        },
+        {
+          "name": "isConfigDiscoveryError",
+          "kind": "function"
+        },
+        {
+          "name": "isDeterministicRung",
+          "kind": "function"
+        },
+        {
+          "name": "isFilesystemToolRegistered",
+          "kind": "function"
+        },
+        {
+          "name": "isGhReadFileToolEnabled",
+          "kind": "function"
+        },
+        {
+          "name": "isGrantedAtRung",
+          "kind": "function"
+        },
+        {
+          "name": "isMissingProviderKeyError",
+          "kind": "function"
+        },
+        {
+          "name": "isNegotiatingRung",
+          "kind": "function"
+        },
+        {
+          "name": "isRatedRung",
+          "kind": "function"
+        },
+        {
+          "name": "isShellToolEnabled",
+          "kind": "function"
+        },
+        {
+          "name": "isToolGatedAtRung",
+          "kind": "function"
+        },
+        {
+          "name": "isUsableModel",
+          "kind": "function"
+        },
+        {
+          "name": "isUserProvenanceRung",
+          "kind": "function"
+        },
+        {
+          "name": "isWriteFileToolRegistered",
+          "kind": "function"
+        },
+        {
+          "name": "loadConfiguredConsoleLevel",
+          "kind": "function"
+        },
+        {
+          "name": "loadConfiguredTui",
+          "kind": "function"
+        },
+        {
+          "name": "loadGlobalRawConfig",
+          "kind": "function"
+        },
+        {
+          "name": "normalizeBuiltInTools",
+          "kind": "function"
+        },
+        {
+          "name": "parseTokenBudget",
+          "kind": "function"
+        },
+        {
+          "name": "resolveApprovals",
+          "kind": "function"
+        },
+        {
+          "name": "resolveConfig",
+          "kind": "function"
+        },
+        {
+          "name": "resolveConfigExtends",
+          "kind": "function"
+        },
+        {
+          "name": "resolveGatedToolNames",
+          "kind": "function"
+        },
+        {
+          "name": "resolveIdentityProfileConfigPath",
+          "kind": "function"
+        },
+        {
+          "name": "resolveInterruptToolNames",
+          "kind": "function"
+        },
+        {
+          "name": "resolveProfileConfigPath",
+          "kind": "function"
+        },
+        {
+          "name": "resolveShellApprovalGate",
+          "kind": "function"
+        },
+        {
+          "name": "resolveTokenBudget",
+          "kind": "function"
+        },
+        {
+          "name": "selectScopedPrompts",
+          "kind": "function"
+        },
+        {
+          "name": "stripRungToolDescriptionSuffix",
+          "kind": "function"
+        },
+        {
+          "name": "tryJsonConfig",
+          "kind": "function"
+        },
+        {
+          "name": "validateConfig",
+          "kind": "function"
+        },
+        {
+          "name": "validateProfileName",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "providers/anthropic.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "init",
+          "kind": "function"
+        },
+        {
+          "name": "processJsonConfig",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "providers/deepseek.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "init",
+          "kind": "function"
+        },
+        {
+          "name": "processJsonConfig",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "providers/fake.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "processJsonConfig",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "providers/google-genai.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "init",
+          "kind": "function"
+        },
+        {
+          "name": "processJsonConfig",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "providers/groq.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "init",
+          "kind": "function"
+        },
+        {
+          "name": "processJsonConfig",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "providers/huggingface.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "init",
+          "kind": "function"
+        },
+        {
+          "name": "processJsonConfig",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "providers/ollama.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "init",
+          "kind": "function"
+        },
+        {
+          "name": "processJsonConfig",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "providers/openai.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "init",
+          "kind": "function"
+        },
+        {
+          "name": "processJsonConfig",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "providers/openrouter.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "init",
+          "kind": "function"
+        },
+        {
+          "name": "processJsonConfig",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "providers/vertexai.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "init",
+          "kind": "function"
+        },
+        {
+          "name": "processJsonConfig",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "subpath": "providers/xai.js",
+      "reason": "computed-specifier",
+      "exports": [
+        {
+          "name": "init",
+          "kind": "function"
+        },
+        {
+          "name": "processJsonConfig",
+          "kind": "function"
+        }
+      ]
+    }
+  ]
+}
