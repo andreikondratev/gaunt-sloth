@@ -3,25 +3,32 @@
  * Generates the repository docs' statements about the workspace packages, and fails when what is in
  * the docs disagrees with what the manifests and the release scripts say.
  *
- * OPS-70 — `README.md`, `AGENTS.md` and `CONTRIBUTING.md` each restated facts that
- * every `packages` manifest, `bump.mjs` and `publish-all.sh` already own: how many packages there
- * are, which of them are version-locked, what depends on what, and in which order they publish.
- * Every one of those sentences was correct when it was written, and three of them were wrong by the
- * time this script was. They go wrong the same way every time — a package is added and the prose is
- * not — so the remedy is not to correct the sentences but to stop them being sentences anyone
- * maintains.
+ * `README.md`, `AGENTS.md`, `CONTRIBUTING.md` and `maintenance/RELEASE-HOWTO.md` each restated facts
+ * that every `packages` manifest, `bump.mjs`, `publish-all.sh` and `tag-packages.sh` already own:
+ * how many packages there are, which of them are version-locked, what depends on what, in which
+ * order they publish, and which of them get git-tagged. Every one of those sentences was correct
+ * when it was written, and most were wrong by the time this script read them. They go wrong the same
+ * way every time — a package is added and the prose is not — so the remedy is not to correct the
+ * sentences but to stop them being sentences anyone maintains.
  *
  * Three treatments, because the claims are not all the same kind of claim:
  *
- * - **Generated.** The package set, the version-locked split and the dependency edges are facts the
- *   manifests state. They live between markers in `README.md` and `AGENTS.md` and are written from
- *   here. `--write` injects them; the default checks them and exits non-zero on a disagreement.
+ * - **Generated.** The package set, the version-locked split, the dependency edges and the by-hand
+ *   `pack --dry-run` preview are facts the manifests state. They live between markers in the files
+ *   {@link TARGETS} names and are written from here. `--write` injects them; the default checks them
+ *   and exits non-zero on a disagreement.
  * - **Pointed at.** The publish order is declared exactly once, by `publish-all.sh`'s `ORDER` array,
- *   and the version-locked set by `bump.mjs`. A runbook sentence that re-states either can disagree
- *   with it; one that points at it cannot. `CONTRIBUTING.md` points, and {@link checkPointers}
- *   fails if the pointed-at declarations stop existing or stop covering every package — a pointer is
- *   only as good as the target still owning the fact.
+ *   the tag set by `tag-packages.sh`'s `PACKAGES` array, and the version-locked set by `bump.mjs`. A
+ *   runbook sentence that re-states any of them can disagree with it; one that points at it cannot.
+ *   `CONTRIBUTING.md` and `maintenance/RELEASE-HOWTO.md` point, and {@link checkPointers} fails if a
+ *   pointed-at declaration stops existing or stops covering every package — a pointer is only as
+ *   good as the target still owning the fact.
  * - **Neither.** Prose that is not a manifest fact stays prose. This script does not police it.
+ *
+ * **A count of packages belongs inside a generated block or nowhere.** The runbook's post-outage
+ * recovery caveat is the case that settles it: its job is to send a releaser to find out what
+ * actually shipped, and any number there — even a correct one — is a list to trust instead of the
+ * registry. Deleting the claim beats generating it wherever the right behaviour is to go and look.
  *
  * **Why the locked set is read out of `bump.mjs` and only corroborated against the versions.**
  * Carrying core's version is a *consequence* of being version-locked, not the definition: two
@@ -47,11 +54,14 @@
  *   broken.
  * - whether `ORDER` is in a *valid* topological order. This checks that it covers every package;
  *   the ordering within it is the release scripts' business.
- * - any other file. `maintenance/RELEASE-HOWTO.md` restates several of these same facts and is
- *   wrong about them today; it is outside OPS-70's scope and is reported rather than edited. Adding
- *   it later is an entry in {@link TARGETS} plus markers in the file.
+ * - any file {@link TARGETS} does not name. Bringing one under this script is an entry there plus
+ *   markers in the file. {@link checkMarkers} sweeps the repository's markdown so a marked block
+ *   in a file nobody registered reads as an error rather than as generated text — otherwise it is
+ *   unchecked prose wearing a marker that says it is generated, which is {@link locateBlock}'s
+ *   duplicate-block problem one level up and gets likelier with every block added.
  * - a claim in one of the covered files that sits *outside* a marked block. The blocks are what is
- *   generated; prose around them is prose.
+ *   generated; prose around them is prose. Removing the counts from that prose, rather than
+ *   checking them, is what keeps this boundary safe.
  */
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -59,6 +69,9 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const packagesDir = join(repoRoot, 'packages');
+
+/** The release runbook — the one of these documents a human follows by hand while shipping. */
+const RUNBOOK = 'maintenance/RELEASE-HOWTO.md';
 
 /**
  * The Description column, and the order the packages are listed in — both editorial, both owned
@@ -100,7 +113,28 @@ const DESCRIPTIONS = [
 const TARGETS = [
   { file: 'README.md', id: 'workspace-packages', width: 100, render: renderReadmeBlock },
   { file: 'AGENTS.md', id: 'locked-packages', width: 80, render: renderAgentsBlock },
+  {
+    file: RUNBOOK,
+    id: 'release-locked-packages',
+    width: 98,
+    render: renderRunbookLockedBlock,
+  },
+  // No width: this block is shell commands, not prose. See renderRunbookPackPreviewBlock.
+  { file: RUNBOOK, id: 'release-pack-preview', render: renderRunbookPackPreviewBlock },
 ];
+
+/**
+ * Every directory a markdown sweep must not descend into: dependencies, build output, and the
+ * rendered docs site, which copies marked blocks verbatim into its own pages.
+ *
+ * Dot-directories are skipped too, by name rather than by listing them. They hold tool state and
+ * agent output, not documentation — and `.gsloth/` in particular is where `gth` writes its own
+ * review transcripts, which quote a diff verbatim. Reviewing a change to a generated block would
+ * otherwise write those markers into an ignored file and red this gate for the person running the
+ * review. The cost is that the `.gsloth/` profile fixtures under `packages/app/integration-tests/`
+ * are not swept either; they are fixtures, and a generated block does not live in one.
+ */
+const SWEEP_SKIP = new Set(['node_modules', 'dist', 'build', 'coverage', 'docs-generated']);
 
 const NUMBER_WORDS = [
   'no',
@@ -180,9 +214,12 @@ function workspacePackages() {
   if (!existsSync(packagesDir)) {
     throw new Error(`${packagesDir} does not exist — this script must run from the repository.`);
   }
-  const dirs = readdirSync(packagesDir).filter((dir) =>
-    existsSync(join(packagesDir, dir, 'package.json'))
-  );
+  // Sorted, because `readdirSync` returns filesystem order: on ext4 that is a per-directory hash
+  // order, so an unsorted enumeration can render one block here and a differently-ordered one in
+  // CI, which reds a check for a reason nobody can see in the diff.
+  const dirs = readdirSync(packagesDir)
+    .filter((dir) => existsSync(join(packagesDir, dir, 'package.json')))
+    .sort();
   // Anti-vacuity: an enumeration that found nothing must not read as "nothing is wrong".
   if (dirs.length < 2) {
     throw new Error(
@@ -228,6 +265,24 @@ function lockedDirsFromBump() {
     throw new Error('bump.mjs declares an empty SYNCED — nothing would read as version-locked.');
   }
   return [...dirs, appDir[1]];
+}
+
+/**
+ * The git-tagged set, read from the array that is it. `maintenance/RELEASE-HOWTO.md` used to
+ * enumerate this list and had fallen three names behind it, so the prose now points here instead —
+ * which only helps while this array still exists and still holds the whole set.
+ */
+function taggedDirs() {
+  const source = readText('tag-packages.sh');
+  const packages = source.match(/^PACKAGES=\(([^)]*)\)/m);
+  if (!packages) {
+    throw new Error(
+      'could not read the PACKAGES array out of tag-packages.sh. maintenance/RELEASE-HOWTO.md ' +
+        'points at it for which packages get tagged instead of re-stating them, so this script ' +
+        'has to be able to find it — re-point this regex at wherever the array moved.'
+    );
+  }
+  return packages[1].split(/\s+/).filter(Boolean);
 }
 
 /** The publish order, read from the array that is it. */
@@ -334,49 +389,227 @@ function renderAgentsBlock({ packages, locked, independent }, width) {
 }
 
 /**
- * The claims `CONTRIBUTING.md` makes by pointing rather than by re-stating. A pointer cannot
- * disagree with its target, but it can outlive it, so what is checked here is that the target still
- * exists and still owns the whole fact.
+ * A declaration a document defers to instead of re-stating: it has to still cover every package,
+ * or the prose pointing at it has quietly become wrong in the one direction that matters — a
+ * package nobody publishes, tags, or previews.
  */
-function checkPointers({ packages }, results) {
-  const orderDirs = publishOrderDirs();
-  const packageDirs = packages.map((pkg) => pkg.dir).sort();
-  const missing = packageDirs.filter((dir) => !orderDirs.includes(dir));
-  const unknown = orderDirs.filter((dir) => !packageDirs.includes(dir));
-  if (missing.length > 0 || unknown.length > 0) {
-    results.push({
-      ok: false,
-      what: "publish-all.sh's ORDER covers every package",
-      detail: [
-        missing.length > 0
-          ? `never published: ${missing.join(', ')} — in packages/ but not in ORDER`
-          : '',
-        unknown.length > 0 ? `in ORDER but not in packages/: ${unknown.join(', ')}` : '',
-        'CONTRIBUTING.md tells a releaser that ORDER is the publish order, so a package missing ' +
-          'from it is a package that silently never ships.',
-      ]
-        .filter(Boolean)
-        .join('\n'),
-    });
-  } else {
-    results.push({
-      ok: true,
-      what: "publish-all.sh's ORDER covers every package",
-      detail: `${orderDirs.length} packages, in ORDER's order`,
-    });
+function checkCoverage(what, declaredDirs, packageDirs, consequence, results) {
+  const missing = packageDirs.filter((dir) => !declaredDirs.includes(dir));
+  const unknown = declaredDirs.filter((dir) => !packageDirs.includes(dir));
+  if (missing.length === 0 && unknown.length === 0) {
+    results.push({ ok: true, what, detail: `${declaredDirs.length} packages` });
+    return;
+  }
+  results.push({
+    ok: false,
+    what,
+    detail: [
+      missing.length > 0 ? `in packages/ but not declared: ${missing.join(', ')}` : '',
+      unknown.length > 0 ? `declared but not in packages/: ${unknown.join(', ')}` : '',
+      consequence,
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  });
+}
+
+/** A document still names the declarations it defers to, so its pointers still point somewhere. */
+function checkPointerFile(file, names, consequence, results) {
+  const text = readText(file);
+  const lost = names.filter((name) => !text.includes(name));
+  results.push({
+    ok: lost.length === 0,
+    what: `${file} points at the release scripts rather than re-stating them`,
+    detail:
+      lost.length === 0
+        ? `names ${andList(names)}`
+        : `${file} no longer names ${andList(lost)}. ${consequence}`,
+  });
+}
+
+/**
+ * The runbook's version block: which packages move together, which do not, and the directory the
+ * fat CLI lives in — the three things a releaser reading it by hand needs and the three that were
+ * each a name short.
+ */
+function renderRunbookLockedBlock({ packages, locked, independent }, width) {
+  const code = (names) => names.map((name) => `\`${name}\``);
+  const scoped = locked.filter((pkg) => pkg.name.startsWith('@gaunt-sloth/'));
+  const unscoped = locked.filter((pkg) => !pkg.name.startsWith('@gaunt-sloth/'));
+
+  const opening = wrap(
+    `${numberWord(locked.length)[0].toUpperCase()}${numberWord(locked.length).slice(1)} of the ` +
+      `${numberWord(packages.length)} packages release in lockstep at one version:`,
+    width
+  );
+
+  const bullets = [];
+  if (scoped.length > 0) {
+    bullets.push(
+      wrap(
+        `- ${
+          scoped.length === 1 ? 'the scoped library' : 'the scoped libraries'
+        } ${andList(code(scoped.map((pkg) => pkg.name)))}${unscoped.length > 0 ? ', and' : '.'}`,
+        width,
+        '  '
+      )
+    );
+  }
+  for (const pkg of unscoped) {
+    bullets.push(
+      wrap(
+        `- \`${pkg.name}\` — the fat user-facing CLI, whose package name and directory differ ` +
+          `(dir \`packages/${pkg.dir}\`).`,
+        width,
+        '  '
+      )
+    );
   }
 
-  const contributing = readText('CONTRIBUTING.md');
-  const pointers = ['publish-all.sh', 'bump.mjs'].filter((name) => !contributing.includes(name));
+  const rest =
+    independent.length > 0
+      ? wrap(
+          `${andList(code(independent.map((pkg) => pkg.name)))} ${
+            independent.length === 1 ? 'is' : 'are'
+          } versioned on ${
+            independent.length === 1 ? 'its' : 'their'
+          } own track, bumped by hand, and deliberately outside that set — ` +
+            'published and git-tagged alongside it, at their own versions.',
+          width
+        )
+      : '';
+
+  return [opening, '', ...bullets, ...(rest === '' ? [] : ['', rest])].join('\n');
+}
+
+/**
+ * The by-hand `pack --dry-run` preview, one line per package.
+ *
+ * This is the step whose whole purpose is eyeballing what a tarball will contain, so a preview that
+ * omits a package is a package nobody ever looks at before it ships — which is what a hand-kept
+ * list of these lines had become. Ordered by `publish-all.sh`'s `ORDER` so the preview reads in the
+ * order the release ships, but driven off the package set rather than off `ORDER`, so it covers
+ * every package even while `ORDER` is the thing that is wrong. {@link checkPointers} reports that
+ * separately; this block must not also collapse, or one defect would read as two.
+ *
+ * It takes no wrap width, unlike every other renderer: these are shell commands in a fenced block,
+ * and one wrapped across two lines is one a releaser cannot paste.
+ */
+function renderRunbookPackPreviewBlock({ packages }) {
+  const order = publishOrderDirs();
+  const rank = (pkg) => {
+    const index = order.indexOf(pkg.dir);
+    return index === -1 ? order.length : index;
+  };
+  const sorted = [...packages].sort((a, b) => rank(a) - rank(b) || (a.dir < b.dir ? -1 : 1));
+  return [
+    '```bash',
+    ...sorted.map((pkg) => `pnpm --filter ${pkg.name} pack --dry-run`),
+    '```',
+  ].join('\n');
+}
+
+/**
+ * The claims `CONTRIBUTING.md` and the release runbook make by pointing rather than by re-stating.
+ * A pointer cannot disagree with its target, but it can outlive it, so what is checked here is that
+ * the target still exists and still owns the whole fact.
+ */
+function checkPointers({ packages }, results) {
+  const packageDirs = packages.map((pkg) => pkg.dir).sort();
+  checkCoverage(
+    "publish-all.sh's ORDER covers every package",
+    publishOrderDirs(),
+    packageDirs,
+    'CONTRIBUTING.md and the release runbook tell a releaser that ORDER is the publish order, so ' +
+      'a package missing from it is a package that silently never ships.',
+    results
+  );
+  checkCoverage(
+    "tag-packages.sh's PACKAGES covers every package",
+    taggedDirs(),
+    packageDirs,
+    'The release runbook tells a releaser that this array is what gets tagged, so a package ' +
+      'missing from it ships with no git tag and nobody verifying the release notices.',
+    results
+  );
+
+  checkPointerFile(
+    'CONTRIBUTING.md',
+    ['publish-all.sh', 'bump.mjs'],
+    'Its release section defers to those scripts for the publish order and the version-locked ' +
+      'set; without the pointer the reader is back to a list in prose that nothing checks.',
+    results
+  );
+  checkPointerFile(
+    RUNBOOK,
+    ['publish-all.sh', 'tag-packages.sh'],
+    'It defers to those scripts for the publish order and the tagged set; without the pointer a ' +
+      'releaser working by hand is back to a list in prose that nothing checks.',
+    results
+  );
+}
+
+/** Every markdown file under `dir`, sorted, skipping the trees a generated block never lives in. */
+function markdownFiles(dir, relative = '') {
+  const found = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+    a.name < b.name ? -1 : a.name > b.name ? 1 : 0
+  )) {
+    if (SWEEP_SKIP.has(entry.name)) continue;
+    if (entry.isDirectory() && entry.name.startsWith('.')) continue;
+    const path = relative === '' ? entry.name : `${relative}/${entry.name}`;
+    if (entry.isDirectory()) found.push(...markdownFiles(join(dir, entry.name), path));
+    else if (entry.isFile() && entry.name.endsWith('.md')) found.push(path);
+  }
+  return found;
+}
+
+/**
+ * Every marked block in the repository is one {@link TARGETS} knows about.
+ *
+ * {@link locateBlock} can only check the blocks it is pointed at. A `BEGIN GENERATED` pair in a
+ * file nobody registered — a section copied into a new document, a `TARGETS` entry deleted while
+ * the markers stayed — is text that reads as generated to every human and is checked by nothing.
+ * That is the duplicate-block failure one level up, and each block added makes it likelier.
+ */
+function checkMarkers(results) {
+  const registered = new Map();
+  for (const target of TARGETS) {
+    if (!registered.has(target.file)) registered.set(target.file, new Set());
+    registered.get(target.file).add(target.id);
+  }
+  const pattern = /<!--\s*(?:BEGIN|END)\s+GENERATED\s+([^\s>]+)\s*-->/g;
+  // A set, so one unregistered block reports once rather than twice — it has two markers, and a
+  // doubled line reads as a bug in the checker at the moment someone is trusting it.
+  const orphans = new Set();
+  let seen = 0;
+  for (const file of markdownFiles(repoRoot)) {
+    const text = readText(file);
+    for (const match of text.matchAll(pattern)) {
+      seen++;
+      if (!registered.get(file)?.has(match[1])) orphans.add(`${file} — "${match[1]}"`);
+    }
+  }
+  // Anti-vacuity: every TARGETS entry has two markers, so a sweep that found fewer read nothing.
+  if (seen < TARGETS.length * 2) {
+    results.push({
+      ok: false,
+      what: 'every generated block in the repository is one this script maintains',
+      detail:
+        `the sweep found ${seen} markers, fewer than the ${TARGETS.length * 2} TARGETS alone ` +
+        'requires — it is the sweep that is broken, not the documents.',
+    });
+    return;
+  }
   results.push({
-    ok: pointers.length === 0,
-    what: 'CONTRIBUTING.md points at the release scripts rather than re-stating them',
+    ok: orphans.size === 0,
+    what: 'every generated block in the repository is one this script maintains',
     detail:
-      pointers.length === 0
-        ? 'names publish-all.sh and bump.mjs'
-        : `CONTRIBUTING.md no longer names ${pointers.join(' or ')}. Its release section defers ` +
-          'to those scripts for the publish order and the version-locked set; without the ' +
-          'pointer the reader is back to a list in prose that nothing checks.',
+      orphans.size === 0
+        ? `${seen} markers, all registered in TARGETS`
+        : `${[...orphans].join('\n')}\nA marked block this script does not maintain is unchecked ` +
+          'prose under a marker claiming it is generated. Add it to TARGETS, or remove the ' +
+          'markers and let it be prose.',
   });
 }
 
@@ -485,6 +718,7 @@ function main() {
   checkDescriptions(model, results);
   checkLockedVersions(model, results);
   checkPointers(model, results);
+  checkMarkers(results);
 
   // The derived facts have to be sound before a block is written from them: writing the docs out of
   // a model that already contradicts the release scripts would make the docs agree with this script

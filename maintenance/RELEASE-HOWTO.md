@@ -13,21 +13,33 @@ Make sure `npm config set git-tag-version true`
 ! Important ! The `files` block of package.json strictly controls what is actually released,
 the `files` makes .npmignore ignored.
 
-### Unified, locked versioning (all four packages)
+### Unified, locked versioning
 
-As of v2 **all four packages release in lockstep at one version**:
+<!-- BEGIN GENERATED release-locked-packages -->
 
-- `@gaunt-sloth/core`, `@gaunt-sloth/agent`, `@gaunt-sloth/review` (the scoped libraries), and
-- `gaunt-sloth` — the fat user-facing CLI (dir `packages/app`; the package **name** is
-  `gaunt-sloth`, not `@gaunt-sloth/assistant`). The former `@gaunt-sloth/tools` and
-  `@gaunt-sloth/api` were merged into `@gaunt-sloth/agent` in the 2.0 break.
+<!-- Written from packages/*/package.json by scripts/sync-package-docs.mjs. Do not edit between
+     the markers by hand: change a manifest, or that script, then run
+     node scripts/sync-package-docs.mjs --write -->
+
+Five of the seven packages release in lockstep at one version:
+
+- the scoped libraries `@gaunt-sloth/core`, `@gaunt-sloth/agent`, `@gaunt-sloth/review` and
+  `@gaunt-sloth/batch`, and
+- `gaunt-sloth` — the fat user-facing CLI, whose package name and directory differ (dir
+  `packages/app`).
+
+`@gaunt-sloth/eval-reporter-junit` and `@gaunt-sloth/eval-reporter-teamcity` are versioned on
+their own track, bumped by hand, and deliberately outside that set — published and git-tagged
+alongside it, at their own versions.
+
+<!-- END GENERATED release-locked-packages -->
 
 `packages/core/package.json` is the source of truth for the version. `npm version` does not work
 well in workspaces for scoped packages, so use the bump script. Version computation uses
 `semver.inc(current, releaseType, preid)` — the same engine npm uses:
 
 ```bash
-pnpm run release:bump                          # patch-increment core's version AND sync all four
+pnpm run release:bump                          # patch-increment core's version AND sync the set
 pnpm run release:bump minor                    # patch | minor | major AND sync
 pnpm run release:bump prerelease alpha         # walk the prerelease counter on the alpha channel
 pnpm run release:bump preminor alpha           # open the next minor's alpha line
@@ -40,12 +52,12 @@ explicit `MAJOR.MINOR.PATCH[-prerelease]`. An optional preid (`alpha | beta | rc
 `pre*`/`prerelease` verbs.
 
 The script rewrites each package's `"version"`, the scoped libraries' exact pins on each other,
-and the fat CLI's `@gaunt-sloth/*` dependency pins. It also writes `publishConfig.tag` into **all
-four** package.jsons, derived from the new version: a prerelease (`2.0.0-alpha.0`) gets its preid
-(`alpha`/`beta`/`rc`) as the tag; a stable version gets `latest`. This is the `latest`-hijack
-guard (see below). Commit the result before publishing — `release:bump-and-commit` does that for
-you, including the lockfile refresh (`pnpm install --lockfile-only`) that keeps the next
-`pnpm install --frozen-lockfile` happy.
+and the fat CLI's `@gaunt-sloth/*` dependency pins. It also writes `publishConfig.tag` into **every
+version-locked** package.json, derived from the new version: a prerelease (`2.0.0-alpha.0`) gets
+its preid (`alpha`/`beta`/`rc`) as the tag; a stable version gets `latest`. This is the
+`latest`-hijack guard (see below). Commit the result before publishing — `release:bump-and-commit`
+does that for you, including the lockfile refresh (`pnpm install --lockfile-only`) that keeps the
+next `pnpm install --frozen-lockfile` happy.
 
 ### Prereleases never take `latest`
 
@@ -60,11 +72,10 @@ A stable version derives `latest`; a prerelease derives its preid.
 
 ### The `eval-reporter-*` tier publishes on `latest` (its own `0.x` track)
 
-The two `gth eval` reporter plugins — `@gaunt-sloth/eval-reporter-junit` and
-`@gaunt-sloth/eval-reporter-teamcity` — are **independently versioned** (a plain, stable `0.x`;
-`bump.mjs` never touches them) but are published and git-tagged alongside the locked set. Their
-dist-tag is therefore derived from **their own stable version → `latest`**, *decoupled* from the
-synced set's prerelease channel.
+The `gth eval` reporter plugins in the `@gaunt-sloth/eval-reporter-*` family — every package
+`bump.mjs` leaves out of its version sync — are **independently versioned** (a plain, stable `0.x`)
+but are published and git-tagged alongside the locked set. Their dist-tag is therefore derived from
+**their own stable version → `latest`**, *decoupled* from the synced set's prerelease channel.
 
 This is automatic: `publish-all.sh` derives **each** package's dist-tag from **that package's own
 version** via `scripts/dist-tag.mjs` (stable `0.x` → `latest`; a prerelease → its preid). So a single
@@ -121,7 +132,8 @@ Step order inside the `release` job:
 6. `gh release create v<current>` (`--prerelease` when the current version has a prerelease suffix),
    with the title and body taken from `release-notes/v<current>.md` — see
    [GitHub Release](#github-release).
-7. **Publish all four** at the current version with `--tag <derived>`.
+7. **Publish every package** at the current version, each on the dist-tag derived from its own
+   version — `publish-all.sh` does that per package, so the job passes no global `--tag`.
 8. **Only after publish succeeds:** post-bump — `pnpm run release:bump-and-commit` driven by the
    dispatch inputs, then `git push origin HEAD:main`.
 
@@ -173,13 +185,22 @@ post-bump of `prerelease`+`beta` leaves `2.0.0-beta.0` on `main`, so the next ru
 beta. Likewise, finalizing happens by post-bumping with `patch` on the run that ships the last rc —
 that run ships `2.0.0-rc.2` and leaves `2.0.0` on `main` for the GA run.
 
-#### Idempotency caveat (accepted): mid-publish npm outage
+#### Mid-publish npm outage
 
-The version-level idempotency above protects against re-shipping, but `publish-all.sh` publishes
-the four packages sequentially and has **no auto-skip** of already-published versions (deliberate).
-If an npm outage interrupts mid-publish, some of the four may be live and others not. Re-dispatching
-would fail on the already-published ones. **Recovery is manual** and accepted: publish the
-remaining stragglers by hand at the same current version, e.g.
+The version-level idempotency above protects against re-shipping. Within a single run
+`publish-all.sh` publishes sequentially, so an npm outage part-way through leaves some packages
+live and others not. **Find out which by asking the registry** — `npm view <name> versions` — not
+by checking against any list in this document.
+
+Once npm is reachable again, re-dispatching is the recovery. `publish-all.sh` asks the registry
+whether each package's current version is already published and skips the ones that are, so the
+packages that did ship do not abort the retry. That guard is scoped to
+`https://registry.npmjs.org` — the local Verdaccio proxies npmjs and would false-positive — and a
+lookup that fails for any reason falls through to attempting the publish, so a re-dispatch made
+while the outage is still going still dies at the first unreachable publish. Wait for the
+registry, then re-dispatch.
+
+Publishing a straggler by hand at the same current version works too:
 
 ```bash
 REGISTRY=https://registry.npmjs.org \
@@ -192,8 +213,7 @@ synced-set straggler derives `alpha`/`beta`/`rc`, but a straggler in the `eval-r
 derives `latest` (its stable `0.x`). **Never pass `--tag alpha` for a reporter**; a bare
 `pnpm publish` (its `publishConfig.tag` is `latest`) also lands it on `latest`.
 
-Then re-create the tag/release/post-bump steps as needed. This trade-off (manual straggler
-recovery in a rare outage) was chosen over baking skip-if-published logic into `publish-all.sh`.
+Then re-create the tag/release/post-bump steps as needed.
 
 The `release` job uses npm Trusted Publishing (OIDC) — no token. Each package's Trusted Publisher
 on npmjs must point at this repo and `release.yml`.
@@ -203,9 +223,9 @@ on npmjs must point at this repo and `release.yml`.
 Bump and commit first (see above): npm refuses to republish an existing version.
 
 Tags follow the `<name>@<version>` convention (npm monorepo style) and are annotated. The helper
-reads each package's current `package.json` and tags all four — `@gaunt-sloth/core@<v>`,
-`@gaunt-sloth/agent@<v>`, `@gaunt-sloth/review@<v>`, and `gaunt-sloth@<v>` for the fat CLI.
-Existing tags are skipped, so it's safe to re-run:
+reads each package's current `package.json` and tags every package its own `PACKAGES` array lists.
+Read that set there rather than from a list here — a list here can disagree with it, and a package
+missing from it ships with no tag at all. Existing tags are skipped, so it's safe to re-run:
 
 ```bash
 ./tag-packages.sh            # create the tags locally
@@ -214,15 +234,27 @@ Existing tags are skipped, so it's safe to re-run:
 
 Preview what will be included in each package:
 
+<!-- BEGIN GENERATED release-pack-preview -->
+
+<!-- Written from packages/*/package.json by scripts/sync-package-docs.mjs. Do not edit between
+     the markers by hand: change a manifest, or that script, then run
+     node scripts/sync-package-docs.mjs --write -->
+
 ```bash
 pnpm --filter @gaunt-sloth/core pack --dry-run
 pnpm --filter @gaunt-sloth/agent pack --dry-run
 pnpm --filter @gaunt-sloth/review pack --dry-run
+pnpm --filter @gaunt-sloth/batch pack --dry-run
+pnpm --filter @gaunt-sloth/eval-reporter-junit pack --dry-run
+pnpm --filter @gaunt-sloth/eval-reporter-teamcity pack --dry-run
 pnpm --filter gaunt-sloth pack --dry-run
 ```
 
-Publish all four in dependency order (core → agent → review → `gaunt-sloth`). The script defaults
-to a local Verdaccio at `http://localhost:4873`
+<!-- END GENERATED release-pack-preview -->
+
+Publish every package in the dependency order `publish-all.sh`'s `ORDER` array declares — read it
+there rather than from a list here. The script defaults to a local Verdaccio at
+`http://localhost:4873`
 (see [CONTRIBUTING.md](../CONTRIBUTING.md#local-development-registry-optional)); set `REGISTRY` to
 target npmjs:
 
