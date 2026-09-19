@@ -13,7 +13,7 @@ nobody runs.
 |---|---|---|---|
 | `pnpm test` | the unit suite, after a build | nothing | **every merge** — and the release |
 | `pnpm run lint` | ESLint over the whole repo, warnings included | nothing | **every merge** |
-| `pnpm run docs:check` | the rendered docs site | nothing | **every merge** |
+| `pnpm run docs:check` | the package facts the repo's docs state, then the rendered docs site | nothing | **every merge** |
 | `pnpm run it <provider>` | the CLI end to end against a real model | that provider's key, real calls | nothing by hand; the release runs it |
 | `pnpm run it ollama xx-small` | the whole agent against a local model | a local GPU | nothing; run it before an agent-runtime merge |
 | `pnpm run it-tui` | the terminal UI in a real pseudo-terminal | nothing | **a TUI merge**, and the release |
@@ -66,7 +66,29 @@ pnpm run format        # Prettier over js/mjs/ts/tsx
 warnings reported and every such rule is decorative. `eslint.config.js` and `.prettierignore` are
 kept in step: whatever only one of them sees drifts back out of format.
 
-## Docs render — `pnpm run docs:check`
+## Docs — `pnpm run docs:check`
+
+Two checks, in one gate. The first is `scripts/sync-package-docs.mjs`, the second the render.
+
+### The package facts the docs state
+
+`README.md` and `AGENTS.md` carry blocks generated from the package manifests — the package table,
+which packages are version-locked, and what depends on what — and `CONTRIBUTING.md` points at
+`publish-all.sh`'s `ORDER` array and at `bump.mjs` rather than re-stating what they declare. The
+check fails when a generated block disagrees with the manifests, when a package has no description,
+when the version-locked set and the versions themselves have come apart, or when `ORDER` stops
+covering every package — a package missing from it is a package the publish silently skips.
+
+Change a manifest or add a package, then regenerate and commit the result:
+
+```bash
+node scripts/sync-package-docs.mjs --write
+```
+
+A new package needs a one-line description in that script's `DESCRIPTIONS`, which is also where the
+table's order is decided. Prose outside the markers is prose; the check does not read it.
+
+### The render
 
 Renders the TypeDoc site and fails on the render's own errors, on a link to a page that does not
 exist, on a broken anchor, on an output tree this run did not write, and on any TypeDoc warning that

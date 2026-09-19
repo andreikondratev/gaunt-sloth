@@ -289,10 +289,12 @@ pnpm run lint-n-fix
 # Format code
 pnpm run format
 
-# Render the docs site and check the render (needs a build first; a CI step of test-and-lint).
-# `pnpm typedoc` alone exits 0 with hundreds of warnings — this is what turns a broken anchor, or
-# any warning the committed baseline does not account for, red. Report BOTH of its numbers: the
-# summary is "0 errors and N warnings", and calling that "docs:check 0" hides a new warning.
+# Check the docs (needs a build first; a CI step of test-and-lint). Two checks: the package blocks
+# generated into README.md and AGENTS.md must agree with the package manifests, then the site is
+# rendered. `pnpm typedoc` alone exits 0 with hundreds of warnings — this is what turns a broken
+# anchor, or any warning the committed baseline does not account for, red. Report BOTH of the
+# render's numbers: the summary is "0 errors and N warnings", and calling that "docs:check 0" hides
+# a new warning. Regenerate the package blocks with: node scripts/sync-package-docs.mjs --write
 pnpm run docs:check
 
 # Install globally for development
@@ -546,12 +548,22 @@ which expects full interface. Even better option is to provide all properties.
 
 ## Releasing the Packages
 
-All FOUR packages are version-locked and released together — the scoped set
-`@gaunt-sloth/{core,agent,review}` plus the fat `gaunt-sloth` CLI (dir
-`packages/app`). `packages/core/package.json` is the version source of
-truth and the others are kept in lockstep (the old separate `tools`/`api`
-packages were merged into `agent` long ago; the assistant is no longer excluded
-or published on its own).
+<!-- BEGIN GENERATED locked-packages -->
+
+<!-- Written from packages/*/package.json by scripts/sync-package-docs.mjs. Do not edit between
+     the markers by hand: change a manifest, or that script, then run
+     node scripts/sync-package-docs.mjs --write -->
+
+Five of the seven packages are version-locked and released together — the scoped
+set `@gaunt-sloth/{agent,batch,core,review}` plus the fat `gaunt-sloth` CLI (dir
+`packages/app`). The `@gaunt-sloth/eval-reporter-junit` and
+`@gaunt-sloth/eval-reporter-teamcity` plugins are versioned on their own track
+and are deliberately not part of that set.
+
+<!-- END GENERATED locked-packages -->
+
+`packages/core/package.json` is the version source of truth and the others are
+kept in lockstep.
 
 Releases run through a single manually-dispatched GitHub Actions pipeline
 (`.github/workflows/release.yml`, `workflow_dispatch`) that gates on lint+unit,

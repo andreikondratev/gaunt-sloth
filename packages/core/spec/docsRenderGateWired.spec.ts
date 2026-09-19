@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 
 /**
- * OPS-67 — the docs render gate must stay wired into CI, and stay after the build.
+ * OPS-67 — the docs gate must stay wired into CI, and stay after the build.
  *
  * `pnpm typedoc` exits 0 with hundreds of warnings, so `scripts/check-docs-render.mjs` is what
  * turns a broken anchor, a link to a page that does not exist, or a page delivered as a raw
@@ -11,6 +11,12 @@ import { existsSync, readFileSync } from 'node:fs';
  * from any code path, so both can be dropped in a refactor with no signal at all. That is the same
  * "preserved by nothing" problem `lintGateFailsOnWarnings.spec.ts` exists to solve for
  * `--max-warnings 0`.
+ *
+ * OPS-70 put a second command in front of it in the same script: `scripts/sync-package-docs.mjs`,
+ * which fails when the generated package blocks in `README.md` and `AGENTS.md` disagree with the
+ * manifests. It is pinned here by the same equality, so it inherits the same protection — and `&&`
+ * is what keeps that protection meaningful, because it propagates a non-zero exit where the shapes
+ * this spec exists to reject (`|| true`, a leading `echo skipped &&`) swallow one.
  *
  * The ordering assertion is not decoration. TypeDoc resolves the cross-package imports through
  * each package's built `dist/*.d.ts`, so on an unbuilt tree the render dies in TS2307 errors
@@ -24,9 +30,11 @@ import { existsSync, readFileSync } from 'node:fs';
 const ROOT_PACKAGE_JSON = new URL('../../../package.json', import.meta.url);
 const UNIT_TESTS_WORKFLOW = new URL('../../../.github/workflows/unit-tests.yml', import.meta.url);
 const CHECK_SCRIPT = new URL('../../../scripts/check-docs-render.mjs', import.meta.url);
+const SYNC_SCRIPT = new URL('../../../scripts/sync-package-docs.mjs', import.meta.url);
 
 const GATE_SCRIPT = 'docs:check';
-const GATE_SCRIPT_BODY = 'node scripts/check-docs-render.mjs';
+const GATE_SCRIPT_BODY =
+  'node scripts/sync-package-docs.mjs --check && node scripts/check-docs-render.mjs';
 const GATE_COMMAND = 'pnpm run docs:check';
 const BUILD_AND_TEST_COMMAND = 'pnpm test';
 const GATE_JOB = 'test-and-lint';
@@ -97,8 +105,8 @@ function workflowWithGateStepInNextJob(nextJobId: string): string {
   ].join('\n');
 }
 
-describe('OPS-67 the docs render gate is wired into CI', () => {
-  it('has the script, and it is exactly the render check', () => {
+describe('OPS-67 the docs gate is wired into CI', () => {
+  it('has the script, and it is exactly the package-docs check and the render check', () => {
     // Exact equality, not `toContain`: an `|| true` suffix, a leading `echo skipped &&`, or a
     // trailing comment all leave the substring intact while making the command unable to fail —
     // measured, and the same "registered but not effective" shape OPS-67 exists to stop. Any
@@ -111,6 +119,7 @@ describe('OPS-67 the docs render gate is wired into CI', () => {
         'around it can swallow the failure and leave CI green on a broken docs render.'
     ).toBe(GATE_SCRIPT_BODY);
     expect(existsSync(CHECK_SCRIPT), 'scripts/check-docs-render.mjs is missing').toBe(true);
+    expect(existsSync(SYNC_SCRIPT), 'scripts/sync-package-docs.mjs is missing').toBe(true);
   });
 
   it('runs that script as a step of the unit-tests workflow', () => {

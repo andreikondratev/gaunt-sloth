@@ -71,8 +71,14 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for every command, argument, and flag.
 
 ## Workspace Packages
 
-This repository is an NPM workspace monorepo. Most users only need the `gaunt-sloth` app; the
+This repository is a pnpm workspace monorepo. Most users only need the `gaunt-sloth` app; the
 libraries are published for embedding.
+
+<!-- BEGIN GENERATED workspace-packages -->
+
+<!-- Written from packages/*/package.json by scripts/sync-package-docs.mjs. Do not edit between
+     the markers by hand: change a manifest, or that script, then run
+     node scripts/sync-package-docs.mjs --write -->
 
 | Package | Description |
 |---|---|
@@ -84,17 +90,25 @@ libraries are published for embedding.
 | `@gaunt-sloth/eval-reporter-junit` | JUnit XML (Ant-JUnit flavour) reporter for `gth eval` (`packages/eval-reporter-junit`). Ships with the CLI as the built-in `junit` reporter. |
 | `@gaunt-sloth/eval-reporter-teamcity` | Live TeamCity service-message reporter for `gth eval` (`packages/eval-reporter-teamcity`). Not bundled — install it and register it under [`reporters`](docs/configuration/output.md#custom-eval-reporters-reporters). |
 
-The two `eval-reporter-*` plugins are optional add-ons with their own release cadence, so they sit on
-a version line of their own; the other five are version-locked and released together.
+`@gaunt-sloth/eval-reporter-junit` and `@gaunt-sloth/eval-reporter-teamcity` are optional add-ons
+with their own release cadence, so they sit on a version line of their own. The other five —
+`@gaunt-sloth/core`, `@gaunt-sloth/agent`, `@gaunt-sloth/review`, `@gaunt-sloth/batch` and
+`gaunt-sloth` — are version-locked and released together.
 
-What each package declares as its in-workspace dependencies: `@gaunt-sloth/core` depends on none of
-them; `@gaunt-sloth/agent` and `@gaunt-sloth/review` depend on `@gaunt-sloth/core`;
-`@gaunt-sloth/batch` depends on `@gaunt-sloth/agent` and `@gaunt-sloth/core`; and the `gaunt-sloth`
-app depends on `@gaunt-sloth/core`, `@gaunt-sloth/agent`, `@gaunt-sloth/review`,
-`@gaunt-sloth/batch`, and `@gaunt-sloth/eval-reporter-junit`. Both `eval-reporter-*` packages take
-`@gaunt-sloth/batch` as a peer dependency rather than a runtime one, and nothing in the workspace
-depends on `@gaunt-sloth/eval-reporter-teamcity` — it is published for consumers to install
-themselves.
+What each package declares as its in-workspace dependencies:
+
+- `gaunt-sloth` depends on `@gaunt-sloth/agent`, `@gaunt-sloth/batch`, `@gaunt-sloth/core`,
+  `@gaunt-sloth/eval-reporter-junit` and `@gaunt-sloth/review`.
+- `@gaunt-sloth/agent` depends on `@gaunt-sloth/core`.
+- `@gaunt-sloth/review` depends on `@gaunt-sloth/core`.
+- `@gaunt-sloth/core` depends on nothing in the workspace at runtime.
+- `@gaunt-sloth/batch` depends on `@gaunt-sloth/agent` and `@gaunt-sloth/core`.
+- `@gaunt-sloth/eval-reporter-junit` depends on nothing in the workspace at runtime, and takes
+  `@gaunt-sloth/batch` as a peer dependency.
+- `@gaunt-sloth/eval-reporter-teamcity` depends on nothing in the workspace at runtime, and takes
+  `@gaunt-sloth/batch` as a peer dependency.
+
+<!-- END GENERATED workspace-packages -->
 
 ## Installation
 

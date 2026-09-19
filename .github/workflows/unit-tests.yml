@@ -50,8 +50,11 @@ jobs:
       run: pnpm test
 
     # OPS-67: renders the docs site and fails on the render's errors, on a broken anchor, and on a
-    # link that resolves to no page — see the `docs:check` note in package.json for the full list
-    # and its boundary. It must stay AFTER `Run Tests`, which builds: TypeDoc resolves the
+    # link that resolves to no page. OPS-70 put a second check in front of it in the same script:
+    # the package blocks generated into README.md and AGENTS.md must still agree with the package
+    # manifests, and the release scripts CONTRIBUTING.md points at must still cover every package.
+    # See the `docs:check` notes in package.json for the full list and its boundary. It must stay
+    # AFTER `Run Tests`, which builds: TypeDoc resolves the
     # cross-package imports through each package's `dist/*.d.ts`, so on an unbuilt tree the render
     # dies in TS2307 errors instead of checking anything (asserted by
     # packages/core/spec/docsRenderGateWired.spec.ts). It runs unconditionally rather

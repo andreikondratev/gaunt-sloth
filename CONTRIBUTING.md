@@ -130,14 +130,19 @@ pnpm run release:bump 0.0.7   # passing the current version re-syncs without bum
 pnpm run release:bump-and-commit
 
 pnpm run build
-pnpm run release:publish    # publishes core → agent → review → app to Verdaccio
+pnpm run release:publish    # publishes every package to Verdaccio, in publish-all.sh's order
 ```
 
-`release:bump` writes the new version into `packages/{core,agent,review}`,
-pins their internal `@gaunt-sloth/*` deps to that exact version (no caret —
-the lock-stepped set has no useful range semantics), and rewrites
-`packages/app`'s `@gaunt-sloth/*` pins to match. On the 2.x line the
-`gaunt-sloth` app is versioned in lock-step with the libraries.
+`release:publish` runs `publish-all.sh`, which publishes each package in the
+topological order its `ORDER` array declares. Read the order there rather than
+from a list here — a list here can disagree with it, and a package missing from
+`ORDER` never ships at all.
+
+`release:bump` writes the new version into every package `bump.mjs` declares
+version-locked and pins their internal `@gaunt-sloth/*` deps to that exact
+version (no caret — the lock-stepped set has no useful range semantics).
+`bump.mjs` is where that set is declared; the `@gaunt-sloth/eval-reporter-*`
+plugins are deliberately outside it and are bumped by hand.
 
 Then in any downstream repo, bump its `@gaunt-sloth/*` pins to the new version
 and run `pnpm install` — Verdaccio serves the local copy via the per-repo
