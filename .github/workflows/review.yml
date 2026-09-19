@@ -26,7 +26,16 @@ permissions: {}
 jobs:
   concierge:
     runs-on: ubuntu-latest
-    if: ${{ !startsWith(github.head_ref, 'dependabot') }}
+    # Dependabot pull requests are reviewed too, and on the external path: a bot has
+    # no meaningful author association, so it falls through the case below to
+    # internal=false. That is deliberate — the conservative branch is the right one
+    # for a machine-authored change. It matters most for actions: everything under
+    # .github/workflows is pinned by moving major tag, so the only update Dependabot
+    # can raise for one is a major bump, which is precisely the class of change CI
+    # itself depends on. There is therefore no head-ref exemption on this job. When a
+    # run raised by Dependabot cannot read the review's provider key, _review-shared.yml
+    # skips the review with a message rather than failing it; for every other author a
+    # missing key still fails the run. See OPS-134.
     outputs:
       internal: ${{ steps.classify.outputs.internal }}
     steps:

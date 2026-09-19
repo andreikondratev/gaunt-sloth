@@ -41,6 +41,39 @@ jobs:
           echo "Unauthorized external contributor reached the internal review path."
           exit 1
 
+      # OPS-134 — what a run with no readable provider key does, decided in one place.
+      # The `review` identity profile this workflow selects is google-genai, so
+      # GOOGLE_API_KEY is the key the review itself needs.
+      #
+      # Raised by Dependabot, the key can be unreadable for a structural reason —
+      # GitHub scopes Dependabot's secrets separately from the Actions ones — and
+      # nobody can act on that from the pull request. There the review skips with a
+      # message naming the remedy, because an unreviewed dependency pull request is a
+      # hole worth closing and a red one no author can fix is worse than either.
+      #
+      # For anyone else an absent key means the key is missing or revoked, which is
+      # exactly what a loud red is for: the review runs, fails, and "Check review step
+      # result" fails the run as it does today. The warning on that branch only makes
+      # the red legible, so it does not arrive as an opaque provider error.
+      #
+      # The author, not the branch name, is what separates the two: a branch prefix is
+      # something anyone can type.
+      - name: Decide whether the review can run
+        id: review_gate
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          if [ -n "$GOOGLE_API_KEY" ]; then
+            echo "run_review=true" >> "$GITHUB_OUTPUT"
+          elif [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
+            echo "run_review=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=AI review skipped::GOOGLE_API_KEY was not readable in this run, so the AI review was skipped rather than failed (OPS-134). This is a Dependabot pull request: add GOOGLE_API_KEY to the repository's Dependabot secrets scope (Settings, Secrets and variables, Dependabot); a secret held only in the Actions scope is not readable from a Dependabot-triggered run."
+          else
+            echo "run_review=true" >> "$GITHUB_OUTPUT"
+            echo "::warning title=AI review has no provider key::GOOGLE_API_KEY is not readable in this run, so the review below will fail and this run will be red (OPS-134). The key is missing or revoked in the repository's Actions secrets; this warning is here so that failure is legible rather than arriving as a provider error."
+          fi
+
       - uses: actions/checkout@v7
 
       - name: Use Node.js 24.x
@@ -68,6 +101,12 @@ jobs:
 
       - name: Perform code review
         id: review
+        # Runs unless the gate above stood it down, which happens only for a Dependabot
+        # run with no readable key (OPS-134). A skipped step leaves no review.md, so the
+        # comment step below skips on its own guard, and its outcome is 'skipped' rather
+        # than 'failure', so "Check review step result" does not fail the run. A review
+        # that RAN and failed still does, including on a keyless human pull request.
+        if: steps.review_gate.outputs.run_review == 'true'
         continue-on-error: true
         run: |
           if [ -z "${{ steps.extract_issue.outputs.issue_number }}" ]; then
