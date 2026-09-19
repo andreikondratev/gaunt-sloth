@@ -20,6 +20,7 @@ import type {
   Message,
   PendingToolInterrupt,
   ToolApprovalDecision,
+  ToolApprovalReply,
 } from '@gaunt-sloth/core/core/types.js';
 import type { PendingApproval, TuiAgent } from '#src/tui/types.js';
 import { App } from '#src/tui/components/App.js';
@@ -50,7 +51,7 @@ const baseProps = {
 };
 
 /**
- * The production approval bridge from `tuiSessionModule.createApprovalBridge`, replicated here so
+ * The production approval bridge from `tui/approvalBridges.createApprovalBridge`, replicated here so
  * the test owns the exact wiring it asserts (the module-private fn is not exported). Promise-based:
  * the runner's callback awaits until the App resolves a decision.
  *
@@ -66,8 +67,8 @@ function createApprovalBridge() {
     (outcome: ApprovalOutcome | null) => void
   >();
   return {
-    request: (pending: PendingToolInterrupt): Promise<ToolApprovalDecision> =>
-      new Promise<ToolApprovalDecision>((resolve) => {
+    request: (pending: PendingToolInterrupt): Promise<ToolApprovalReply> =>
+      new Promise<ToolApprovalReply>((resolve) => {
         let settled = false;
         let settleOutcome: (outcome: ApprovalOutcome | null) => void = () => {};
         const outcome = new Promise<ApprovalOutcome | null>((settleIt) => {

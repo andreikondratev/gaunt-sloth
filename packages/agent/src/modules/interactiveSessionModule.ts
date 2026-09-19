@@ -393,7 +393,7 @@ export async function createInteractiveSession(
     //   anything else → reject this one call (fail-closed, and it stays the fallthrough).
     // The runner consults the allow-list BEFORE calling this, so trusted commands never reach
     // this prompt at all. (The Ink TUI surfaces the same scoped prompt via an approval bridge —
-    // see tuiSessionModule's createApprovalBridge + the <ApprovalPrompt> component.)
+    // see `tui/approvalBridges.createApprovalBridge` + the <ApprovalPrompt> component.)
     // [[EXT-154]] — the interrupts whose answer asked for a PROJECT FILE, waiting to be told what
     // they got. Only `[a]` and `[d]` land here; every other answer records nothing and is confirmed
     // where it is chosen.

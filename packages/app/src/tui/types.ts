@@ -1,10 +1,10 @@
 import type {
   AgentStreamEvent,
   ApprovalOutcome,
-  AttackHaltAnswer,
+  AttackHaltReply,
   PendingAttackHalt,
   PendingToolInterrupt,
-  ToolApprovalDecision,
+  ToolApprovalReply,
   McpConnectionFailure,
 } from '@gaunt-sloth/core/core/types.js';
 import type { TurnViewModel } from '#src/tui/viewModel.js';
@@ -52,7 +52,12 @@ import type { MouseSubscribe } from '#src/tui/useMouse.js';
  */
 export interface PendingApproval {
   pending: PendingToolInterrupt;
-  resolve: (decision: ToolApprovalDecision) => Promise<ApprovalOutcome | null>;
+  /**
+   * [[EXT-110]] — a {@link @gaunt-sloth/core!core/types.ToolApprovalReply | ToolApprovalReply} rather than a decision, because the session's
+   * teardown resolves this too and it is not a person answering. The `<App>`'s own controls only
+   * ever produce a decision; the teardown arm is what the approval bridge's `abortPending` sends.
+   */
+  resolve: (reply: ToolApprovalReply) => Promise<ApprovalOutcome | null>;
 }
 
 /**
@@ -67,7 +72,11 @@ export interface PendingApproval {
  */
 export interface PendingAttackBanner {
   halt: PendingAttackHalt;
-  resolve: (answer: AttackHaltAnswer) => void;
+  /**
+   * [[EXT-110]] — an {@link @gaunt-sloth/core!core/types.AttackHaltReply | AttackHaltReply} for the reason {@link PendingApproval.resolve} takes
+   * one: the banner is also answered by teardown, and `stop` would claim a person typed it.
+   */
+  resolve: (reply: AttackHaltReply) => void;
 }
 
 /**

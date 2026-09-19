@@ -77,6 +77,11 @@
       "arity": 0
     },
     {
+      "name": "AttackHaltReply",
+      "file": "core/types.d.ts",
+      "arity": 0
+    },
+    {
       "name": "AutocompactController",
       "file": "core/compactionThreshold.d.ts",
       "arity": 0
@@ -747,6 +752,11 @@
       "arity": 0
     },
     {
+      "name": "ToolApprovalReply",
+      "file": "core/types.d.ts",
+      "arity": 0
+    },
+    {
       "name": "ToolApprovalScope",
       "file": "core/types.d.ts",
       "arity": 0
@@ -754,6 +764,11 @@
     {
       "name": "ToolApprovalSubject",
       "file": "core/approvals/matcher.d.ts",
+      "arity": 0
+    },
+    {
+      "name": "ToolApprovalTeardown",
+      "file": "core/types.d.ts",
       "arity": 0
     },
     {

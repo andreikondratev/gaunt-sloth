@@ -590,14 +590,50 @@ export type ToolApprovalDecision =
   | { type: 'reject'; message?: string; scope?: ToolRejectScope };
 
 /**
+ * [[EXT-110]] — **the session ended with the prompt still on screen, so nobody answered.**
+ *
+ * A surface that tears down an in-flight approval returns this instead of a
+ * {@link ToolApprovalDecision}. The gate treats it as a refusal — the tool does not run, which is
+ * the same fail-closed behaviour a teardown has always had — but the ARCHIVE no longer says a
+ * person refused, because no person did.
+ *
+ * **A separate arm rather than a flag on the reject arm**, and it carries no scope, so the one
+ * thing a teardown must never do is not expressible: a reject arm with a `scope` records a deny
+ * entry, and a session that ended while a prompt was up must not leave a standing refusal behind
+ * it. It is also why this is not simply `{ type: 'reject' }` with a message — a message is prose a
+ * reader may or may not see, and the misattribution this removes is in a structured field.
+ */
+export interface ToolApprovalTeardown {
+  type: 'teardown';
+  /** Why the prompt went away, for the transcript line the agent is handed. */
+  message?: string;
+}
+
+/**
+ * [[EXT-110]] — everything a surface may hand back from a {@link ToolApprovalCallback}: a person's
+ * {@link ToolApprovalDecision}, or {@link ToolApprovalTeardown} for a prompt nobody answered.
+ *
+ * The two are kept apart at the seam because the gate cannot tell them apart any other way. A
+ * teardown used to arrive as `{ type: 'reject', message: 'Session ended before approval.' }`, which
+ * is byte-for-byte a shape a human pressing *reject* also produces — so the record was written from
+ * control flow rather than from evidence that a person answered.
+ */
+export type ToolApprovalReply = ToolApprovalDecision | ToolApprovalTeardown;
+
+/**
  * Callback the {@link @gaunt-sloth/core!core/GthAgentRunner.GthAgentRunner | GthAgentRunner} invokes when a run suspends on a tool-approval
  * interrupt, once per pending tool call. Returns the human's decision. When no handler is
  * wired (e.g. a non-interactive run), the runner defaults to reject so a run can never
  * silently hang or auto-approve.
+ *
+ * [[EXT-110]] — a surface tearing the prompt down before anyone answered returns
+ * {@link ToolApprovalTeardown} rather than a decision. Returning a plain
+ * {@link ToolApprovalDecision} still type-checks and is unchanged: every surface that only ever
+ * hands back a person's answer needs no edit.
  */
 export type ToolApprovalCallback = (
   pending: PendingToolInterrupt
-) => Promise<ToolApprovalDecision> | ToolApprovalDecision;
+) => Promise<ToolApprovalReply> | ToolApprovalReply;
 
 /**
  * [[EXT-150]] — **the lifetime an answer at the approval prompt actually GOT.**
@@ -677,6 +713,19 @@ export interface PendingAttackHalt {
 export type AttackHaltAnswer = 'run-anyway' | 'stop';
 
 /**
+ * [[EXT-110]] — everything a surface may hand back from an {@link AttackHaltCallback}: a person's
+ * {@link AttackHaltAnswer}, or `teardown` for a banner that was still on screen when the session
+ * ended.
+ *
+ * **The polarity above is untouched and this value is on the safe side of it.** `run-anyway`
+ * remains the only value that runs anything, so a teardown stops the run exactly as it always did;
+ * what changes is only what the archive says about who stopped it. Kept as a separate type from
+ * {@link AttackHaltAnswer} so that name goes on meaning *what a person typed* — a union that
+ * quietly included a non-answer would be the same conflation this removes.
+ */
+export type AttackHaltReply = AttackHaltAnswer | 'teardown';
+
+/**
  * §6.1 — callback the {@link @gaunt-sloth/core!core/GthAgentRunner.GthAgentRunner | GthAgentRunner} invokes when the rater rates a command an `attack`, so
  * an interactive surface can show the red banner and let a human type their way past it.
  *
@@ -688,7 +737,7 @@ export type AttackHaltAnswer = 'run-anyway' | 'stop';
  */
 export type AttackHaltCallback = (
   halt: PendingAttackHalt
-) => Promise<AttackHaltAnswer> | AttackHaltAnswer;
+) => Promise<AttackHaltReply> | AttackHaltReply;
 
 /**
  * GS2-95 — options for {@link GthAgentInterface#init} that name the run without changing how it

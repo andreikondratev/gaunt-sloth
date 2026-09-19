@@ -113,6 +113,8 @@ import {
   type ApprovalDecisionCapture,
   ApprovalCaptureLog,
   type ApprovalDecidingStage,
+  NO_SURFACE_TO_ASK,
+  recordHumanAnswer,
 } from '#src/core/shell/approvalCapture.js';
 import { buildHardlineRefusal, checkHardline } from '#src/core/shell/hardline.js';
 import {
@@ -673,11 +675,15 @@ export class GthAgentRunner {
       // show `approve` at the `rater` stage with nobody named — i.e. the rater appearing to have
       // approved a command it called an attack. That is precisely the misattribution this node
       // exists to remove, on the branch where it costs the most.
-      record.humanAnswer = answer === 'run-anyway' ? 'approve' : 'reject';
+      //
+      // [[EXT-110]] — and the banner's own reply is what says so, rather than this branch
+      // assuming a reply it did not read: a session torn down with the banner still up sends
+      // `teardown`, which is not a person stopping the run.
+      recordHumanAnswer(record, answer);
       if (answer === 'run-anyway') return { type: 'approve', scope: 'once' };
     } else {
       // §6.2 — no surface wired the banner, so nobody was asked and the run ends.
-      record.humanAnswer = 'no-human';
+      recordHumanAnswer(record, NO_SURFACE_TO_ASK);
     }
     throw new AttackHaltError(command, reason, subject);
   }
@@ -1885,7 +1891,7 @@ export class GthAgentRunner {
       } else if (error instanceof NonInteractiveEscalationError) {
         // §6.2 — there was nobody to ask, so the escalation ended the run instead of reaching one.
         record.action = 'escalate';
-        record.humanAnswer = 'no-human';
+        recordHumanAnswer(record, NO_SURFACE_TO_ASK);
       } else {
         record.action = 'error';
       }
@@ -2690,12 +2696,28 @@ export class GthAgentRunner {
       ...(denySummary ? { denySummary } : {}),
       ...(negotiationRounds.length > 0 ? { negotiationRounds, negotiationAttempts } : {}),
     };
-    const decision = await this.toolApprovalCallback(pending);
+    const reply = await this.toolApprovalCallback(pending);
     // [[TUI-C27]] — a person was reached and answered. The STAGE stays whatever decided to ask
     // them (a rating, an escalate entry, an unrated rung): "who decided to interrupt" and "what
     // they said" are two different questions, and collapsing them into one field is what makes a
     // dump unable to tell a rater escalation from a declared one.
-    record.humanAnswer = decision.type === 'approve' ? 'approve' : 'reject';
+    //
+    // [[EXT-110]] — written from the surface's REPLY, which is the only thing here that knows
+    // whether a person answered at all.
+    recordHumanAnswer(record, reply);
+
+    // [[EXT-110]] — the prompt went away without an answer, so the call is refused and NOTHING
+    // else happens. Three things are deliberately skipped, and each would be a smaller copy of
+    // the same misattribution: no sticky grant and no deny entry, because a session that ended
+    // must not leave a standing rule behind it (the teardown reply carries no scope, so neither
+    // is even expressible); and no {@link ApprovalOutcome} report, because that callback is
+    // documented as firing once per HUMAN-ANSWERED approval and there was no human here. The
+    // surface is gone in any case — the bridge settles its outcome promise with `null` on the way
+    // out — so there is nobody left to tell.
+    if (reply.type === 'teardown') {
+      return { type: 'reject', ...(reply.message ? { message: reply.message } : {}) };
+    }
+    const decision: ToolApprovalDecision = reply;
 
     // [[EXT-150]] — **what the answer landed as**, which is not what the answer asked for. It starts
     // at `once` and only a record that was actually made moves it, so the three paths that store

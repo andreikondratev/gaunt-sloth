@@ -116,10 +116,18 @@ describe('[[TUI-C27]] — the approvals gate records what it was shown, and reco
      * assumed.
      */
     approvals?: Record<string, unknown>;
-    /** What the human answers at an escalation. Absent → nobody to ask (§6.2). */
-    human?: 'approve' | 'reject';
-    /** [[TUI-C68]] §6.1 — what the human answers at the attack banner. Absent → no banner wired. */
-    attackBanner?: 'run-anyway' | 'stop';
+    /**
+     * What the human answers at an escalation. Absent → nobody to ask (§6.2).
+     *
+     * [[EXT-110]] — `teardown` is the one value here that is NOT a human answering: it is what a
+     * surface returns when the session ended with the prompt still on screen.
+     */
+    human?: 'approve' | 'reject' | 'teardown';
+    /**
+     * [[TUI-C68]] §6.1 — what the human answers at the attack banner. Absent → no banner wired.
+     * [[EXT-110]] — and `teardown` for a banner still up when the session went away.
+     */
+    attackBanner?: 'run-anyway' | 'stop' | 'teardown';
     userMessages?: string[];
     config?: Record<string, unknown>;
   }): Promise<{ archiveDir: string; records: ApprovalDecisionCapture[] }> {
@@ -157,9 +165,16 @@ describe('[[TUI-C27]] — the approvals gate records what it was shown, and reco
     await runner.init('code', config);
     if (options.human) {
       const answer = options.human;
-      runner.setToolApprovalCallback(() =>
-        answer === 'approve' ? { type: 'approve', scope: 'once' } : { type: 'reject' }
-      );
+      runner.setToolApprovalCallback(() => {
+        if (answer === 'approve') return { type: 'approve', scope: 'once' };
+        // [[EXT-110]] — what both TUI bridges' `abortPending` now hand back. The message is the
+        // one the approval bridge sends, so the fixture cannot pass against an implementation
+        // that keys off the prose instead of the arm.
+        if (answer === 'teardown') {
+          return { type: 'teardown', message: 'Session ended before approval.' };
+        }
+        return { type: 'reject' };
+      });
     }
     if (options.attackBanner) {
       const answer = options.attackBanner;
@@ -498,6 +513,60 @@ describe('[[TUI-C27]] — the approvals gate records what it was shown, and reco
     });
     expect(noBanner.records[0].action).toBe('halt');
     expect(noBanner.records[0].humanAnswer).toBe('no-human');
+  });
+
+  /**
+   * [[EXT-110]] — **the mirror of the case above, on both seams: the human is NAMED when there was
+   * no human.**
+   *
+   * A session that ends with a prompt still on screen — the terminal is closed, the process is
+   * killed, a teardown races the prompt — used to be archived as a person having looked at that
+   * command and refused it. That is the strongest statement this archive makes, the one branch
+   * where the machine deferred and somebody took responsibility, and it was being made about
+   * nobody: an incident review reading the dump concludes a person made a call they never made.
+   *
+   * **The third case is not decoration.** Every assertion above it is satisfied by an
+   * implementation that simply stops recording humans, which would be a worse archive than the
+   * broken one — so a genuine refusal is asserted in the same test, at the same seam, with the same
+   * fixture differing only in the reply. `teardown` and `reject` are kept as separate values
+   * because the difference between them is the entire finding.
+   */
+  it('archives a torn-down prompt as a teardown on both seams, and a real refusal still as a refusal', async () => {
+    // (a) The approval prompt. An escalate entry sends it to a person, so `script: []` also
+    // asserts that nothing was rated — the scripted rater throws if it is consulted.
+    const tornDownPrompt = await driveAndDump({
+      calls: [{ command: 'rm -rf ./dist' }],
+      script: [],
+      approvals: { escalate: [{ type: 'shell', matcher: 'exact', pattern: 'rm -rf ./dist' }] },
+      human: 'teardown',
+    });
+    // The call is still refused — fail-closed is unchanged, and that is what `action` records.
+    expect(tornDownPrompt.records[0].action).toBe('reject');
+    expect(tornDownPrompt.records[0].humanAnswer).toBe('teardown');
+    // Nothing is remembered from a prompt nobody answered: a session that ended must not leave a
+    // standing refusal behind it for the next one to inherit.
+    expect(tornDownPrompt.records[0].scope).toBeUndefined();
+
+    // (b) The attack banner. `run-anyway` remains the only value that runs anything, so a teardown
+    // still halts the run — only the attribution changes.
+    const tornDownBanner = await driveAndDump({
+      calls: [{ command: 'rm -rf ./dist' }],
+      script: ['attack'],
+      attackBanner: 'teardown',
+    });
+    expect(tornDownBanner.records[0].action).toBe('halt');
+    expect(tornDownBanner.records[0].humanAnswer).toBe('teardown');
+
+    // (c) The negative half: a person who really did refuse is still recorded as having refused,
+    // through the identical fixture. Without this, "stop recording humans at all" passes.
+    const refused = await driveAndDump({
+      calls: [{ command: 'rm -rf ./dist' }],
+      script: [],
+      approvals: { escalate: [{ type: 'shell', matcher: 'exact', pattern: 'rm -rf ./dist' }] },
+      human: 'reject',
+    });
+    expect(refused.records[0].action).toBe('reject');
+    expect(refused.records[0].humanAnswer).toBe('reject');
   });
 
   /**

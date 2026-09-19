@@ -45,7 +45,7 @@
  * @module
  */
 import type { ApprovalRung } from '#src/config.js';
-import type { ToolApprovalScope } from '#src/core/types.js';
+import type { AttackHaltReply, ToolApprovalReply, ToolApprovalScope } from '#src/core/types.js';
 import type { AbstentionDefect } from '#src/core/shell/abstention.js';
 import type { AlignmentCallCapture } from '#src/core/shell/alignment.js';
 import type { NegotiationCounters } from '#src/core/shell/negotiation.js';
@@ -104,8 +104,18 @@ export type ApprovalDecidingStage =
  */
 export type ApprovalCaptureAction = 'approve' | 'reject' | 'escalate' | 'halt' | 'error';
 
-/** How an escalation ended once it reached (or failed to reach) a person. */
-export type ApprovalHumanAnswer = 'approve' | 'reject' | 'no-human';
+/**
+ * How an escalation ended once it reached (or failed to reach) a person.
+ *
+ * `no-human` and `teardown` are both non-answers and they are still two values, because they are
+ * two different facts and a dump reader acts on them differently. `no-human` is [[EXT-29]] §6.2:
+ * the surface never put the question to anybody, because no callback was wired — a CI run, a
+ * server, a one-shot. `teardown` ([[EXT-110]]) is the opposite situation: the question WAS put to
+ * a person, it was on their screen, and the session ended before they answered it. Collapsing them
+ * would tell an incident review that a prompt nobody ever saw and a prompt someone was looking at
+ * are the same event.
+ */
+export type ApprovalHumanAnswer = 'approve' | 'reject' | 'no-human' | 'teardown';
 
 /**
  * One rating call: what the rater was SHOWN and what it ANSWERED, captured at the send site.
@@ -232,8 +242,18 @@ export interface ApprovalDecisionCapture {
   action?: ApprovalCaptureAction;
   /** The scope an approval was granted at, when one was. */
   scope?: ToolApprovalScope;
-  /** Whether a person was actually asked, and what they said. */
-  humanAnswer?: ApprovalHumanAnswer;
+  /**
+   * Whether a person was actually asked, and what they said.
+   *
+   * **`readonly` — and it is the only field here that is.** [[EXT-110]]: every other field on this
+   * record describes what the GATE did, and the gate is the thing filling the record in. This one
+   * describes what a PERSON did, and the gate is not a witness to that. Twice now it has been
+   * written from control flow instead — a human's *run anyway* recorded as a rater approval
+   * ([[TUI-C68]]), and a torn-down prompt recorded as a human refusal — so the modifier exists to
+   * make a third instance a compile error rather than something a peer review has to notice.
+   * {@link recordHumanAnswer} is the one writer, and it takes the surface's own reply.
+   */
+  readonly humanAnswer?: ApprovalHumanAnswer;
   /** §8's floor, when it matched. */
   hardline?: HardlineFloorCapture;
   /** The declared entry or runtime grant that decided the call, when one did. */
@@ -266,6 +286,70 @@ export interface ApprovalDecisionCapture {
   alignment?: AlignmentCallCapture;
   /** The error that ended the decision, when one did. */
   error?: string;
+}
+
+/**
+ * [[EXT-29]] §6.2 — there was no surface to put the question to, so the gate answered it itself.
+ * A named constant rather than `null` so the call site says which of the two non-answers it means.
+ */
+export const NO_SURFACE_TO_ASK = 'no-surface-to-ask';
+
+/**
+ * [[EXT-110]] — **the evidence that a person did or did not answer.** The only argument
+ * {@link recordHumanAnswer} takes, and the reason it is a union of the two SEAMS' reply types
+ * rather than an {@link ApprovalHumanAnswer}: a caller holding this has, by construction, the thing
+ * a surface handed back, and nothing else can be passed in its place.
+ *
+ * - a {@link ToolApprovalReply} — what the approval prompt's callback returned;
+ * - an {@link AttackHaltReply} — what the attack banner's callback returned;
+ * - {@link NO_SURFACE_TO_ASK} — §6.2: no callback was wired, so the question reached nobody.
+ */
+export type HumanAnswerEvidence = ToolApprovalReply | AttackHaltReply | typeof NO_SURFACE_TO_ASK;
+
+/**
+ * [[EXT-110]] — **the one writer of {@link ApprovalDecisionCapture.humanAnswer}, anywhere.**
+ *
+ * ## Why this function exists at all
+ *
+ * The audit this node ordered found **four** write sites, all of them in `GthAgentRunner` and all
+ * of the form `record.humanAnswer = <a literal the surrounding control flow picked>`. Two of the
+ * four were wrong, and they were wrong in opposite directions — a human's *run anyway* recorded as
+ * a rater approval ([[TUI-C68]]), and a prompt torn down with nobody at the keyboard recorded as a
+ * human refusal ([[EXT-110]]). Two instances of one shape in one facility is a pattern, so the
+ * fix is not four corrected literals: four sites in one class can be funnelled through one helper
+ * without restructuring the record, so they are, and the field is `readonly` so that a fifth site
+ * cannot be written any other way.
+ *
+ * ## Why the argument is the surface's reply
+ *
+ * "A person answered" is not something the gate can observe; it can only be told. So the parameter
+ * is the value the surface handed back — the whole of it, mapped here — and there is no overload
+ * that takes an {@link ApprovalHumanAnswer} directly. A caller that wants to record *reject* has
+ * to be holding a reply that says reject.
+ */
+export function recordHumanAnswer(
+  record: ApprovalDecisionCapture,
+  evidence: HumanAnswerEvidence
+): void {
+  // The single cast in the module that owns the type — the field is `readonly` to everyone else,
+  // including the rest of core, which is the whole of its value.
+  (record as { humanAnswer?: ApprovalHumanAnswer }).humanAnswer = humanAnswerFor(evidence);
+}
+
+/** The mapping {@link recordHumanAnswer} applies, split out so it is readable as a table. */
+function humanAnswerFor(evidence: HumanAnswerEvidence): ApprovalHumanAnswer {
+  if (typeof evidence === 'string') {
+    // The attack banner's seam, plus §6.2's "nobody was wired". `run-anyway` is the one answer
+    // that runs the command, and `stop` is a person refusing; both are a person.
+    if (evidence === 'run-anyway') return 'approve';
+    if (evidence === 'stop') return 'reject';
+    if (evidence === 'teardown') return 'teardown';
+    return 'no-human';
+  }
+  // The approval prompt's seam.
+  if (evidence.type === 'approve') return 'approve';
+  if (evidence.type === 'reject') return 'reject';
+  return 'teardown';
 }
 
 /**

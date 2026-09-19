@@ -270,11 +270,19 @@ const ACTION_LABELS: Record<ApprovalCaptureAction, string> = {
   error: 'the decision itself errored',
 };
 
-/** How an escalation ended once it reached (or failed to reach) a person. */
+/**
+ * How an escalation ended once it reached (or failed to reach) a person.
+ *
+ * [[EXT-110]] — the two non-answers read differently on purpose. `no-human` is a question that was
+ * never put to anybody, because the surface wired no way to ask; `teardown` is one that was on a
+ * person's screen when the session went away. Both mean the command did not run, and a reader
+ * chasing an incident needs to know which of the two happened.
+ */
 const HUMAN_ANSWER_LABELS: Record<ApprovalHumanAnswer, string> = {
   approve: 'yes, and they approved',
   reject: 'yes, and they refused',
   'no-human': 'no — nobody was at the keyboard',
+  teardown: 'asked, but the session ended before anyone answered',
 };
 
 /**

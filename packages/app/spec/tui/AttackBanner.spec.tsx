@@ -7,7 +7,7 @@ import {
 } from '@gaunt-sloth/core/core/shell/escalationSeverity.js';
 import type {
   AgentStreamEvent,
-  AttackHaltAnswer,
+  AttackHaltReply,
   PendingAttackHalt,
 } from '@gaunt-sloth/core/core/types.js';
 import type { PendingAttackBanner, TuiAgent } from '#src/tui/types.js';
@@ -40,12 +40,12 @@ const idleAgent: TuiAgent = {
   },
 };
 
-/** The production bridge shape from `tuiSessionModule.createAttackHaltBridge`. */
+/** The production bridge shape from `tui/approvalBridges.createAttackHaltBridge`. */
 function createAttackHaltBridge() {
   const listeners = new Set<(record: PendingAttackBanner) => void>();
   return {
-    request: (halt: PendingAttackHalt): Promise<AttackHaltAnswer> =>
-      new Promise<AttackHaltAnswer>((resolve) => {
+    request: (halt: PendingAttackHalt): Promise<AttackHaltReply> =>
+      new Promise<AttackHaltReply>((resolve) => {
         let settled = false;
         const record: PendingAttackBanner = {
           halt,
@@ -120,7 +120,7 @@ describe('[[TUI-C68]] §6.1 the attack banner in <App>', () => {
       />
     );
     teardown.push(unmount);
-    let answer: AttackHaltAnswer | undefined;
+    let answer: AttackHaltReply | undefined;
     const pending = bridge.request(HALT).then((a) => {
       answer = a;
       return a;
