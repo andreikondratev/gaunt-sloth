@@ -14,7 +14,7 @@
   `--host ::` serves both families but is a network interface as well.** The banner now names the
   address actually bound, and the server says on startup either that only this machine can reach it
   or that anything routing to the address it names can, and that the endpoint has no
-  authentication. See [api ag-ui](../docs/COMMANDS.md#api-ag-ui).
+  authentication. See [api ag-ui](https://github.com/pukeko-robotics/gaunt-sloth/blob/v2.0.0-beta.7/docs/COMMANDS.md#api-ag-ui).
 
 ## New Features
 
@@ -23,7 +23,7 @@
   config. It takes one origin, not a list. The port and the origin are one decision: a launcher that
   moves the web client knows the origin it now serves from and cannot rewrite the config file that
   pins the old one, so without the flag the relocated client has every request refused by a preflight
-  naming an origin it no longer has. See [api ag-ui](../docs/COMMANDS.md#api-ag-ui).
+  naming an origin it no longer has. See [api ag-ui](https://github.com/pukeko-robotics/gaunt-sloth/blob/v2.0.0-beta.7/docs/COMMANDS.md#api-ag-ui).
 
 ## Bug Fixes
 

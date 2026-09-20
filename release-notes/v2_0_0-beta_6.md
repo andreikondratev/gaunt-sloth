@@ -6,7 +6,7 @@
   session can later be picked up where it left off. Nothing leaves the machine and there is no
   telemetry; the file is a plain SQLite database you can inspect or delete. Set
   `history.enabled: false` in your config to turn it all off, or `history.dbPath` to move the file.
-  See [Migrating to 2.0 → section L](../docs/MIGRATION.md).
+  See [Migrating to 2.0 → section L](https://github.com/pukeko-robotics/gaunt-sloth/blob/v2.0.0-beta.6/docs/MIGRATION.md).
 - A recorded `chat` / `code` conversation can be picked up where it left off: `gth chat --resume
   <id>`, `gth code --resume <id>` (or bare `gth --resume <id>`), `gth history resume <id>` — which
   chooses the mode the conversation was recorded under — and `/resume <id>` inside a running
@@ -17,7 +17,7 @@
   (nothing in the project allow-list or deny-list is affected). A resume is refused with a reason
   when history is off, the conversation is unknown, it has no state to re-enter, or it was recorded
   in a different directory. `/status` now names the conversation id. See
-  [Resuming a conversation](../docs/COMMANDS.md#resuming-a-conversation).
+  [Resuming a conversation](https://github.com/pukeko-robotics/gaunt-sloth/blob/v2.0.0-beta.6/docs/COMMANDS.md#resuming-a-conversation).
 - The conversation store now has a retention policy, and its size is visible. `gth history list`
   prints how much the store holds and `gth insights` breaks it down by thread. State that no
   conversation can reach — what `/clear` leaves behind, a session that ended before recording
@@ -26,24 +26,24 @@
   `--older-than <days>` or `--keep-last <n>`, prints what it will remove, and removes nothing until
   you add `--yes`. Pruning takes whole conversations and keeps their transcripts, so
   `gth history show <id>` goes on working and only the resume stops. See
-  [What the store keeps, and what reclaims it](../docs/COMMANDS.md#what-the-store-keeps-and-what-reclaims-it).
+  [What the store keeps, and what reclaims it](https://github.com/pukeko-robotics/gaunt-sloth/blob/v2.0.0-beta.6/docs/COMMANDS.md#what-the-store-keeps-and-what-reclaims-it).
 - `/compact [focus]` in interactive `chat` / `code` sessions folds the older conversation into a
   summary and keeps the last few messages word for word, so a session that has grown too long can
   keep going without starting over. The summary is written into the conversation's saved state, so
   a resumed session stays compacted; the transcript on screen is left as it is. Free text after the
   command says what the summary should concentrate on. See
-  [Interactive sessions → Slash commands](../docs/guides/interactive-sessions.md#slash-commands).
+  [Interactive sessions → Slash commands](https://github.com/pukeko-robotics/gaunt-sloth/blob/v2.0.0-beta.6/docs/guides/interactive-sessions.md#slash-commands).
 - A conversation that outgrows the model's context window no longer ends the turn. When a provider
   rejects a turn for size, the session compacts and sends it again, once; a second overflow ends the
   turn and says why. That retry is on the plain readline surface (`--no-tui`) for now — the TUI and
   the editor integrations still report the overflow and stop. On Ollama a check runs *before* the
   request on **every** surface, because Ollama does not reject an oversized conversation — it
   silently drops the oldest messages and answers from the rest. See
-  [Interactive sessions → When the session compacts without being asked](../docs/guides/interactive-sessions.md#when-the-session-compacts-without-being-asked).
+  [Interactive sessions → When the session compacts without being asked](https://github.com/pukeko-robotics/gaunt-sloth/blob/v2.0.0-beta.6/docs/guides/interactive-sessions.md#when-the-session-compacts-without-being-asked).
 - The standalone `gaunt-sloth-api` server reads the `--port` and `--config` flags it accepts; both
   were taken and dropped, so the server bound `commands.api.port` whatever port was asked for, and a
   `--config` naming a file that is not there ran the configuration discovered from the working
   directory instead. The port now comes from `--port`, else `commands.api.port`, else 3000, and an
   unreadable `--config` path ends the run with an error naming it. `gaunt-sloth-api --help` prints
   the flags, and one the server does not recognise is refused rather than ignored. See
-  [api ag-ui](../docs/COMMANDS.md#api-ag-ui).
+  [api ag-ui](https://github.com/pukeko-robotics/gaunt-sloth/blob/v2.0.0-beta.6/docs/COMMANDS.md#api-ag-ui).

@@ -5,7 +5,7 @@ The first beta of the 2.0 line, and the first 2.0 release aimed at people outsid
 no back-compat coercion, shell execution moves onto a five-rung approvals ladder, and the
 interactive session gains a full-screen terminal interface.
 
-Read [docs/MIGRATION.md](../docs/MIGRATION.md) before upgrading a 1.x config. `gth config validate`
+Read [docs/MIGRATION.md](https://github.com/pukeko-robotics/gaunt-sloth/blob/v2.0.0-beta.0/docs/MIGRATION.md) before upgrading a 1.x config. `gth config validate`
 checks a migrated config against the 2.0 schema without building an LLM or running anything.
 
 ## Before You Upgrade
@@ -104,7 +104,7 @@ the scoped packages; the `gaunt-sloth` app package no longer exports modules.
 ## Breaking Changes
 
 Every deprecated config shape is now a hard error — 2.0 has no back-compat coercion, and each
-message names its replacement. [docs/MIGRATION.md](../docs/MIGRATION.md) carries the full before/after
+message names its replacement. [docs/MIGRATION.md](https://github.com/pukeko-robotics/gaunt-sloth/blob/v2.0.0-beta.0/docs/MIGRATION.md) carries the full before/after
 for each.
 
 1. **Package renamed.** `gaunt-sloth-assistant` → `gaunt-sloth`. Remove the old global install

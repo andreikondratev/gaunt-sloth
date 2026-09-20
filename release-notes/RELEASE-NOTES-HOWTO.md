@@ -36,6 +36,23 @@ and nothing under it.
   channel and is worth one bullet on the release that introduces it. Installing the CLI globally is
   unaffected, since that writes no manifest.
 
+- **Every link in a notes file is a full `https://` URL, pinned to that release's own tag.** A
+  relative link is dead on the Release page. GitHub builds a Release body's link as
+  `/<owner>/<repo>/blob/` + the link, and a valid blob URL is `/<owner>/<repo>/blob/<ref>/<path>`,
+  so the link's **first segment is read as the ref**: `../docs/COMMANDS.md` and `docs/COMMANDS.md`
+  alike become `blob/docs/COMMANDS.md`, which names a branch called `docs` and returns 404.
+  **Dropping the `..` does not fix it** — only an absolute URL does. Write
+  `https://github.com/pukeko-robotics/gaunt-sloth/blob/v2.0.0-beta.6/docs/COMMANDS.md#api-ag-ui`.
+  The tag is the one this release will create, so **the link returns 404 until the release is cut**
+  and resolves from then on; that is expected and is not a reason to repoint it at `main`. A Release
+  page is a permanent record of one version and a tag is immutable, so a tag-pinned link stays
+  correct where a `main` link decays the day a document is renamed. The failure is silent in the
+  worst direction — the link renders, is clickable, and looks right in the source and in every
+  editor preview — so `validate-inputs` warns about one before anything is published, naming the
+  file, the link and the URL it should have been. Like the missing-notes warning it never blocks.
+  This binds the `v<version>.md` files, which become Release bodies; a link in this howto is an
+  ordinary repository link and is relative as usual.
+
 ## Style
 
 Dry and factual, not excited or marketing-oriented. `v2_0_0-beta_3.md` is the shape to follow.

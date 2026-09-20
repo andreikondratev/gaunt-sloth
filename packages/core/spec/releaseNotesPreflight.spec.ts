@@ -253,6 +253,216 @@ describe('scripts/release-notes-preflight.mjs', () => {
     });
   });
 
+  /**
+   * OPS-147 — the second finding: a link that renders fine everywhere except the one place it is
+   * read. GitHub builds a Release body's link as `/<owner>/<repo>/blob/` + the link, and a valid
+   * blob URL is `/<owner>/<repo>/blob/<ref>/<path>`, so the link's FIRST SEGMENT is eaten by the
+   * ref position. `../docs/X.md` and `docs/X.md` both become `blob/docs/X.md` — a branch named
+   * `docs`, which does not exist.
+   *
+   * The no-`..` case is the one that carries these tests. A check written as a deny-list on `..`
+   * passes every assertion about the `..` form and silently blesses the identical-looking form
+   * beside it, so the pair is asserted together and neither is meaningful alone.
+   *
+   * The repository URL is PINNED through the options bag in every assertion about a suggested URL,
+   * never taken from this repo's own manifest: an assertion built from the value under test would
+   * pass whatever that value became, including after an organisation rename.
+   */
+  describe('the link check', () => {
+    const REPO = 'https://github.com/acme/widget';
+
+    describe('which targets are flagged', () => {
+      it('flags a relative link that starts with ..', async () => {
+        const { relativeLinksIn } = await import(HELPER);
+        expect(relativeLinksIn('See [Migration](../docs/MIGRATION.md).')).toEqual([
+          { line: 1, target: '../docs/MIGRATION.md' },
+        ]);
+      });
+
+      it('ALSO flags a relative link with no .. at all — it is identically broken', async () => {
+        const { relativeLinksIn } = await import(HELPER);
+        // The whole point. `docs/COMMANDS.md` renders as `blob/docs/COMMANDS.md`, exactly as the
+        // `..` form does. A rule keyed on `..` would let this through.
+        expect(relativeLinksIn('See [Commands](docs/COMMANDS.md#api-ag-ui).')).toEqual([
+          { line: 1, target: 'docs/COMMANDS.md#api-ag-ui' },
+        ]);
+        expect(relativeLinksIn('See [Commands](./docs/COMMANDS.md).')).toEqual([
+          { line: 1, target: './docs/COMMANDS.md' },
+        ]);
+      });
+
+      it('leaves absolute targets and a bare fragment alone', async () => {
+        const { relativeLinksIn } = await import(HELPER);
+        const text = [
+          '[a](https://github.com/acme/widget/blob/v1.0.0/docs/X.md)',
+          '[b](http://example.com/x)',
+          '[c](mailto:someone@example.com)',
+          '[d](//example.com/x)',
+          '[e](#a-heading-in-this-body)',
+        ].join('\n');
+        expect(relativeLinksIn(text)).toEqual([]);
+      });
+
+      it('does not flag a link written out as an example inside a fence', async () => {
+        const { relativeLinksIn } = await import(HELPER);
+        const text = [
+          '# v9.9.9',
+          '',
+          '```markdown',
+          'Write it like [this](../docs/X.md) — an example, not a link.',
+          '```',
+          '',
+          'But [this one](../docs/Y.md) is real.',
+        ].join('\n');
+        expect(relativeLinksIn(text)).toEqual([{ line: 7, target: '../docs/Y.md' }]);
+      });
+
+      it('reports the line number in the file, so the warning is actionable', async () => {
+        const { relativeLinksIn } = await import(HELPER);
+        const text = ['# v9.9.9', '', 'nothing here', '', 'See [M](../docs/M.md).'].join('\n');
+        expect(relativeLinksIn(text)).toEqual([{ line: 5, target: '../docs/M.md' }]);
+      });
+    });
+
+    describe('the absolute form it suggests', () => {
+      it('resolves the target against release-notes/ and pins the release tag', async () => {
+        const { absoluteFormFor } = await import(HELPER);
+        expect(absoluteFormFor('../docs/MIGRATION.md', '2.0.0-beta.6', REPO)).toBe(
+          `${REPO}/blob/v2.0.0-beta.6/docs/MIGRATION.md`
+        );
+      });
+
+      it('keeps the fragment, which is usually the whole point of the link', async () => {
+        const { absoluteFormFor } = await import(HELPER);
+        expect(absoluteFormFor('../docs/COMMANDS.md#api-ag-ui', '2.0.0-beta.7', REPO)).toBe(
+          `${REPO}/blob/v2.0.0-beta.7/docs/COMMANDS.md#api-ag-ui`
+        );
+      });
+
+      it('suggests nothing when there is no repository URL, rather than a broken one', async () => {
+        const { absoluteFormFor } = await import(HELPER);
+        expect(absoluteFormFor('../docs/X.md', '1.0.0', undefined)).toBeUndefined();
+      });
+
+      it('suggests nothing for a target that climbs out of the repository', async () => {
+        const { absoluteFormFor } = await import(HELPER);
+        expect(absoluteFormFor('../../elsewhere/X.md', '1.0.0', REPO)).toBeUndefined();
+      });
+    });
+
+    describe('what it reports', () => {
+      const WITH_BAD_LINKS =
+        '# v9.9.9\n\n- See [Migration](../docs/MIGRATION.md).\n- See [Commands](docs/COMMANDS.md).\n';
+
+      it('warns, naming the file, every offending link and the form it should have had', async () => {
+        const { releaseNotesPreflight, LINK_WARNING_TITLE } = await import(HELPER);
+        const dir = tempDir({ 'v9_9_9.md': WITH_BAD_LINKS });
+        const result = releaseNotesPreflight('9.9.9', dir, { repoUrl: REPO });
+
+        expect(result.relativeLinks).toEqual([
+          { line: 3, target: '../docs/MIGRATION.md' },
+          { line: 4, target: 'docs/COMMANDS.md' },
+        ]);
+        expect(result.linkAnnotation.startsWith(`::warning title=${LINK_WARNING_TITLE}::`)).toBe(
+          true
+        );
+        // The file NAME, which is separator-free and so holds on win32 too.
+        expect(result.linkAnnotation).toContain('v9_9_9.md');
+        expect(result.linkAnnotation).toContain('../docs/MIGRATION.md');
+        expect(result.linkAnnotation).toContain('docs/COMMANDS.md');
+        // The remedy, not just the complaint. Built with forward slashes on every platform.
+        expect(result.linkAnnotation).toContain(`${REPO}/blob/v9.9.9/docs/MIGRATION.md`);
+        // A workflow command is terminated by a newline.
+        expect(result.linkAnnotation).not.toContain('\n');
+        // It must say it is not a blocker, for the same reason the missing-notes warning does.
+        expect(result.linkAnnotation).toContain('does NOT block');
+        expect(result.linkSummary).toContain('v9_9_9.md');
+        expect(result.linkSummary).toContain(`${REPO}/blob/v9.9.9/docs/MIGRATION.md`);
+      });
+
+      it('does not disturb the OPS-123 control on the same path', async () => {
+        const { releaseNotesPreflight } = await import(HELPER);
+        const dir = tempDir({ 'v9_9_9.md': WITH_BAD_LINKS });
+        const result = releaseNotesPreflight('9.9.9', dir, { repoUrl: REPO });
+
+        // The notes EXIST. `annotation` and `summary` are the missing-notes finding and must stay
+        // undefined here, or the control that a clean release raises no missing-notes warning
+        // quietly stops meaning that. The link finding has its own fields.
+        expect(result.notesMissing).toBe(false);
+        expect(result.annotation).toBeUndefined();
+        expect(result.summary).toBeUndefined();
+      });
+
+      it('stays silent for a notes file whose links are all absolute', async () => {
+        const { releaseNotesPreflight } = await import(HELPER);
+        const dir = tempDir({
+          'v9_9_9.md': `# v9.9.9\n\n- See [Migration](${REPO}/blob/v9.9.9/docs/MIGRATION.md).\n`,
+        });
+        const result = releaseNotesPreflight('9.9.9', dir, { repoUrl: REPO });
+
+        expect(result.linkAnnotation).toBeUndefined();
+        expect(result.linkSummary).toBeUndefined();
+        // Asserted positively too: an empty `relativeLinks` from a scan that never ran would
+        // satisfy the negative assertions for the wrong reason.
+        expect(result.relativeLinks).toEqual([]);
+        expect(result.confirmation).toContain('v9_9_9.md');
+      });
+
+      it('has nothing to check when there is no notes file', async () => {
+        const { releaseNotesPreflight } = await import(HELPER);
+        const result = releaseNotesPreflight(VERSION_WITHOUT_NOTES, tempDir(), { repoUrl: REPO });
+
+        expect(result.notesMissing).toBe(true);
+        expect(result.relativeLinks).toEqual([]);
+        expect(result.linkAnnotation).toBeUndefined();
+      });
+
+      it('names the repository from the manifest, not from a hardcoded owner', async () => {
+        const { repoWebUrl } = await import(HELPER);
+        // Read from the real manifest at test time, never compared to a literal owner: the
+        // organisation has been renamed once already, and a literal would pin the old name.
+        const { repository } = JSON.parse(readFileSync(REAL_CORE_PACKAGE_JSON, 'utf8'));
+        const expected = String(repository.url)
+          .replace(/^git\+/, '')
+          .replace(/\.git$/, '');
+        expect(repoWebUrl()).toBe(expected);
+      });
+
+      it('returns no repository URL rather than throwing when the manifest is unusable', async () => {
+        const { repoWebUrl } = await import(HELPER);
+        expect(repoWebUrl(join(tempDir(), 'absent', 'package.json'))).toBeUndefined();
+        expect(repoWebUrl(join(tempDir({ 'package.json': '{"name":"x"}' }), 'package.json'))).toBe(
+          undefined
+        );
+      });
+    });
+
+    describe('through the CLI — still never a reason a release does not ship', () => {
+      it('exits 0 and emits the link warning', () => {
+        const dir = tempDir({ 'v9_9_9.md': '# v9.9.9\n\nSee [M](../docs/MIGRATION.md).\n' });
+        const summaryFile = join(tempDir(), 'summary.md');
+        const run = runCli(['--version', '9.9.9', '--dir', dir], { summaryFile });
+
+        expect(run.status).toBe(0);
+        expect(run.stdout).toContain('::warning title=Release notes link check::');
+        expect(run.stdout).toContain('../docs/MIGRATION.md');
+        expect(run.summary).toContain('../docs/MIGRATION.md');
+        // The confirmation that the notes were FOUND is still written: the link finding is a
+        // second statement about a release that has its notes, not a replacement for the first.
+        expect(run.stdout).toContain('v9_9_9.md');
+        expect(run.stdout).not.toContain('::warning title=Release notes missing::');
+      });
+
+      it('exits 0 when a notes file it cannot read is deleted under it', () => {
+        // The link check reads the file, which is a throw the decision path did not have before.
+        // A release must not die because a notes file went away between the check and the read.
+        const dir = tempDir();
+        const run = runCli(['--version', '9.9.9', '--dir', join(dir, 'absent')]);
+        expect(run.status).toBe(0);
+      });
+    });
+  });
+
   describe('the notes directory it defaults to', () => {
     it('is the repo release-notes/ directory', async () => {
       const { releaseNotesPreflight } = await import(HELPER);

@@ -1,7 +1,7 @@
 # v2.0.0-beta.2 The Alignment Check
 
 ## New Features
-- At `auto`, a command the auto-rater declines now gets a second model call asking whether it is what *you* asked for. It can clear a **destructive** rating and the host-naming network floor, never **attack**, **catastrophic** or a deterministic refusal, and where it lets a command run you are told rather than asked. `approvals.alignmentChecker` gives it its own profile; unset, it uses `approvals.rater`. See [Shell tool and approvals](../docs/guides/shell-tool-and-approvals.md#at-auto-a-second-check-asks-whether-you-asked-for-it).
+- At `auto`, a command the auto-rater declines now gets a second model call asking whether it is what *you* asked for. It can clear a **destructive** rating and the host-naming network floor, never **attack**, **catastrophic** or a deterministic refusal, and where it lets a command run you are told rather than asked. `approvals.alignmentChecker` gives it its own profile; unset, it uses `approvals.rater`. See [Shell tool and approvals](https://github.com/pukeko-robotics/gaunt-sloth/blob/v2.0.0-beta.2/docs/guides/shell-tool-and-approvals.md#at-auto-a-second-check-asks-whether-you-asked-for-it).
 - At `auto`, a fetch to a host you named yourself, verbatim, is a warning instead of a question.
 - **deny always** is now saved to `.gsloth/.gsloth-settings/shell-denylist.json` and holds in later sessions. A saved refusal outranks a saved approval, at every mode including `bypass`; `/approvals undeny <number>` lifts one.
 - The negotiation between the agent and the rater renders as it happens, and a negotiated approval is held 800 ms before it acts.
