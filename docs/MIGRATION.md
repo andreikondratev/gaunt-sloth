@@ -792,15 +792,20 @@ Invalid configuration in .gsloth.config.json:
 
 Sections A–M are all config-schema shapes, and `gth config validate` checks every one of them.
 **It cannot check anything in this section.** These are server defaults and argument handling, not
-keys — so a config that validates cleanly still meets all three, and nothing tells you at load
-time. **All three apply when you are coming from 1.x.**
+keys — so a config that validates cleanly still meets both, and nothing tells you at load time.
+**Both apply when you are coming from 1.x.**
 
 ### The AG-UI server binds loopback
 
 `gth api ag-ui` used to call `listen` with a port and no host, which binds **every** network
 interface — so an agent endpoint that carries no authentication accepted connections from anything
 that could route to the machine, while its startup banner said `localhost`. It now binds
-`127.0.0.1` by default, and the banner names the address actually bound.
+`127.0.0.1` by default.
+
+**The banner now names the address and port actually bound**, rather than the ones asked for. That
+also fixes `--port 0`, which asks the OS to choose a port: it used to announce
+`http://localhost:0`, an endpoint nothing can connect to, while the socket was listening somewhere
+else entirely.
 
 **One `listen` binds one address**, which is why the fix depends on which client you have:
 
@@ -838,21 +843,21 @@ a script whose command line you do not control:
 
 `--host` wins over `commands.api.host`, which wins over the `127.0.0.1` default.
 
-### A port the server did not get is now an error
+### `--port` no longer truncates a value that is not a whole number
 
-A failed `listen` — most often a port another process already holds — used to run the startup
-callback anyway, so the server printed its ordinary banner and exited 0 with nothing behind it. A
-failed bind now ends the run with an error naming the port and the host, and exits non-zero. **A
-script or CI job that started this server and absorbed a port collision will now stop rather than
-run against nothing.** The banner also names the port the socket actually got, so `--port 0` —
-which asks the OS to choose one — announces an endpoint you can connect to.
+`--port` went through a bare `parseInt`, which stops at the first character that is not a digit and
+keeps what it has. **`--port 8080abc` became `8080`**, and the server started normally on a port
+nobody asked for — with the banner naming the truncated number, so nothing on screen looked wrong.
+It is refused at parse time now.
 
-### `--port` rejects a value that is not a number
+**This matters where the port is computed or templated rather than typed** — a CI variable that
+picked up a stray suffix, a launcher interpolating a value that is not quite a number. A run that
+succeeds on the wrong port is the kind of failure that surfaces much later, as a client that cannot
+reach the port it was told to use.
 
-`--port` went through a bare `parseInt`, so `--port abc` reached the server as `NaN` and
-`--port 10abc` silently became `10`. Both are refused at parse time now. A script passing a
-computed or templated port that was being quietly truncated will fail instead of listening
-somewhere you did not intend.
+Only that silent case changes. A value truncating to something unusable failed before and fails
+now, and a wholly non-numeric `--port abc` was already refused — it reached `listen` as `NaN` and
+came back as `options.port should be >= 0 and < 65536. Received type number (NaN)`.
 
 ## Interactive slash commands (renames)
 
@@ -904,8 +909,8 @@ config has never had.
    `output.header: "debug"` to keep what you had (K).
 10. **1.x** — If you run `gth api ag-ui`, decide the bind. The default is now IPv4 loopback:
     `--host ::1` (or `commands.api.host`) for a local client that dials IPv6, `--host 0.0.0.0` or
-    `::` only if another machine must reach it (N). Check any script that starts this server for a
-    port collision it used to absorb (N).
+    `::` only if another machine must reach it (N). If anything passes `--port` a computed or
+    templated value, check it is a whole number: a trailing suffix used to be truncated (N).
 11. **1.x (inert)** — Move top-level command keys (`pr`, `review`, `ask`, `chat`, `code`, `exec`,
     `api`) under `commands.*`, and read what they say: 1.x was not applying them (A).
 12. **2.0 pre-GA** — Replace every approvals knob — `yolo` / `judge` / `allowlist` /
