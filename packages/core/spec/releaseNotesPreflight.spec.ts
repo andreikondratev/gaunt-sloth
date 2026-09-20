@@ -428,6 +428,23 @@ describe('scripts/release-notes-preflight.mjs', () => {
         expect(repoWebUrl()).toBe(expected);
       });
 
+      it('strips the git prefix and suffix, pinned to a literal', async () => {
+        const { repoWebUrl } = await import(HELPER);
+        // The test above derives its expectation with the implementation's OWN two replacements,
+        // so it pins WHICH FILE is read but not WHAT IS DONE to the value — a wrong transformation
+        // would move both sides together and stay green. This one pins the output as a literal
+        // string against a synthetic manifest, which is the half that can actually fail.
+        const scp = tempDir({
+          'package.json': '{"repository":{"url":"git+https://github.com/acme/widget.git"}}',
+        });
+        expect(repoWebUrl(join(scp, 'package.json'))).toBe('https://github.com/acme/widget');
+        // The shorthand form, where `repository` is the string itself.
+        const plain = tempDir({
+          'package.json': '{"repository":"https://github.com/acme/widget"}',
+        });
+        expect(repoWebUrl(join(plain, 'package.json'))).toBe('https://github.com/acme/widget');
+      });
+
       it('returns no repository URL rather than throwing when the manifest is unusable', async () => {
         const { repoWebUrl } = await import(HELPER);
         expect(repoWebUrl(join(tempDir(), 'absent', 'package.json'))).toBeUndefined();
