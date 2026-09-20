@@ -1951,18 +1951,11 @@ describe('readline/TUI registry parity (GS2-8 single source of truth)', () => {
      * Fields this surface COULD serve and does not. Kept separate from the group above on
      * purpose: calling a gap deliberate is how a list like this stops meaning anything.
      *
-     * `configWarnings` is the only one. The readline session opens no warning-capture window
-     * around `initConfig`, so it has no captured advisories to re-render — the warnings print as
-     * they happen there instead of being redrawn by `/config`. The consequence is a subset, not a
-     * false explanation: `/config` shows the resolved summary and names no cause it has not
-     * checked, which is the floor this node sets. Closing it is its own change, since capture has
-     * to be opened around config load on this surface too.
+     * **Empty is the healthy state, and an empty list is not a dead one.** A field only belongs
+     * here while somebody is on their way to wiring it; anything that lands here and stays has
+     * either been wired or has a reason, and a reason makes it a divergence in the group above.
      */
-    const NOT_WIRED_YET: Record<string, string> = {
-      configWarnings:
-        'the readline session captures no load-time warnings, so /config renders the resolved ' +
-        'summary alone — a smaller answer, not a wrong one',
-    };
+    const NOT_WIRED_YET: Record<string, string> = {};
 
     it('the readline context covers every field the commands read, bar the named divergences', async () => {
       const { createCommandRegistry, dispatchSlashCommand, parseSlashCommand } =
@@ -1976,6 +1969,7 @@ describe('readline/TUI registry parity (GS2-8 single source of truth)', () => {
           buildReadlineSlashContext({
             mode: 'chat',
             config: { modelDisplayName: 'm' } as never,
+            configWarnings: [],
             turnCount: 0,
             autocompact: undefined,
             conversationId: undefined,

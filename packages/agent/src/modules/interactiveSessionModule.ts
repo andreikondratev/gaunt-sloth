@@ -1,5 +1,6 @@
 import { CommandLineConfigOverrides, GthConfig, initConfig } from '@gaunt-sloth/core/config.js';
 import {
+  beginWarningCapture,
   defaultStatusCallback,
   display,
   displayDialogLine,
@@ -7,6 +8,7 @@ import {
   displayLaunchBanner,
   displayNotice,
   displayWarning,
+  endWarningCapture,
   flushSessionLog,
   formatInputPrompt,
   initSessionLogging,
@@ -214,6 +216,12 @@ export interface ReadlineSlashContextInput {
   mode: SessionConfig['mode'];
   /** The resolved config, for `/config` and `/debug-dump`. */
   config: GthConfig;
+  /**
+   * GS2-115 — the config-validation warnings emitted while the config loaded, which `/config`
+   * renders above the summary. Required rather than optional: a surface that has opened no
+   * capture window has to say so by passing an empty array, not by leaving the field out.
+   */
+  configWarnings: string[];
   /** Committed turns so far, for `/status`. */
   turnCount: number;
   /** EXT-161 — the compaction threshold in force, read fresh per dispatch. */
@@ -259,6 +267,11 @@ export function buildReadlineSlashContext(input: ReadlineSlashContextInput): Sla
     // CFG-25 — pass the session command so the panel prints the EFFECTIVE per-command
     // filesystem value (e.g. `all` for `code`), not the top-level default.
     configSummary: formatConfigSummary(input.config, input.mode),
+    // GS2-115 — the load-time validation warnings, from the capture window this session opens
+    // around `initConfig`. `/config` prints them above the summary and flips to a caution tone,
+    // the same way it does in the TUI: the registry is one source, so a flagged setting must not
+    // be visible on one surface and invisible on the other.
+    configWarnings: input.configWarnings,
     // GS2-88 — `/history` `/insights` `/search` work here, from the same core builder the Ink TUI
     // uses. The store is a local SQLite file and the formatters are pure, so there was never
     // anything about these three a renderer owned; `historyAvailability` rides along so a command
@@ -297,7 +310,23 @@ export async function createInteractiveSession(
   message?: string,
   options: InteractiveSessionOptions = {}
 ) {
-  const config = { ...(await initConfig(commandLineConfigOverrides)) };
+  // GS2-115: capture the load-time advisories (config-validation warnings — unknown keys,
+  // deprecated names — emitted via `displayWarning` inside `initConfig`) so `/config` can re-render
+  // them here exactly as it does in the Ink TUI. They are printed as they happen on this surface
+  // too, since nothing takes over the screen; capture is what lets a user ask for them again after
+  // a session's worth of output has scrolled past.
+  //
+  // The window stays around `initConfig` alone, and `finally` closes it whatever happens. The
+  // buffer is module-level state in consoleUtils: a config throw that left it open would silently
+  // accumulate every later warning in the process into an array nobody reads.
+  let startupAdvisories: string[] = [];
+  let config: GthConfig;
+  beginWarningCapture();
+  try {
+    config = { ...(await initConfig(commandLineConfigOverrides)) };
+  } finally {
+    startupAdvisories = endWarningCapture();
+  }
 
   // GS2-20: the session's checkpointer. Durable (SQLite, in the same file as the history store) when
   // history is on and the DB opens, so the LangGraph state this session builds outlives the process
@@ -868,6 +897,7 @@ export async function createInteractiveSession(
             buildReadlineSlashContext({
               mode: sessionConfig.mode,
               config,
+              configWarnings: startupAdvisories,
               turnCount,
               autocompact: autocompactStatus,
               conversationId,

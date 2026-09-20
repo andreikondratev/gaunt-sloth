@@ -56,6 +56,8 @@ vi.mock('@gaunt-sloth/core/utils/consoleUtils.js', () => ({
   displayInfo: vi.fn(),
   displayLaunchBanner: displayLaunchBannerMock,
   displayWarning: vi.fn(),
+  beginWarningCapture: vi.fn(),
+  endWarningCapture: vi.fn(() => []),
   flushSessionLog: vi.fn(),
   formatInputPrompt: vi.fn((v: string) => v),
   initSessionLogging: vi.fn(),

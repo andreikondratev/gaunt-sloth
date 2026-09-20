@@ -41,6 +41,8 @@ const consoleUtilsMock = {
   displayLaunchBanner: vi.fn(),
   displayNotice: vi.fn(),
   displayWarning: vi.fn(),
+  beginWarningCapture: vi.fn(),
+  endWarningCapture: vi.fn(() => []),
   flushSessionLog: vi.fn(),
   formatInputPrompt: vi.fn((v: string) => v),
   initSessionLogging: vi.fn(),

@@ -48,6 +48,8 @@ const consoleUtilsMock = {
   // [[EXT-165]] — every command notice arrives here as one call carrying title AND body.
   displayNotice: vi.fn(),
   displayWarning: vi.fn(),
+  beginWarningCapture: vi.fn(),
+  endWarningCapture: vi.fn(() => []),
   flushSessionLog: vi.fn(),
   formatInputPrompt: vi.fn((v: string) => v),
   initSessionLogging: vi.fn(),

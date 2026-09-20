@@ -2302,6 +2302,42 @@ describe('tui <App>', () => {
 
       unmount();
     });
+
+    /**
+     * GS2-115 — the other half of the cell above, and the two are read as a pair: same command,
+     * same summary, and only the advisories differ. Split into two cells rather than compared
+     * inside one because a single Ink render per `it` is what keeps this file's Windows time
+     * honest; together they discriminate, since a `/config` that always printed a warning header
+     * fails here and one that never printed the warnings fails above.
+     */
+    it('shows the summary alone via /config when there are no advisories', async () => {
+      const agent = scriptedAgent([{ type: 'text', delta: 'done' }]);
+      const { stdin, lastFrame, frames, unmount } = render(
+        <App
+          {...baseProps}
+          agent={agent}
+          advisories={[]}
+          configSummary={['Model: claude-x', 'Agent backend: lean']}
+        />
+      );
+
+      await vi.waitFor(() => expect(lastFrame()).toContain('>'));
+      stdin.write('/config');
+      await vi.waitFor(() => expect(lastFrame()).toContain('/config'));
+      stdin.write('\r');
+
+      await vi.waitFor(() => {
+        // The control: the command really did run and render its summary, so the absences below
+        // are about the warnings and not about a notice that never arrived.
+        expect(frames.join('\n')).toContain('Resolved configuration');
+        expect(frames.join('\n')).toContain('Agent backend: lean');
+      });
+      const all = frames.join('\n');
+      expect(all).not.toContain('Config warning');
+      expect(all).not.toContain('pullrequest');
+
+      unmount();
+    });
   });
 });
 

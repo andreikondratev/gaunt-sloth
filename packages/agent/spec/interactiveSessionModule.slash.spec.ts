@@ -46,6 +46,8 @@ const consoleUtilsMock = {
   // and the cells below assert against an empty transcript.
   displayNotice: vi.fn(),
   displayWarning: vi.fn(),
+  beginWarningCapture: vi.fn(),
+  endWarningCapture: vi.fn(() => []),
   flushSessionLog: vi.fn(),
   formatInputPrompt: vi.fn((v: string) => v),
   initSessionLogging: vi.fn(),
