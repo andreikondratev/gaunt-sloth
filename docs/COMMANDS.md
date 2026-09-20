@@ -382,9 +382,9 @@ A resume is refused, with a message saying which of these it was, when: history 
 (`history.enabled: false`); the store could not be opened; there is no such conversation; the
 conversation has no state to re-enter (a single-shot `ask` / `exec` run, or one whose checkpoint
 could not be written); or it was recorded in a different directory — a conversation is resumed
-from the project it was recorded in, because its tools and file paths point there. A `--resume`
-typed in front of any other subcommand (`gth --resume 12 ask "…"`) is refused as well: resuming
-into `ask` or `exec` is not available yet, and nothing runs in its place.
+from the project it was recorded in. A `--resume` typed in front of any other subcommand
+(`gth --resume 12 ask "…"`) is refused as well: resuming into `ask` or `exec` is not available yet,
+and nothing runs in its place.
 
 ## eval
 

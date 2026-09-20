@@ -663,4 +663,58 @@ describe('sessionResume — GS2-113, what the resumed banner says about the stor
       expect(isSameWorkspace(resolve(getCurrentWorkDir()), otherRoot)).toBe(false);
     });
   });
+
+  it('GS2-114 — the workspace refusal states the rule and claims no mechanism the code lacks', async () => {
+    const projectRoot = resolve(dir, 'project');
+    const workDir = resolve(projectRoot, 'nested', 'sub');
+    const otherRoot = resolve(dir, 'other');
+
+    // Arranged with the working directory BELOW the project root, for the reason the cells above
+    // are: with the two equal, a sentence about where the conversation's tools and file paths
+    // point is accidentally true, and a cell written that way passes whatever the code says.
+    await inWorld({ projectRoot, workDir }, async () => {
+      mkdirSync(otherRoot, { recursive: true });
+      const ckpt = durable();
+      const theirs = await openAsProductionDoes(ckpt.saver, 'thread-other-114', otherRoot);
+      const refused = await resolveResumeTarget(
+        { config, checkpointer: ckpt, workspace: getProjectDir() },
+        theirs
+      );
+      expect(refused).toEqual({
+        ok: false,
+        refusal: {
+          kind: 'workspace-mismatch',
+          id: theirs,
+          stored: otherRoot,
+          current: projectRoot,
+        },
+      });
+      const notice = resumeRefusalNotice(
+        (refused as { refusal: Parameters<typeof resumeRefusalNotice>[0] }).refusal
+      );
+
+      // The sentence, pinned whole: this is what reds if the removed clause comes back.
+      expect(notice.lines[1]).toBe(
+        'A conversation is resumed from the directory it was recorded in. Change to that ' +
+          'directory and run it again.'
+      );
+      // …and the claim named as well as pinned, so a reworded return of it anywhere in the notice
+      // reds too. The two rendered paths come out first: they are a temp directory this cell does
+      // not choose the spelling of, and matching words against them would be matching noise.
+      const body = notice.lines
+        .join(' ')
+        .replaceAll(otherRoot, '<stored>')
+        .replaceAll(projectRoot, '<current>');
+      expect(body).not.toContain('tools');
+      expect(body).not.toContain('file paths');
+
+      // Why that claim had to go, as an assertion rather than a comment: tools and file paths
+      // resolve against the session's WORKING directory, and here that is neither the stored
+      // directory the removed clause pointed them at nor the project root the refusal compared.
+      // So the claim was false in this world — and only an arrangement like this one can see it.
+      expect(getCurrentWorkDir()).toBe(workDir);
+      expect(isSameWorkspace(resolve(getCurrentWorkDir()), otherRoot)).toBe(false);
+      expect(isSameWorkspace(resolve(getCurrentWorkDir()), projectRoot)).toBe(false);
+    });
+  });
 });

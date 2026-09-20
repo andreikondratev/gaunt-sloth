@@ -325,8 +325,14 @@ export function resumeRefusalNotice(
         title: `Conversation #${refusal.id} belongs to another project`,
         lines: [
           `It was recorded in ${refusal.stored}, and this session is in ${refusal.current}.`,
-          'A conversation is resumed from the directory it was recorded in, because its tools and ' +
-            'file paths point there. Change to that directory and run it again.',
+          // GS2-114 — no mechanism sentence here, deliberately. What decides this refusal is the
+          // comparison in `resolveResumeTarget`: the resolved project root recorded with the
+          // conversation against this session's. Tools and file paths do not enter into it and
+          // follow the working directory, which is neither of those two paths — so a sentence
+          // pointing them at the stored directory states a reason the code does not have, on copy
+          // a person plans their next move from. The rule and the remedy are enough.
+          'A conversation is resumed from the directory it was recorded in. Change to that ' +
+            'directory and run it again.',
           'Nothing was changed.',
         ],
         tone: 'warn',
