@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test, expect } from '@microsoft/tui-test';
 import { removeTmpHome, settleSessionsAfterEach } from './fixtures/tmpHome.mjs';
+import { typeAtPrompt } from './fixtures/readlinePrompt.mjs';
 import {
   LOOKUP_PROMPT,
   NOTHING_MARKER,
@@ -188,7 +189,10 @@ test.describe('gth code readline — --resume carries the tool result across pro
     await expect(terminal.getByText('looked-it-up-marker', { strict: false })).toBeVisible();
     await expect(terminal.getByText('ready to code')).toBeVisible();
 
-    terminal.write('what was the code');
+    // [[QA-49]] — the ready message is printed BEFORE `rl.question` arms the prompt, and this
+    // session has a whole conversation to replay first, so it is further from reading here than
+    // anywhere else in the suite. Wait for the armed prompt; see fixtures/readlinePrompt.mjs.
+    await typeAtPrompt(terminal, 'what was the code');
     await expect(terminal.getByText('> what was the code')).toBeVisible();
     terminal.submit();
 

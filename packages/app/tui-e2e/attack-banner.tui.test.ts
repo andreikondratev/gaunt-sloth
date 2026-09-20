@@ -4,6 +4,7 @@ import path from 'node:path';
 import { test, expect } from '@microsoft/tui-test';
 import type { Terminal } from '@microsoft/tui-test';
 import { removeTmpHome, settleSessionsAfterEach } from './fixtures/tmpHome.mjs';
+import { typeAtPrompt } from './fixtures/readlinePrompt.mjs';
 
 // [[GS2-20]] Every session below opens a database inside its throwaway HOME, and the harness's
 // kill does not wait for the process to die. Settle each session before any afterAll removes the
@@ -447,7 +448,11 @@ test.describe('gth chat readline — [[TUI-C68]] §5 the banner on the plain sur
   test('shows the banner, stops on a near miss, and offers the retry', async ({ terminal }) => {
     await expect(terminal.getByText('ready to code')).toBeVisible();
 
-    terminal.write('run it');
+    // [[QA-49]] — the ready message is printed BEFORE `rl.question` arms the prompt, so it says
+    // the session has started and not that it is reading. The two writes further down answer
+    // prompts of their own and are already correct; see fixtures/readlinePrompt.mjs for which
+    // shape is which.
+    await typeAtPrompt(terminal, 'run it');
     await expect(terminal.getByText('> run it')).toBeVisible();
     terminal.submit();
     await expect(terminal.getByText(BANNER_TITLE, { strict: false })).toBeVisible();
@@ -474,7 +479,8 @@ test.describe('gth chat readline — [[TUI-C68]] §5 the banner on the plain sur
   test('runs the command when the phrase is typed exactly', async ({ terminal }) => {
     await expect(terminal.getByText('ready to code')).toBeVisible();
 
-    terminal.write('run it');
+    // [[QA-49]] — as above: the armed prompt, not the ready message.
+    await typeAtPrompt(terminal, 'run it');
     await expect(terminal.getByText('> run it')).toBeVisible();
     terminal.submit();
     await expect(terminal.getByText(BANNER_TITLE, { strict: false })).toBeVisible();

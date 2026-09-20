@@ -10,6 +10,7 @@ import {
   STOP_REASON,
 } from './fixtures/stopFixtures.mjs';
 import { removeTmpHome, settleSessionsAfterEach } from './fixtures/tmpHome.mjs';
+import { typeAtPrompt } from './fixtures/readlinePrompt.mjs';
 
 // [[GS2-20]] Every session below opens a database inside its throwaway HOME, and the harness's
 // kill does not wait for the process to die. Settle each session before any afterAll removes the
@@ -319,7 +320,11 @@ test.describe('gth code readline — [[TUI-C71]] the halt message is framed on t
   test('after a near miss, nothing model-authored reaches column 0', async ({ terminal }) => {
     await expect(terminal.getByText('ready to code')).toBeVisible();
 
-    terminal.write('run it');
+    // [[QA-49]] — the ready message is printed BEFORE `rl.question` arms the prompt, so it says
+    // the session has started and not that it is reading. The banner answer below waits for the
+    // banner's own question line instead, which is correct for a different reason; see
+    // fixtures/readlinePrompt.mjs.
+    await typeAtPrompt(terminal, 'run it');
     await expect(terminal.getByText('> run it')).toBeVisible();
     terminal.submit();
     await expect(terminal.getByText(BANNER_TITLE, { strict: false })).toBeVisible();

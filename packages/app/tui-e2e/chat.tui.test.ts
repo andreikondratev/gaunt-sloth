@@ -4,6 +4,7 @@ import path from 'node:path';
 import { test, expect } from '@microsoft/tui-test';
 import type { Terminal } from '@microsoft/tui-test';
 import { settleSessionsAfterEach } from './fixtures/tmpHome.mjs';
+import { expectPromptTypedInto, typeAtPrompt } from './fixtures/readlinePrompt.mjs';
 
 // [[GS2-20]] The fixture-agent sessions here return before the checkpointer opens, so they hold no
 // database — but they are still killed without a wait, and the suites below remove their throwaway
@@ -1178,8 +1179,18 @@ test.describe('gth chat — a config file that turns the TUI off (CFG-37 seam)',
     // …and the full-screen dock is not on the screen at all.
     await expect(terminal.getByText('chat  ·  turns: 0  ·  ready')).not.toBeVisible();
 
-    terminal.write('exit');
+    // [[QA-49]] — the ready message is printed BEFORE `rl.question` arms the prompt, so it is not
+    // a readiness signal; wait for the armed prompt itself.
+    await typeAtPrompt(terminal, 'exit');
     await expect(terminal.getByText('> exit')).toBeVisible();
+    // **[[QA-49]] discrimination control, in a real terminal.** The locator `typeAtPrompt` waits
+    // on has to distinguish an armed prompt from a prompt that is merely on the screen — a signal
+    // that were always true would "fix" every readline cell in this suite while changing nothing.
+    // The line above just typed into the only prompt row this session has drawn, so the row now
+    // reads `  > exit` and the locator must stop matching. The unit half of this control is
+    // `packages/app/spec/tuiE2eReadlinePromptLocator.spec.ts`, which scans buffers built the way
+    // tui-test builds them; this half proves it against the one xterm actually renders.
+    await expectPromptTypedInto(terminal);
     terminal.submit();
     expect(await waitForExit(terminal)).not.toBeNull();
 
