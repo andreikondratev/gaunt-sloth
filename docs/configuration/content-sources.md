@@ -330,7 +330,7 @@ You can customize rating behavior for `review` and `pr` commands under `commands
 - **`passThreshold`** (number 0-10, default: `6`): Minimum score required to pass the review
 - **`minRating`** (number, default: `0`): Lower bound for the rating scale
 - **`maxRating`** (number, default: `10`): Upper bound for the rating scale
-- **`errorOnReviewFail`** (boolean, default: `true`): Exit with error code 1 when review fails (below threshold)
+- **`errorOnReviewFail`** (boolean, default: `true`): Exit with error code 1 when review fails (below threshold). It governs the verdict only — see [CI/CD Integration](#cicd-integration) for a review that could not run at all.
 
 ### Example Configurations
 
@@ -436,6 +436,8 @@ before this code can be merged.
 ### CI/CD Integration
 
 When `errorOnReviewFail` is set to `true` (default), failed reviews will exit with code 1, which will fail CI/CD pipeline steps. This is useful for enforcing code quality standards in automated workflows.
+
+A review that **could not run** — a provider error, a context overflow, an unreachable content source — exits with code 1 whatever the rating settings say, including with rating disabled or `errorOnReviewFail` set to `false`. Those settings decide what a low score does; a run that produced no score at all is a failure, and the report it writes explains why. Keep the step that posts the report guarded on the file existing rather than on the step succeeding.
 
 Example usage in GitHub Actions:
 

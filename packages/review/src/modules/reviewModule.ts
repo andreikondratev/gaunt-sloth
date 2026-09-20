@@ -182,6 +182,19 @@ export async function review(
       await runner.init(command, config, new MemorySaver());
       await runner.processMessages(messages);
     } catch (error) {
+      // REL-24 — the run failed, so the PROCESS says it failed. Reporting a failure is not the
+      // same as signalling one: `_review-shared.yml` keys its "Check review step result" step on
+      // the review step's OUTCOME, so a review that printed a provider error and exited 0 posted
+      // what reads as a verdict on a build CI called green.
+      //
+      // Deliberately NOT gated on `commands.<cmd>.rating.errorOnReviewFail`. That flag governs a
+      // VERDICT — exit 1 when the review scores below its threshold — and a run that never
+      // reached a verdict has no score to configure. The rating path below already draws the same
+      // line: its missing-artifact branch sets the code without consulting the flag, because a
+      // rating that did not happen is a malfunction rather than a low score.
+      //
+      // Set before the branches, so an approvals stop and an ordinary agent error signal alike.
+      setExitCode(1);
       displayDebug(error instanceof Error ? error : String(error));
       // [[TUI-C71]] — `review` and `pr` wire no tool-approval callback, so an escalation here is
       // always the §6.2 error and an `attack` verdict is always the halt: the untrusted text this

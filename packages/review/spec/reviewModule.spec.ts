@@ -329,6 +329,11 @@ describe('reviewModule', () => {
     // Full error (with stack) still goes to debug.
     expect(consoleUtilsMock.displayDebug).toHaveBeenCalledWith(failure);
     expect(gthAgentRunnerInstanceMock.cleanup).toHaveBeenCalled();
+    // REL-24 — and the failure is SIGNALLED as well as printed. Rating is not configured here, so
+    // this is the runner catch's own call and not the missing-artifact one. What the exit code of
+    // the process ends up being is a process-level question this mock cannot answer; that is
+    // pinned by `packages/app/spec/reviewInAgentFailureExitCode.e2e.spec.ts`.
+    expect(systemUtilsMock.setExitCode).toHaveBeenCalledWith(1);
   });
 
   /**

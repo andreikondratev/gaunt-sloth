@@ -73,7 +73,9 @@ by default, so anything posting this output identifies its reviewer without addi
 own; `output.header: "none"` on the config you pass to `review()` is the one setting that removes
 it, for a caller piping the review into a template of their own. With rating enabled, `review()`
 sets `process.exitCode = 1` when the rating comes back below `passThreshold` (or when the model
-fails to produce a rating), so the script exits non-zero exactly when `gth review` would. Those
+fails to produce a rating); a run that fails inside the agent — a provider error, a context
+overflow — sets it whatever the rating settings say, because there is no verdict to configure. So
+the script exits non-zero exactly when `gth review` would. Those
 two — the attributed text on stdout and the exit code — are the whole embed contract.
 Configuration (provider, prompts, rating thresholds) is the standard Gaunt Sloth config, see
 [the configuration guide](https://github.com/pukeko-robotics/gaunt-sloth/blob/main/docs/configuration/index.md).

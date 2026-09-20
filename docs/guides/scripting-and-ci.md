@@ -99,7 +99,9 @@ gth exec scripts/release-notes.md > RELEASE_NOTES.md
 A `review` or `pr` step that fails before the model is reached still writes its report file, with
 the error in it in place of a verdict, so the next step — the one that reads the report back and
 posts it as a pull request comment — finds an explanation rather than dying on a file that is not
-there. Fail the job on the review step's own exit code, not on the missing file.
+there. Fail the job on the review step's own exit code, not on the missing file: a review that
+fails at any point, before the model or inside the agent, exits non-zero, whether or not rating is
+configured.
 
 ## Stdin in CI
 
