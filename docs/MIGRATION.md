@@ -4,6 +4,10 @@ Gaunt Sloth 2.0 is a **breaking config release**. The config schema is now valid
 strictly (via a single Zod source of truth), and there is **no back-compat coercion** for
 the old shapes. If you are coming from a 1.x config, read this page before you upgrade.
 
+**Not every break is a config-schema change.** Section N covers the ones that are not — the
+`gth api` server's defaults, which no config key describes and which `gth config validate`
+therefore cannot check for you.
+
 The fastest way to check a migrated config is:
 
 ```bash
@@ -53,29 +57,51 @@ Every deprecated config-file shape is now a HARD error: 2.0 has no back-compat c
 gth aborts on the old shape with a path-scoped message naming the replacement. Fix all of
 these before you upgrade.
 
+**Two migrations meet on this page, and the `From` column says which one each row belongs
+to.** Most readers arrive from a 1.x config, but the 2.0 alpha and beta line retired shapes of
+its own, and a row about one of those names a key a 1.x config never had. Unlabelled, those
+rows send a 1.x reader hunting through their config for settings that cannot be there, with no
+way to tell whether they are safe or looking in the wrong place.
+
+- **1.x** — the shape worked in 1.x. Check your config for it.
+- **1.x (inert)** — 1.x accepted the key into the file and never acted on it, so a 1.x config
+  can carry it while nothing you ever observed came from it. 2.0 aborts rather than ignoring
+  it, so it still has to go.
+- **2.0 pre-GA** — the shape existed only in a 2.0 alpha or beta. A 1.x config cannot contain
+  it, so skip the row. These rows are here because alpha and beta upgraders read this page too.
+
 ### HARD (gth aborts, or scripts break)
 
-| Change | What breaks | Fix |
-| --- | --- | --- |
-| `rating` is now an object | `rating: false` (or any boolean) is a validation abort: `expected object, received boolean` | `rating: { enabled: false }` |
-| `output.header` is a three-rung enum, defaulting to `compact` | A boolean is a validation abort: `output.header: no longer a boolean: it is one of none, compact, debug.` And a config that never set the key now opens a text run with one attribution line instead of the preamble | `"none"` for `false`, `"debug"` for `true`; `"debug"` also restores the preamble for a config that set nothing (see section K) |
-| Command configs must nest under `commands.*` | A top-level command key (e.g. `pr`) is a validation abort: `Top-level command config "pr" is no longer supported in 2.0. Move it under "commands.pr".` | Move it under `commands.<cmd>` |
-| Per-command `devTools` folded into `builtInTools` | `commands.<cmd>.devTools` is a validation abort: `Config property "devTools" in commands.code is no longer supported in 2.0. Configure tools under "builtInTools" instead.` | Move the dev/shell tools into the `builtInTools` registry (see section G) |
-| Approval knobs moved off `run_shell_command` | `yolo` / `judge` / `allowlist` / `persistAllowlist` on that entry are a validation abort: `Config property "yolo" in builtInTools.run_shell_command is no longer supported in 2.0. Use "approvals": "bypass" instead.` | Move them into the top-level `approvals` setting (see section I) |
-| Approvals became one ladder of five modes | `approvals.strictness` / `.escalate` / `.allowlist` / `.persistAllowlist`, an object-form `rater`, and the `mode` value `ask` are all validation aborts, each naming what to use instead | Pick a mode: `manual` · `write` · `assisted` · `auto` · `bypass` (see section I) |
-| `projectGuidelines` / `projectReviewInstructions` folded into `prompts` | Either key is a validation abort: `Config property "projectGuidelines" was renamed in 2.0. Use "prompts.guidelines" instead.` | `prompts.guidelines` / `prompts.review` (see section H) |
-| Deprecated `*Provider*` config keys | `contentProvider` / `requirementsProvider` (and the `*ProviderConfig` variants) are rejected: `Config property "contentProvider" was renamed in 2.0. Use "contentSource" instead.` | Rename to `contentSource` / `requirementSource` (and `*SourceConfig`) |
-| `--content-provider` / `--requirements-provider` CLI flags removed | Scripts passing those flags error out | `--content-source` / `--requirements-source` (`-p` still aliases `--requirements-source`) |
-| `ContentProviderType` / `RequirementsProviderType` type exports removed, and the runtime `contentProvider` / `requirementsProvider` fields removed | TypeScript / programmatic configs that import those types or read those fields fail to compile or resolve | Use `contentSource` / `requirementSource` (and their `string` types) |
-| The `gaunt-sloth` app package no longer exports modules (its `exports` map keeps only `./package.json`) | Any `import ... from 'gaunt-sloth/<path>'` fails with `ERR_PACKAGE_PATH_NOT_EXPORTED`; the CLI binaries (`gth`, `gsloth`, `gaunt-sloth`) are unaffected | Import from the scoped packages instead: `@gaunt-sloth/core`, `@gaunt-sloth/agent`, `@gaunt-sloth/review` (see each package's README for the embed surface) |
-| `binaryFormats` accepts `image`, `file` and `audio` only | A `video` or `binary` entry is a validation abort: `binaryFormats.1.type: "video" is not a binary format type any model provider can receive.` | Remove a `video` entry; move a `binary` entry's extensions under `file` (see section M) |
-| The `deep` agent backend removed | `agent.backend: "deep"` is a validation abort: `Agent backend "deep" is no longer supported: Gaunt Sloth ships one agent backend.` | Remove the `agent` block, or set `"backend": "lean"` (see section J) |
-| `@gaunt-sloth/agent` exports removed with the `deep` backend | `import { GthDeepAgent, gthDeepAgentFactory, … } from '@gaunt-sloth/agent'` no longer resolves, and neither do the `@gaunt-sloth/agent/core/GthDeepAgent.js` / `deepAgentPermissions.js` / `gthAcpServer.js` / `modules/acpModule.js` deep paths | Nothing replaces them. `extractDebugRequestExtras` moved to `@gaunt-sloth/agent/core/debugCapture.js`; `startAcpServer` is still a root export and now starts Gaunt Sloth's own ACP server; the rest have no successor (see section J) |
+| Change | From | What breaks | Fix |
+| --- | --- | --- | --- |
+| `rating` is now an object | **1.x** | `rating: false` (or any boolean) is a validation abort: `expected object, received boolean` | `rating: { enabled: false }` |
+| `output.header` is a three-rung enum, defaulting to `compact` | **2.0 pre-GA** | A boolean is a validation abort: `output.header: no longer a boolean: it is one of none, compact, debug.` 1.x had no `output` key at all, so only an alpha/beta config can hit this. The *default* it now takes does change what a 1.x run prints — that half is in the no-error list below, and in section K | `"none"` for `false`, `"debug"` for `true` (see section K) |
+| Command configs must nest under `commands.*` | **1.x (inert)** | A top-level command key (e.g. `pr`) is a validation abort: `Top-level command config "pr" is no longer supported in 2.0. Move it under "commands.pr".` 1.x already read command settings only from `commands.*`, so a top-level block sat in the file doing nothing | Move it under `commands.<cmd>` — and check what it says, since 1.x was not applying it |
+| Per-command `devTools` folded into `builtInTools` | **1.x** | `commands.<cmd>.devTools` is a validation abort: `Config property "devTools" in commands.code is no longer supported in 2.0. Configure tools under "builtInTools" instead.` | Move the dev/shell tools into the `builtInTools` registry (see section G) |
+| Approval knobs moved off `run_shell_command` | **2.0 pre-GA** | `yolo` / `judge` / `allowlist` / `persistAllowlist` on that entry are a validation abort: `Config property "yolo" in builtInTools.run_shell_command is no longer supported in 2.0. Use "approvals": "bypass" instead.` 1.x shipped no `run_shell_command` tool and none of these keys | Move them into the top-level `approvals` setting (see section I) |
+| Approvals became one ladder of five modes | **2.0 pre-GA** | `approvals.strictness` / `.escalate` / `.allowlist` / `.persistAllowlist`, an object-form `rater`, and the `mode` value `ask` are all validation aborts, each naming what to use instead. 1.x had no `approvals` block and no approval gate | Pick a mode: `manual` · `write` · `assisted` · `auto` · `bypass` (see section I) |
+| `projectGuidelines` / `projectReviewInstructions` folded into `prompts` | **1.x** | Either key is a validation abort: `Config property "projectGuidelines" was renamed in 2.0. Use "prompts.guidelines" instead.` | `prompts.guidelines` / `prompts.review` (see section H) |
+| Deprecated `*Provider*` config keys | **1.x** | `contentProvider` / `requirementsProvider` (and the `*ProviderConfig` variants) are rejected: `Config property "contentProvider" was renamed in 2.0. Use "contentSource" instead.` | Rename to `contentSource` / `requirementSource` (and `*SourceConfig`) |
+| `--content-provider` / `--requirements-provider` CLI flags removed | **1.x** | Scripts passing those flags error out | `--content-source` / `--requirements-source` (`-p` still aliases `--requirements-source`) |
+| `ContentProviderType` / `RequirementsProviderType` type exports removed, and the runtime `contentProvider` / `requirementsProvider` fields removed | **1.x** | TypeScript / programmatic configs that import those types or read those fields fail to compile or resolve | Use `contentSource` / `requirementSource` (and their `string` types) |
+| The `gaunt-sloth` app package no longer exports modules (its `exports` map keeps only `./package.json`) | **1.x** | Any `import ... from 'gaunt-sloth/<path>'` fails with `ERR_PACKAGE_PATH_NOT_EXPORTED`; the CLI binaries (`gth`, `gsloth`, `gaunt-sloth`) are unaffected | Import from the scoped packages instead: `@gaunt-sloth/core`, `@gaunt-sloth/agent`, `@gaunt-sloth/review` (see each package's README for the embed surface) |
+| `binaryFormats` accepts `image`, `file` and `audio` only | **1.x** | A `video` or `binary` entry is a validation abort: `binaryFormats.1.type: "video" is not a binary format type any model provider can receive.` | Remove a `video` entry; move a `binary` entry's extensions under `file` (see section M) |
+| The `deep` agent backend removed | **2.0 pre-GA** | `agent.backend: "deep"` is a validation abort: `Agent backend "deep" is no longer supported: Gaunt Sloth ships one agent backend.` 1.x had no `agent` block and no second backend to name | Remove the `agent` block, or set `"backend": "lean"` (see section J) |
+| `@gaunt-sloth/agent` exports removed with the `deep` backend | **2.0 pre-GA** | `import { GthDeepAgent, gthDeepAgentFactory, … } from '@gaunt-sloth/agent'` no longer resolves, and neither do the `@gaunt-sloth/agent/core/GthDeepAgent.js` / `deepAgentPermissions.js` / `gthAcpServer.js` / `modules/acpModule.js` deep paths. The package itself is new in 2.0; 1.x shipped no `@gaunt-sloth/agent` | Nothing replaces them. `extractDebugRequestExtras` moved to `@gaunt-sloth/agent/core/debugCapture.js`; `startAcpServer` is still a root export and now starts Gaunt Sloth's own ACP server; the rest have no successor (see section J) |
 
-There are also behaviour changes that raise no validation error, so nothing tells you at load time
-that your output or your files have moved: the array merge across config layers (section D), the
-`writeOutputToFile` default (section E), the `output.header` default (section K), and the
-`history.enabled` default (section L).
+### No error (nothing tells you at load time)
+
+These change what gth does without failing validation, so `gth config validate` cannot warn you
+about any of them. The same `From` labels apply.
+
+| Change | From | What moved |
+| --- | --- | --- |
+| Arrays replace instead of merging across config layers (section D) | **2.0 pre-GA** | 1.x read one config file plus CLI overrides and had no global layer, so no array of yours ever merged across layers. The global + project layering is itself new in 2.0 |
+| `writeOutputToFile` defaults to `false` (section E) | **1.x** | 1.x defaulted to `true` and wrote a `gth_<timestamp>_<COMMAND>.md` for every command. Nothing is written now unless you opt in |
+| `output.header` defaults to `"compact"` (section K) | **1.x** | The key is new, so a 1.x config cannot set it — but what a 1.x run *printed* changes anyway. 1.x always opened with the Workdir/Model/Tools/Middleware preamble and the interrupt hint; a 2.0 text run opens with one attribution line |
+| Session history is on, and writes to `~/.gsloth/history.db` (section L) | **1.x — new, not a flip** | 1.x had no session history at all, so nothing was being recorded before. For an alpha or beta config this is a default moving from off to on. Read section L before deciding: it stores tool results verbatim |
+| The AG-UI server binds loopback (section N) | **1.x** | `gth api ag-ui` bound every interface in 1.x and binds `127.0.0.1` now, so a client on another machine — and some clients on *this* machine — can no longer reach it |
+| `builtInTools` defaults to `["gth_checklist", "gth_grep"]` (section G) | **1.x — additive** | 1.x had no default: leaving `builtInTools` unset loaded no built-in tools at all. An unchanged config now gets two. This one gives you something rather than taking it away, so there is nothing to fix — set `"builtInTools": []` if you want the 1.x behaviour back |
 
 ---
 
@@ -87,6 +113,11 @@ validation error that aborts the run, naming the fix:
 `Top-level command config "pr" is no longer supported in 2.0. Move it under "commands.pr".`
 (A genuinely-unrelated unknown top-level key, i.e. a real typo, still just warns; only the
 known command names hard-fail.)
+
+**1.x read command settings from `commands.*` too**, so the nesting itself is not new. What
+changed is what happens to a top-level block: 1.x left it in the file and quietly ignored it,
+where 2.0 aborts. **So if you find one, read it before you move it** — whatever it says has not
+been taking effect, and moving it under `commands.*` turns settings on for the first time.
 
 Before:
 
@@ -244,6 +275,11 @@ export async function configure() {
 
 ## D. Array merge policy across config layers (behaviour change)
 
+**From a 2.0 alpha or beta.** 1.x resolved a single config file and merged it only with CLI
+overrides — there was no global layer — so a 1.x config has nothing here to re-check. The
+global + project layering described below is a 2.0 feature; this section is about how its
+arrays combine.
+
 When both a global config (`~/.gsloth/...`) and a project config are present, they are
 deep-merged (project wins). In 2.0, arrays **replace** by default instead of merging across
 layers. The only exceptions are the genuinely-cumulative lists, which still concatenate and
@@ -313,18 +349,22 @@ These are new capabilities, not breaking changes, but they are useful while migr
 
 ## G. `devTools` folded into `builtInTools` (HARD)
 
-In 1.x the dev/shell tools were split across two keys: `builtInTools: string[]` (which built-in
-tools are on) and a per-command `commands.<cmd>.devTools` (how the `run_*` commands and the
-`run_shell_command` shell tool were configured). 2.0 unifies both into a single **`builtInTools`
-registry**. A leftover `commands.<cmd>.devTools` is now a hard validation error:
+**The `devTools` key itself is a 1.x shape**; the shell entries in the example below are not —
+they arrived in a 2.0 prerelease. Both are covered here, and the note after the example says
+which is which.
+
+The dev tools used to be split across two keys: `builtInTools: string[]` (which built-in tools
+are on) and a per-command `commands.<cmd>.devTools` (how the `run_*` commands were configured).
+2.0 unifies both into a single **`builtInTools` registry**. A leftover `commands.<cmd>.devTools`
+is now a hard validation error:
 `Config property "devTools" in commands.code is no longer supported in 2.0. Configure tools under
 "builtInTools" instead.`
 
 `builtInTools` now accepts an **object** (keyed by tool name) in addition to the string array. The
 object's values enable (`true`), force-disable (`false`), or configure (an object) each tool. The
 `run_*` dev-command tools take `{ "command": "…" }`; the shell tool takes its execution knobs
-(`enabled` / `timeout` / `maxOutputBytes`). Approval settings — including the former top-level
-`shellYolo` — moved to the top-level `approvals` block instead (section I).
+(`enabled` / `timeout` / `maxOutputBytes`). Approval settings — including the top-level
+`shellYolo` a 2.0 prerelease had — moved to the top-level `approvals` block instead (section I).
 
 Before:
 
@@ -363,8 +403,13 @@ After:
 ```
 
 Notes:
-- The object form (like the array form) **replaces** the default `["gth_checklist"]` set, so list
-  `"gth_checklist": true` if you want to keep it.
+- **Coming from 1.x, `devTools` held only `run_tests`, `run_lint`, `run_build` and
+  `run_single_test`**, each a bare command string. The `shell` entry and `shellYolo` in the
+  example above were never 1.x keys — they are there for alpha and beta upgraders, who did have
+  them. If your config predates 2.0, migrate the four `run_*` entries and ignore the rest.
+- The object form (like the array form) **replaces** the default set, which is
+  `["gth_checklist", "gth_grep"]` — list both if you want to keep them. Naming only
+  `"gth_checklist": true` silently drops `gth_grep`.
 - `run_shell_command` is **ON by default in `code` mode** (still human-gated); turn it off with
   `{ "run_shell_command": false }`.
 - The string-array form still works for tools that need no configuration
@@ -410,10 +455,20 @@ working; they are simply no longer created for you.
 
 ## I. Approvals and the auto-rater (HARD)
 
-Approvals used to hang off the `run_shell_command` entry of `builtInTools` — the object shared by
-**every** built-in tool, so a nonsensical `"gth_grep": { "yolo": true }` validated happily. There is
-now a single top-level `approvals` setting, and every retired key is a hard validation error naming
-its replacement.
+**Coming from 1.x, there is nothing in this section to migrate — but read the ladder anyway.**
+1.x shipped no shell tool, no `approvals` block and no approval gate: its dev tools were four
+fixed `run_*` commands you configured yourself, and nothing asked you before running one. Every
+retired key below (`yolo`, `judge`, `allowlist`, `persistAllowlist`, `strictness`, an object-form
+`rater`, the `mode` value `ask`) belongs to a 2.0 alpha or beta. A 1.x config cannot contain any
+of them, so **do not go looking for them in yours** — but approvals now gate the shell tool 2.0
+adds, so the five modes and the two behaviour notes at the end of this section are new behaviour
+you will meet.
+
+**Coming from a 2.0 prerelease**, the rest of this section is your migration. Approvals used to
+hang off the `run_shell_command` entry of `builtInTools` — the object shared by **every** built-in
+tool, so a nonsensical `"gth_grep": { "yolo": true }` validated happily. There is now a single
+top-level `approvals` setting, and every retired key is a hard validation error naming its
+replacement.
 
 `approvals` is **one ordered ladder of five modes**. Each mode fully determines behaviour: there are
 no severity thresholds, no strictness levels, and no independent rater switch.
@@ -431,6 +486,8 @@ your working folder granted as well as reads. The choice you are really making i
 `manual` → `assisted` → `auto`, plus `bypass`.
 
 ### Old → new
+
+Every `Old` spelling here is a 2.0 alpha/beta key. None of them existed in 1.x.
 
 | Old | New |
 | --- | --- |
@@ -509,20 +566,25 @@ Every entry in `allow`, `deny` and `escalate` is one explicit object — `type`,
 object to write instead. The fields are listed in
 [Shell tool & approvals](guides/shell-tool-and-approvals.md).
 
-**Two behaviour changes to expect.**
+**Two behaviours to expect** — new if you are coming from 1.x, changed if you are coming from a
+2.0 prerelease.
 
 1. **The default is `assisted` everywhere**, interactive or not, and it does not vary with the
    configured model. Clearly-safe commands run without a prompt, and each gated command costs one
-   rater model call. To keep confirming every command yourself, set `"approvals": "write"`.
-2. **Where there is nobody to ask, an escalation exits non-zero** rather than handing the model a
-   rejection and continuing. A CI run, a one-shot `gth exec` or a server now fails loudly — printing
-   the command, its rating and the reason — instead of quietly continuing without the command.
-   Declare what the pipeline may run in `approvals.allow`, which is checked before the rater and
-   therefore never escalates.
+   rater model call. To confirm every command yourself instead, set `"approvals": "write"`.
+2. **Where there is nobody to ask, an escalation exits non-zero.** A CI run, a one-shot
+   `gth exec` or a server fails loudly — printing the command, its rating and the reason — rather
+   than continuing without the command. Declare what the pipeline may run in `approvals.allow`,
+   which is checked before the rater and therefore never escalates.
 
 See [Shell tool & approvals](guides/shell-tool-and-approvals.md).
 
 ## J. The `deep` agent backend and the ACP server (HARD)
+
+**Coming from 1.x, nothing here is a migration.** 1.x had no `agent` config block, no second
+backend to name, and no `@gaunt-sloth/agent` package — all three arrived in the 2.0 prerelease
+line and the backend was retired inside it. The ACP server described at the end of this section
+is likewise new in 2.0, not a replacement for anything 1.x had.
 
 Gaunt Sloth's optional second agent backend, `deep`, was a wrapper around a third-party agent
 runtime. It is gone, and with it the only ACP (Agent Client Protocol) server implementation, which
@@ -585,10 +647,11 @@ honour a key that now has one value.
 rather than configured — so an editor that speaks either connects with no setting to change. v1 is
 the stable protocol every shipping ACP editor uses today, Zed included; v2 is a draft.
 
-Two things follow from the rebuild that were not true in 1.x. A gated tool now reaches the editor
-as a `session/request_permission` request, so a shell command the approvals gate stops is answered
-in the host instead of silently doing nothing. And the session's `cwd` roots config discovery and
-the whole toolset, so the agent reads and writes in the project the host named.
+Two things follow from the rebuild that were not true of the earlier, `deep`-backed server. A
+gated tool now reaches the editor as a `session/request_permission` request, so a shell command
+the approvals gate stops is answered in the host instead of silently doing nothing. And the
+session's `cwd` roots config discovery and the whole toolset, so the agent reads and writes in the
+project the host named.
 
 One agent process serves one workspace: a `session/new` naming a different `cwd` is refused rather
 than silently re-rooting the sessions already running. Hosts spawn an agent per project, which is
@@ -598,6 +661,11 @@ If you would rather not use ACP: `gth api` runs the AG-UI server for a programma
 `gth chat` / `gth code` run in a terminal.
 
 ## K. `output.header` is a three-rung enum (HARD)
+
+**Which half applies depends on where you are coming from.** The `output` key is new in 2.0, so
+only an alpha or beta config can hit the validation error below — a 1.x config had no way to set
+it. **The default this key now takes does change what a 1.x run prints**, though, and that half is
+in *The default moved to `"compact"`* below. Read that part whichever migration you are on.
 
 `output.header` accepted a boolean, so the only way to quieten the run header was to remove all of
 it — including the line saying who reviewed this and with which model. It is now one of `none`,
@@ -612,8 +680,10 @@ it — including the line saying who reviewed this and with which model. It is n
 ### The default moved to `"compact"` — this changes output for configs that set nothing
 
 `"compact"` is the new rung and it is now the default, so **a config that never set `output.header`
-gets different output in 2.0**. A non-TUI text run — `ask`, `exec`, `eval`, `review`, `pr`, anything
-piped or in CI — opens with one line naming the command and the model that served it:
+gets different output in 2.0** — which includes every 1.x config, since 1.x always printed the full
+preamble and had no key to turn it down. A non-TUI text run — `ask`, `exec`, `eval`, `review`,
+`pr`, anything piped or in CI — opens with one line naming the command and the model that served
+it:
 
 ```text
 Gaunt Sloth · ask · gemini-3.1-pro (google-genai)
@@ -637,8 +707,12 @@ captured stdout, `"none"` remains the byte-clean rung. See
 
 ## L. `history.enabled` now defaults to `true` (behaviour change)
 
-Session history used to be off unless you asked for it. It is now on unless you turn it off, so
-**every run writes to `~/.gsloth/history.db` on your own machine.**
+**Coming from 1.x this is a new feature that is on, not a default that flipped.** 1.x recorded no
+session history at all and had no `history` key, so nothing about your runs was being stored
+before. Coming from a 2.0 alpha or beta, history existed and was off unless you asked for it.
+
+Either way the result is the same and worth a decision: **every run writes to
+`~/.gsloth/history.db` on your own machine** unless you turn it off.
 
 What goes in there:
 
@@ -716,7 +790,83 @@ Invalid configuration in .gsloth.config.json:
 }
 ```
 
+## N. `gth api` server defaults (behaviour changes, no validation error)
+
+Sections A–M are all config-schema shapes, and `gth config validate` checks every one of them.
+**It cannot check anything in this section.** These are server defaults and argument handling, not
+keys — so a config that validates cleanly still meets both, and nothing tells you at load time.
+**Both apply when you are coming from 1.x.**
+
+### The AG-UI server binds loopback
+
+`gth api ag-ui` used to call `listen` with a port and no host, which binds **every** network
+interface — so an agent endpoint that carries no authentication accepted connections from anything
+that could route to the machine, while its startup banner said `localhost`. It now binds
+`127.0.0.1` by default.
+
+**The banner now names the address and port actually bound**, rather than the ones asked for. That
+also fixes `--port 0`, which asks the OS to choose a port: it used to announce
+`http://localhost:0`, an endpoint nothing can connect to, while the socket was listening somewhere
+else entirely.
+
+**One `listen` binds one address**, which is why the fix depends on which client you have:
+
+| Your client | Pass | What that binds |
+| --- | --- | --- |
+| On another machine — a phone, a second dev box, a container network | `--host 0.0.0.0` | Every IPv4 network interface. **Exposes an unauthenticated endpoint to the network** |
+| On another machine, and you need IPv6 as well | `--host ::` | Every interface, both families. **Also a network interface**, with the same exposure |
+| On this machine, dialling `localhost` where that resolves to `::1` | `--host ::1` | IPv6 loopback — still this machine only |
+| On this machine, dialling `127.0.0.1` or an IPv4 `localhost` | nothing; this is the default | IPv4 loopback |
+
+**The third row is the one to read twice.** The new default is **IPv4** loopback, so a client on
+your own machine that dials `http://localhost:<port>`, resolves the name to `::1` and does not
+fall back to IPv4 now gets a connection refused. It looks like the server never started, and the
+banner's "only clients on this machine can reach it" reads as though a bind change could not be
+your problem. **The fix for that is `--host ::1`, not `--host 0.0.0.0`** — the latter does work,
+and pays for a loopback problem by re-opening an unauthenticated endpoint to the network.
+
+**No value serves both loopbacks and nothing else.** `::1` refuses a client dialling `127.0.0.1`
+exactly as the default refuses one dialling `::1`, and the only address covering both families is
+`::`, which is a network interface too. Pick the family your client actually uses.
+
+**`commands.api.host` is the same setting in the config file** — the one to reach for where
+passing a flag by hand is not the shape of the fix, such as a service unit, a container image, or
+a script whose command line you do not control:
+
+```json
+{
+  "commands": {
+    "api": {
+      "host": "::1"
+    }
+  }
+}
+```
+
+`--host` wins over `commands.api.host`, which wins over the `127.0.0.1` default.
+
+### `--port` no longer truncates a value that is not a whole number
+
+`--port` went through a bare `parseInt`, which stops at the first character that is not a digit and
+keeps what it has. **`--port 8080abc` became `8080`**, and the server started normally on a port
+nobody asked for — with the banner naming the truncated number, so nothing on screen looked wrong.
+It is refused at parse time now.
+
+**This matters where the port is computed or templated rather than typed** — a CI variable that
+picked up a stray suffix, a launcher interpolating a value that is not quite a number. A run that
+succeeds on the wrong port is the kind of failure that surfaces much later, as a client that cannot
+reach the port it was told to use.
+
+Only that silent case changes. A value truncating to something unusable failed before and fails
+now, and a wholly non-numeric `--port abc` was already refused — it reached `listen` as `NaN` and
+came back as `options.port should be >= 0 and < 65536. Received type number (NaN)`.
+
 ## Interactive slash commands (renames)
+
+**All of these are 2.0 pre-GA renames.** A 1.x `chat`/`code` session understood exactly one slash
+command, `/exit` (and the bare word `exit`), and had no TUI — every command named below arrived in
+the 2.0 prerelease line and was renamed inside it. Coming from 1.x there is nothing to unlearn:
+`/exit` still works, and the rest is new. Coming from a 2.0 alpha or beta, this is your list.
 
 Inside `chat`/`code` sessions (both the TUI and the plain `--no-tui` readline surface, which now
 share one command registry):
@@ -736,32 +886,45 @@ share one command registry):
 
 ## Migration checklist
 
-1. Move top-level command keys (`pr`, `review`, `ask`, `chat`, `code`, `exec`, `api`) under
-   `commands.*` (A).
-2. Convert any `rating: false` / `rating: true` to `rating: { enabled: false }` /
+Each item carries the same `From` label as the tables above, so you can skip the ones that cannot
+apply to you. **Coming from 1.x, work only the `1.x` items** — the `2.0 pre-GA` ones name keys your
+config has never had.
+
+1. **1.x** — Convert any `rating: false` / `rating: true` to `rating: { enabled: false }` /
    `{ enabled: true }` (B).
-3. Rename `*Provider*` config keys to `*Source*`, update CLI flags in scripts, and update
+2. **1.x** — Rename `*Provider*` config keys to `*Source*`, update CLI flags in scripts, and update
    any TypeScript that imported the removed provider types (C).
-4. If you split config across global + project, re-check arrays that used to merge (D).
-5. If you relied on the auto-saved `gth_<timestamp>_<COMMAND>.md` output files, set
+3. **1.x** — If you relied on the auto-saved `gth_<timestamp>_<COMMAND>.md` output files, set
    `writeOutputToFile: true` (or a string path) — the default is now `false` (E).
-6. Move any `commands.<cmd>.devTools` into the `builtInTools` registry (`run_*` → `{ "command": … }`,
-   `shell` → the `run_shell_command` entry) (G).
-7. Replace every approvals knob — `yolo` / `judge` / `allowlist` / `persistAllowlist` on
-   `run_shell_command`, and `strictness` / `escalate` / an object-form `rater` on `approvals` —
-   with one of the five modes, plus `approvals.allow` / `.deny` where you need them. Rename the
-   retired `mode` value `ask` to `write` if you want file edits in your working folder granted, or
-   to `manual` if you want to be asked about those too. Decide whether you want the new `assisted`
-   default or `"write"` (I).
-8. Rename `projectGuidelines` → `prompts.guidelines` and `projectReviewInstructions` →
+4. **1.x** — Move any `commands.<cmd>.devTools` into the `builtInTools` registry. From 1.x that is
+   the four `run_*` entries, each becoming `{ "command": … }` (G).
+5. **1.x** — Rename `projectGuidelines` → `prompts.guidelines` and `projectReviewInstructions` →
    `prompts.review` (H).
-9. Remove `agent.backend: "deep"` (or set it to `"lean"`), and move off the ACP server if you
-   were driving Gaunt Sloth from an ACP host (J).
-10. Convert any `output.header: false` / `true` to `"none"` / `"debug"`. If you never set the key,
-    check whether you want the new `"compact"` default (one attribution line, no preamble) or
-    `"debug"` to keep the preamble you had (K).
-11. Decide whether you want local session history, which is now on by default and writes to
-    `~/.gsloth/history.db`; set `history.enabled: false` if you do not (L).
-12. Remove any `binaryFormats` entry of type `video`, and move a `binary` entry's extensions onto
-    your `file` entry (M).
-13. Run `gth config validate` (and optionally `gth config print`) to confirm the result.
+6. **1.x** — Remove any `binaryFormats` entry of type `video`, and move a `binary` entry's
+   extensions onto your `file` entry (M).
+7. **1.x** — If anything imports from `gaunt-sloth/<path>`, move it to `@gaunt-sloth/core`,
+   `@gaunt-sloth/agent` or `@gaunt-sloth/review`; the app package no longer exports modules.
+8. **1.x** — Decide whether you want local session history, which is new, on by default, and
+   writes tool results verbatim to `~/.gsloth/history.db`; set `history.enabled: false` if you do
+   not (L).
+9. **1.x** — Expect a shorter run header: one attribution line instead of the preamble. Set
+   `output.header: "debug"` to keep what you had (K).
+10. **1.x** — If you run `gth api ag-ui`, decide the bind. The default is now IPv4 loopback:
+    `--host ::1` (or `commands.api.host`) for a local client that dials IPv6, `--host 0.0.0.0` or
+    `::` only if another machine must reach it (N). If anything passes `--port` a computed or
+    templated value, check it is a whole number: a trailing suffix used to be truncated (N).
+11. **1.x (inert)** — Move top-level command keys (`pr`, `review`, `ask`, `chat`, `code`, `exec`,
+    `api`) under `commands.*`, and read what they say: 1.x was not applying them (A).
+12. **2.0 pre-GA** — Replace every approvals knob — `yolo` / `judge` / `allowlist` /
+    `persistAllowlist` on `run_shell_command`, and `strictness` / `escalate` / an object-form
+    `rater` on `approvals` — with one of the five modes, plus `approvals.allow` / `.deny` where you
+    need them. Rename the retired `mode` value `ask` to `write` if you want file edits in your
+    working folder granted, or to `manual` if you want to be asked about those too (I).
+13. **2.0 pre-GA** — Convert any `output.header: false` / `true` to `"none"` / `"debug"` (K).
+14. **2.0 pre-GA** — Remove `agent.backend: "deep"` (or set it to `"lean"`), and move off the
+    removed `@gaunt-sloth/agent` deep exports (J).
+15. **2.0 pre-GA** — If you split config across global + project, re-check arrays that used to
+    merge (D).
+16. **Everyone** — Whichever mode you land on, approvals now gate the shell tool; read the ladder
+    in section I. Then run `gth config validate` (and optionally `gth config print`) to confirm the
+    result.
