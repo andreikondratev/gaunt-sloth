@@ -101,6 +101,7 @@ about any of them. The same `From` labels apply.
 | `output.header` defaults to `"compact"` (section K) | **1.x** | The key is new, so a 1.x config cannot set it — but what a 1.x run *printed* changes anyway. 1.x always opened with the Workdir/Model/Tools/Middleware preamble and the interrupt hint; a 2.0 text run opens with one attribution line |
 | Session history is on, and writes to `~/.gsloth/history.db` (section L) | **1.x — new, not a flip** | 1.x had no session history at all, so nothing was being recorded before. For an alpha or beta config this is a default moving from off to on. Read section L before deciding: it stores tool results verbatim |
 | The AG-UI server binds loopback (section N) | **1.x** | `gth api ag-ui` bound every interface in 1.x and binds `127.0.0.1` now, so a client on another machine — and some clients on *this* machine — can no longer reach it |
+| `builtInTools` defaults to `["gth_checklist", "gth_grep"]` (section G) | **1.x — additive** | 1.x had no default: leaving `builtInTools` unset loaded no built-in tools at all. An unchanged config now gets two. This one gives you something rather than taking it away, so there is nothing to fix — set `"builtInTools": []` if you want the 1.x behaviour back |
 
 ---
 
@@ -406,8 +407,9 @@ Notes:
   `run_single_test`**, each a bare command string. The `shell` entry and `shellYolo` in the
   example above were never 1.x keys — they are there for alpha and beta upgraders, who did have
   them. If your config predates 2.0, migrate the four `run_*` entries and ignore the rest.
-- The object form (like the array form) **replaces** the default `["gth_checklist"]` set, so list
-  `"gth_checklist": true` if you want to keep it.
+- The object form (like the array form) **replaces** the default set, which is
+  `["gth_checklist", "gth_grep"]` — list both if you want to keep them. Naming only
+  `"gth_checklist": true` silently drops `gth_grep`.
 - `run_shell_command` is **ON by default in `code` mode** (still human-gated); turn it off with
   `{ "run_shell_command": false }`.
 - The string-array form still works for tools that need no configuration
