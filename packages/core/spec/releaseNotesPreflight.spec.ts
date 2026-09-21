@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -279,10 +279,13 @@ describe('scripts/release-notes-preflight.mjs', () => {
         ]);
       });
 
-      it('ALSO flags a relative link with no .. at all — it is identically broken', async () => {
+      it('ALSO flags a relative link with no .. at all — it breaks on the other surface', async () => {
         const { relativeLinksIn } = await import(HELPER);
-        // The whole point. `docs/COMMANDS.md` renders as `blob/docs/COMMANDS.md`, exactly as the
-        // `..` form does. A rule keyed on `..` would let this through.
+        // The whole point, and NOT that the two forms fail the same way. On the Release page
+        // `docs/COMMANDS.md` resolves (it renders as `blob/<tag>/docs/COMMANDS.md`); it is the
+        // repo-file view that breaks it, where it means `release-notes/docs/COMMANDS.md`. The `..`
+        // form fails the other way round. Neither is right in both places, so a rule keyed on `..`
+        // would let this one through.
         expect(relativeLinksIn('See [Commands](docs/COMMANDS.md#api-ag-ui).')).toEqual([
           { line: 1, target: 'docs/COMMANDS.md#api-ag-ui' },
         ]);
@@ -336,6 +339,19 @@ describe('scripts/release-notes-preflight.mjs', () => {
         const { absoluteFormFor } = await import(HELPER);
         expect(absoluteFormFor('../docs/COMMANDS.md#api-ag-ui', '2.0.0-beta.7', REPO)).toBe(
           `${REPO}/blob/v2.0.0-beta.7/docs/COMMANDS.md#api-ag-ui`
+        );
+      });
+
+      it('treats a target that does NOT climb as repo-root-relative, matching the Release page', async () => {
+        // The Release page renders `docs/X.md` as `blob/<tag>/docs/X.md`. Resolving it against
+        // release-notes/ instead would suggest `blob/<tag>/release-notes/docs/X.md` — a 404
+        // offered as the remedy for a link that already worked on that page.
+        const { absoluteFormFor } = await import(HELPER);
+        expect(absoluteFormFor('docs/COMMANDS.md', '2.0.0', REPO)).toBe(
+          `${REPO}/blob/v2.0.0/docs/COMMANDS.md`
+        );
+        expect(absoluteFormFor('./docs/COMMANDS.md', '2.0.0', REPO)).toBe(
+          `${REPO}/blob/v2.0.0/docs/COMMANDS.md`
         );
       });
 
@@ -470,12 +486,30 @@ describe('scripts/release-notes-preflight.mjs', () => {
         expect(run.stdout).not.toContain('::warning title=Release notes missing::');
       });
 
-      it('exits 0 when a notes file it cannot read is deleted under it', () => {
-        // The link check reads the file, which is a throw the decision path did not have before.
-        // A release must not die because a notes file went away between the check and the read.
+      it('exits 0 for a notes directory that is not there', () => {
+        // Not the unreadable-file case below: an absent directory takes the ordinary
+        // missing-notes path and still warns. Named for what it exercises.
         const dir = tempDir();
         const run = runCli(['--version', '9.9.9', '--dir', join(dir, 'absent')]);
         expect(run.status).toBe(0);
+        expect(run.stdout).toContain('::warning title=Release notes missing::');
+      });
+
+      it('exits 0 but stops confirming, when the notes file exists and cannot be READ', () => {
+        // The link check reads the file; the decision path used to only test existence, so a
+        // read that throws is a failure mode this change introduced. The release must not die
+        // for it — but the degradation is real and worth pinning: the run swaps its normal
+        // output for `::notice ... skipped` and no longer confirms the notes were found, so a
+        // dispatcher reading the log gets "nothing checked", not "all good".
+        //
+        // A DIRECTORY standing where the file should be is the portable way to make the read
+        // throw (EISDIR): `chmod 000` does not block a read on the Windows cells.
+        const dir = tempDir();
+        mkdirSync(join(dir, 'v9_9_9.md'), { recursive: true });
+        const run = runCli(['--version', '9.9.9', '--dir', dir]);
+        expect(run.status).toBe(0);
+        expect(run.stdout).toContain('::notice title=Release notes preflight skipped::');
+        expect(run.stdout).not.toContain('will publish with the body in');
       });
     });
   });

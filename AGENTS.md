@@ -321,10 +321,12 @@ When creating release notes for a new version:
    for a release with little in it — and when something genuinely important ships, one or two
    paragraphs for that feature is enough
 4. **Style**: Keep language dry and factual, not excited or marketing-oriented
-5. **Links**: every link is a full `https://` URL pinned to that release's own tag. A relative link
-   is dead on the Release page — GitHub reads the link's first segment as the ref, so
-   `../docs/COMMANDS.md` and `docs/COMMANDS.md` alike become `blob/docs/COMMANDS.md`, naming a
-   branch that does not exist. Dropping the `..` does not fix it; see
+5. **Links**: every link is a full `https://` URL pinned to that release's own tag. **Neither
+   relative form works in both places a notes file is read.** On the Release page GitHub prepends
+   `blob/<tag>/` and normalizes, so `../docs/COMMANDS.md` climbs past the tag and becomes
+   `blob/docs/COMMANDS.md` — a branch that does not exist. In the repo-file view the base is
+   `release-notes/`, so `docs/COMMANDS.md` means `release-notes/docs/COMMANDS.md`, which is not
+   there. Each form is dead exactly where the other works; only an absolute URL survives both. See
    [release-notes/RELEASE-NOTES-HOWTO.md](release-notes/RELEASE-NOTES-HOWTO.md)
 
 **The release pipeline reads this file.** `scripts/release-notes-for.mjs` resolves it from the

@@ -47,20 +47,29 @@
 // different files this check would preflight a version other than the one that ships; the wiring
 // spec pins both.
 //
-// THE SECOND FINDING: A LINK THAT DIES ON PUBLICATION (OPS-147). A Release body is rendered by
-// GitHub against the REPOSITORY ROOT, not against release-notes/, and the URL it builds is
-// `/<owner>/<repo>/blob/` + the link. A valid blob URL is `/<owner>/<repo>/blob/<ref>/<path>`, so
-// the link's FIRST SEGMENT lands in the position the ref occupies: `../docs/COMMANDS.md` becomes
-// `blob/docs/COMMANDS.md`, read as ref `docs` and path `COMMANDS.md`, and no branch called `docs`
-// exists — 404. The `..` is not what breaks it; `docs/COMMANDS.md` with no `..` at all produces the
-// identical URL. That is why the check below allow-lists absolute targets rather than denying `..`:
-// a check keyed on `..` blesses the second form, and the failure is silent in the worst direction,
-// because the link renders, is clickable, and looks right in the source and in every editor preview.
+// THE SECOND FINDING: A LINK THAT DIES ON PUBLICATION (OPS-147). A relative link in a notes file
+// reads correctly in exactly one of the two places it is shown, and which one depends on its shape.
+//
+// ON THE RELEASE PAGE, GitHub prepends `/<owner>/<repo>/blob/<that release's tag>/` to a
+// non-absolute target and THEN NORMALIZES. So a leading `..` climbs past the tag and consumes it:
+// `../docs/COMMANDS.md` becomes `blob/docs/COMMANDS.md`, read as ref `docs` and path `COMMANDS.md`,
+// and no branch called `docs` exists — 404. That is the bug this node fixed. A target with NO `..`
+// resolves there instead: `docs/COMMANDS.md` becomes `blob/<tag>/docs/COMMANDS.md`, which works.
+//
+// IN THE REPO-FILE VIEW the base is the notes file's own directory, so the two swap places:
+// `../docs/COMMANDS.md` resolves to `docs/COMMANDS.md` and works, while `docs/COMMANDS.md` means
+// `release-notes/docs/COMMANDS.md`, which does not exist — 404.
+//
+// SO NEITHER RELATIVE FORM IS RIGHT IN BOTH PLACES, and an absolute URL is the only form that is.
+// That is why the check allow-lists absolute targets rather than denying `..`: both relative forms
+// are worth flagging, each for its own surface. The failure is silent in the worst direction either
+// way, because the link renders, is clickable, and looks right in the source and in every editor
+// preview.
 //
 // It warns on the SAME footing as the missing-notes finding and for the same reason — a link-shape
 // complaint must not stop a shipping fix — but it is reported in its own field, so the OPS-123
 // control that the notes-present path raises no missing-notes annotation keeps saying what it says.
-// It checks link SHAPE and never resolves a URL: the suggested form pins the release's own tag,
+// It checks link SHAPE and never fetches a URL: the suggested form pins the release's own tag,
 // which this dispatch has not created yet, so a link that is correct 404s until the release is cut.
 //
 // CLI:
@@ -95,13 +104,18 @@ export const LINK_WARNING_TITLE = 'Release notes link check';
 const NOTES_DIR_NAME = 'release-notes';
 
 /**
- * Would this markdown link target survive publication as part of a GitHub Release body?
+ * Is this markdown link target one that reads correctly in BOTH places a notes file is shown?
  *
- * An ALLOW-LIST of absolute forms, deliberately, rather than a deny-list on `..`. Both
- * `../docs/X.md` and `docs/X.md` render as `blob/docs/X.md` — the leading segment is consumed by
- * the ref position either way — so a rule that looks for `..` passes the second form and blesses
- * the next broken link. Anything carrying a URI scheme (`https:`, `mailto:`) or protocol-relative
- * is absolute and fine.
+ * An ALLOW-LIST of absolute forms, deliberately, rather than a deny-list on `..`. The two relative
+ * forms fail on opposite surfaces — `../docs/X.md` on the Release page, `docs/X.md` in the
+ * repo-file view — so a rule that looks for `..` would bless the second one, which is broken just
+ * as surely, only somewhere else. Anything carrying a URI scheme (`https:`, `mailto:`) or
+ * protocol-relative is absolute and fine.
+ *
+ * A ROOT-RELATIVE target (`/docs/X.md`) is NOT absolute here. A Release body prefixes it like any
+ * other, so it renders as `blob/<tag>/docs/X.md` rather than addressing the site root — measured on
+ * docker/compose 1.18.0-rc2, whose `/compose/compose-file.md` renders as
+ * `/docker/compose/blob/1.18.0-rc2/compose/compose-file.md`.
  *
  * A bare fragment (`#section`) is left alone: it addresses the Release body itself, which is a
  * different question from this one and not one this check can answer.
@@ -120,9 +134,13 @@ export function isAbsoluteLinkTarget(target) {
  * line-by-line and the pattern holds no nested quantifier, so it cannot backtrack catastrophically
  * on a long line.
  *
- * NOT matched, and neither appears in this directory today: reference-style definitions
- * (`[label]: ../docs/X.md`) and raw HTML anchors. Both break identically; extend this if either is
- * ever used here.
+ * The angle-bracket target form (`[x](<a/path with spaces.md>)`) IS matched, brackets stripped —
+ * without that it yielded a truncated target at the first space and a suggestion built from
+ * nonsense.
+ *
+ * NOT matched, and none appears in this directory today: reference-style definitions
+ * (`[label]: ../docs/X.md`), raw HTML anchors, and a link whose target spans a line break. All
+ * break the same way; extend this if any is ever used here.
  * @param {string} text
  * @returns {Array<{ line: number, target: string }>}
  */
@@ -138,10 +156,11 @@ export function relativeLinksIn(text) {
       continue;
     }
     if (inFence) continue;
-    const pattern = /\[[^\]\n]*\]\(([^)\s]*)/g;
+    // Two alternatives, neither nested, so the scan stays linear: `(<...>)` or a bare target.
+    const pattern = /\[[^\]\n]*\]\(\s*(?:<([^>\n]*)>|([^)\s]*))/g;
     let match;
     while ((match = pattern.exec(line)) !== null) {
-      const target = match[1];
+      const target = match[1] ?? match[2];
       if (target && !isAbsoluteLinkTarget(target)) found.push({ line: i + 1, target });
     }
   }
@@ -170,19 +189,42 @@ export function repoWebUrl(packageJsonPath = DEFAULT_CORE_PACKAGE_JSON) {
 }
 
 /**
- * The absolute URL a relative notes link was reaching for: the target resolved against
- * `release-notes/` and pinned to the tag this release will create.
+ * The repo-root-relative path a relative notes link is reaching for.
+ *
+ * Which base applies depends on the shape, because the two relative forms are written for
+ * different surfaces and each is meaningful on its own:
+ *
+ *  - a target that does NOT climb is repo-root-relative, because that is exactly what the Release
+ *    page does with it: `docs/X.md` renders there as `blob/<tag>/docs/X.md`. Reading it as relative
+ *    to `release-notes/` instead would name `release-notes/docs/X.md` — a path that does not exist,
+ *    offered as the remedy for a link that already worked on that page;
+ *  - a target that climbs (`../docs/X.md`) cannot be root-relative, since it would leave the
+ *    repository. It was written for the repo-file view, where the base IS `release-notes/`, so it
+ *    is resolved there — recovering `docs/X.md`, which is what its author meant.
+ *
+ * Leading slashes are stripped first: a Release body prefixes a root-relative target like any
+ * other, so `/docs/X.md` is `docs/X.md` with a redundant separator, not a site-root address.
+ * @param {string} target the relative link target as written
+ * @returns {string | undefined} undefined when the target escapes the repository either way
+ */
+export function repoPathFor(target) {
+  const hash = target.indexOf('#');
+  const raw = (hash === -1 ? target : target.slice(0, hash)).replace(/^\/+/, '');
+  if (!raw) return undefined;
+  const asRoot = posix.normalize(raw);
+  if (asRoot && asRoot !== '.' && !asRoot.startsWith('../')) return asRoot;
+  const fromNotes = posix.normalize(posix.join(NOTES_DIR_NAME, raw));
+  return fromNotes && fromNotes !== '.' && !fromNotes.startsWith('../') ? fromNotes : undefined;
+}
+
+/**
+ * The absolute URL a relative notes link was reaching for, pinned to the tag this release creates.
  *
  * TAG-PINNED, not `main`. A Release page is a permanent record of one version, so its links should
  * address the tree that version shipped — and a tag is immutable, so a URL verified once stays
  * correct, where a `main` URL decays silently the day a doc is renamed. The consequence, which the
  * howto states: the tag does not exist until the release is cut, so a correct link 404s while the
- * notes are being written. That is why nothing here resolves the URL it suggests.
- *
- * The suggestion is the LITERAL resolution of the path as written, so a link whose path was already
- * wrong yields a URL that is absolute and still wrong — `docs/X.md` inside release-notes/ means
- * `release-notes/docs/X.md`, and seeing that spelled out is usually how the author notices. This
- * check tests SHAPE; it cannot tell you the target exists.
+ * notes are being written. That is why nothing here fetches the URL it suggests.
  * @param {string} target the relative link target as written
  * @param {string} version the version about to ship
  * @param {string | undefined} base the repository web URL
@@ -190,13 +232,11 @@ export function repoWebUrl(packageJsonPath = DEFAULT_CORE_PACKAGE_JSON) {
  */
 export function absoluteFormFor(target, version, base) {
   if (!base) return undefined;
-  const hash = target.indexOf('#');
-  const path = hash === -1 ? target : target.slice(0, hash);
-  const fragment = hash === -1 ? '' : target.slice(hash);
+  const path = repoPathFor(target);
   if (!path) return undefined;
-  const resolved = posix.normalize(posix.join(NOTES_DIR_NAME, path));
-  if (!resolved || resolved.startsWith('../')) return undefined;
-  return `${base}/blob/v${version}/${resolved}${fragment}`;
+  const hash = target.indexOf('#');
+  const fragment = hash === -1 ? '' : target.slice(hash);
+  return `${base}/blob/v${version}/${path}${fragment}`;
 }
 
 /**
@@ -272,11 +312,13 @@ function linkFinding(notesPath, version, relativeLinks, base) {
     .join('; ');
 
   const message =
-    `${where} has ${count} relative link${plural} that will be DEAD on the published Release ` +
-    `page. GitHub resolves a Release body's link against the repository root and builds ` +
-    `/<owner>/<repo>/blob/ + the link, so the link's first segment lands where the ref belongs: ` +
-    `"../docs/X.md" and "docs/X.md" both become blob/docs/X.md, naming a branch called "docs" ` +
-    `that does not exist. Write a full https:// URL pinned to this release's tag. ${detail}. ` +
+    `${where} has ${count} relative link${plural}, and no relative link reads correctly in BOTH ` +
+    `places a notes file is shown. On the Release page GitHub prepends ` +
+    `/<owner>/<repo>/blob/<this release's tag>/ and normalizes, so "../docs/X.md" climbs past the ` +
+    `tag and becomes blob/docs/X.md — a branch called "docs" that does not exist. In the ` +
+    `repo-file view the base is release-notes/, so "docs/X.md" means release-notes/docs/X.md, ` +
+    `which is not there. Each form is dead exactly where the other works. Write a full https:// ` +
+    `URL pinned to this release's tag. ${detail}. ` +
     `This does NOT block the release — but the Release body is a stored copy, so once it is ` +
     `published, fixing the file here does not repair the page.`;
 
@@ -290,12 +332,13 @@ function linkFinding(notesPath, version, relativeLinks, base) {
   return {
     annotation: `::warning title=${LINK_WARNING_TITLE}::${escapeData(message)}`,
     summary:
-      `## ⚠️ ${LINK_WARNING_TITLE} — ${count} link${plural} will be dead on the Release page\n\n` +
+      `## ⚠️ ${LINK_WARNING_TITLE} — ${count} relative link${plural} in a file that is read two ways\n\n` +
       `In \`${where}\`:\n\n${bullets}\n\n` +
-      `- **Why:** GitHub builds a Release body's link as \`/<owner>/<repo>/blob/\` + the link, and ` +
-      `a valid blob URL is \`/<owner>/<repo>/blob/<ref>/<path>\`. The link's first segment is ` +
-      `therefore read as the **ref**: \`../docs/X.md\` and \`docs/X.md\` alike become ` +
-      `\`blob/docs/X.md\`, a branch named \`docs\`. Dropping the \`..\` does not fix it.\n` +
+      `- **Why:** neither relative form works in both places. On the **Release page** GitHub ` +
+      `prepends \`/<owner>/<repo>/blob/<tag>/\` and normalizes, so \`../docs/X.md\` climbs past ` +
+      `the tag into \`blob/docs/X.md\` — a branch named \`docs\`. In the **repo-file view** the ` +
+      `base is \`release-notes/\`, so \`docs/X.md\` means \`release-notes/docs/X.md\`. Each form ` +
+      `is dead exactly where the other works, so only an absolute URL survives both.\n` +
       `- **The suggested tag does not exist yet.** This dispatch creates it, so the corrected link ` +
       `404s until the release is cut and resolves from then on. Do not "fix" it to \`main\`.\n` +
       `- **This does not block the release.** A link-shape complaint must not stop a shipping fix. ` +
