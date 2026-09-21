@@ -72,8 +72,17 @@
 // THE TWO FAILURE MODES ARE REPORTED SEPARATELY, AND SPEED IS THE POINT
 // ---------------------------------------------------------------------------------------------
 // A just-published version is not instantly installable everywhere. That is a real effect, not a
-// flake, so visibility is a bounded retry — but tuned to REPORT FAST rather than to wait patiently,
-// because every minute between a bad publish and its detection is spent from a fixed budget.
+// flake, so visibility is a bounded retry. The bound is a trade against a fixed budget: every
+// minute between a bad publish and its detection is spent from npm's unpublish window, so the
+// schedule is front-loaded and a healthy release still reports in seconds.
+//
+// THE BOUND IS TEN MINUTES, NOT TWO, AND THAT IS DELIBERATE. A two-minute bound was measured too
+// short on two consecutive releases: both reported PARTIAL with @gaunt-sloth/core still missing,
+// and both were clean on a re-run minutes later with nothing republished. Ten minutes is 0.2% of
+// the 72-hour budget below. Weigh any proposal to shorten it against that ratio and against the
+// failure this file names further down — a release check that goes red for reasons unrelated to
+// packaging GETS MUTED, and a muted alarm has no budget at all.
+//
 // npm's unpublish policy (docs.npmjs.com/policies/unpublish, read 2026-09-15) allows an
 // unconditional unpublish only within 72 hours of publishing, and after that only if no other
 // package in the registry depends on it, it had under 300 downloads in the last week, and it has a
@@ -190,10 +199,20 @@ export const DEFAULT_REGISTRY = 'https://registry.npmjs.org';
 
 /**
  * Visibility retry schedule, in seconds BEFORE each attempt. Front-loaded on purpose: the common
- * case is that the version is already there, and the budget this spends is the 72-hour unpublish
- * window. Roughly two minutes in total, then report.
+ * case is that the version is already there, so the first attempt waits not at all and a healthy
+ * release still reports in seconds. The tail is what the front-loading buys room for — ten minutes
+ * in total, then report.
+ *
+ * The tail is sized against the case that is NOT the common one. Measured on two consecutive
+ * releases, `2.0.0-beta.13` and `2.0.0-beta.14`, a two-minute bound reported PARTIAL with
+ * `@gaunt-sloth/core` still missing, and a re-run two to three minutes later found the whole set
+ * with nothing republished in between. Ten minutes is not a measurement of npm's propagation — it
+ * is that observation with room over it, because one sample of a race tells you almost nothing
+ * about its tail.
  */
-export const VISIBILITY_SCHEDULE_S = Object.freeze([0, 5, 10, 15, 30, 30, 30]);
+export const VISIBILITY_SCHEDULE_S = Object.freeze([
+  0, 5, 10, 15, 30, 30, 30, 60, 60, 60, 60, 60, 60, 60, 60,
+]);
 
 /** How many candidate tags to dereference when looking for the one at GITHUB_SHA. */
 export const MAX_TAG_DEREFS = 12;

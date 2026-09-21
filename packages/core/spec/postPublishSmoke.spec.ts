@@ -349,10 +349,48 @@ describe('scripts/post-publish-smoke.mjs', () => {
         version: PUBLISHED,
         schedule: [0, 5, 10],
       });
-      // Tuned to REPORT FAST: every minute waited here is spent from npm's 72-hour unpublish
-      // budget, so the schedule is a bound and not a patience setting.
+      // The schedule is a bound, not a patience setting: it is spent from npm's 72-hour unpublish
+      // budget, and the wait ends when it is exhausted whether or not the version showed up.
       expect(slept).toEqual([5000, 10000]);
       expect(seen.attempts).toBe(3);
+    });
+
+    // Every test above injects its own schedule, which is right for exercising the retry mechanism
+    // and leaves the SHIPPED default asserted by nothing — so a two-minute bound that reported
+    // PARTIAL on two consecutive real releases reddened no test. These pin the default's SHAPE
+    // rather than its values, because the numbers are a tuning and the shape is the contract.
+    describe('the default schedule', () => {
+      it('is what waitForVisibility spends when no schedule is passed', async () => {
+        const { waitForVisibility, VISIBILITY_SCHEDULE_S } = await import(HELPER);
+        const { run } = runner(npmView([]));
+        const seen = await waitForVisibility({ run, sleep: noSleep, version: PUBLISHED });
+        expect(seen.attempts).toBe(VISIBILITY_SCHEDULE_S.length);
+      });
+
+      it('costs a healthy release nothing: the first attempt waits not at all', async () => {
+        const { VISIBILITY_SCHEDULE_S } = await import(HELPER);
+        expect(VISIBILITY_SCHEDULE_S[0]).toBe(0);
+      });
+
+      it('is front-loaded — no delay is ever shorter than the one before it', async () => {
+        const { VISIBILITY_SCHEDULE_S } = await import(HELPER);
+        const backwards = VISIBILITY_SCHEDULE_S.filter(
+          (delay: number, i: number) => i > 0 && delay < VISIBILITY_SCHEDULE_S[i - 1]
+        );
+        expect(backwards).toEqual([]);
+      });
+
+      it('waits at least ten minutes in total, which is the bound two real releases needed', async () => {
+        // The floor, not an equality: 2.0.0-beta.13 and 2.0.0-beta.14 both reported PARTIAL with
+        // @gaunt-sloth/core missing after ~120s and were clean minutes later with nothing
+        // republished. Shortening back past this re-opens that, and it is the assertion that would
+        // have caught it.
+        const { VISIBILITY_SCHEDULE_S } = await import(HELPER);
+        const total = VISIBILITY_SCHEDULE_S.reduce((a: number, b: number) => a + b, 0);
+        expect(total).toBeGreaterThanOrEqual(600);
+        // And a ceiling, because an alarm nobody waits for is as useless as one that cries wolf.
+        expect(total).toBeLessThanOrEqual(1800);
+      });
     });
   });
 

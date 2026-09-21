@@ -182,9 +182,12 @@ tarballs we packed ourselves; this one tests the bytes a user receives.
 It **gates nothing**: the publish has already happened when it runs, so a red is the alarm that
 starts a withdrawal rather than something that stopped a release. Each outcome has its own exit code
 and its own remedy, printed into the job summary — `npm unpublish` inside npm's 72-hour window,
-`npm deprecate` plus a dist-tag roll-back outside it. Speed is the point: that window is the whole
-budget, so the registry-propagation retry is bounded to report fast, and "not visible yet" and
-"published broken" are reported as different things.
+`npm deprecate` plus a dist-tag roll-back outside it. "Not visible yet" and "published broken" are
+reported as different things, and the registry-propagation retry is bounded — front-loaded so a
+healthy release reports in seconds, and capped at ten minutes, which is a fraction of a percent of
+the 72-hour window and short enough to leave the whole withdrawal budget intact. It is not shorter
+because a bound that expires before npm has propagated turns every second release into a false
+alarm, and a check that cries wolf gets muted.
 
 The version under test comes from the `gaunt-sloth@<version>` git tag that points at the run's
 commit — never from `packages/core/package.json`, which by then carries the *next* version and would

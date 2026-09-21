@@ -143,8 +143,13 @@ The "Run workflow" form has three inputs. They control the **next** version (the
 *after* this release), **not** the version being released now:
 
 - **`bump`** — the semver verb applied as the post-bump: `patch | minor | major | prepatch |
-  preminor | premajor | prerelease | explicit`. **Default `prerelease`.**
-- **`preid`** — `alpha | beta | rc`; only used by the `pre*`/`prerelease` verbs. Default `alpha`.
+  preminor | premajor | prerelease | explicit`. **Default `patch`**, which is the ordinary next
+  version on a stable line.
+- **`preid`** — `n/a | alpha | beta | rc`; only used by the `pre*`/`prerelease` verbs. **Default
+  `n/a`**, which means *not a prerelease*: the dispatch drops it rather than passing it on, because
+  `bump.mjs` rejects any preid it does not recognise whatever the verb is. A `pre*` verb left at
+  `n/a` is refused before anything is published, since the post-bump would otherwise produce a
+  channel-less prerelease whose `publishConfig.tag` derives to `latest`.
 - **`explicit_version`** — an exact NEXT version (e.g. `2.0.0-alpha.0`); only used when
   `bump = explicit`.
 
