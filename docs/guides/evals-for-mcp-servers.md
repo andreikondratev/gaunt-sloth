@@ -126,16 +126,18 @@ to address — assert it with `must_error` plus a judge. And a server that puts 
 errored result to its text content and discards the structured half before gaunt-sloth sees it, so
 repeat anything you want assertable in the text content.
 
-For a successful call the key reads the payload the model saw: the text verbatim when the tool
-returned text, otherwise the JSON of the content blocks. A single-text MCP result is therefore
-captured as its text, and a `path` addresses that JSON directly; a result the server sent as
-several blocks (or alongside structured content) is captured as the blocks, where the same text
-sits one hop further in, at `[0].text` or `text`.
+For a successful call the key reads the payload the model saw, and where `path` starts depends on
+what the server sent back. A lone text block arrives as the text itself, so a `path` addresses that
+JSON directly. A server that also returns `structuredContent` — any tool declaring an output schema
+— arrives as one object carrying both halves, and there the structured half is the one to address:
+`text` beside it holds the same data as an unparsed JSON *string*, which `path` cannot descend into.
+Several content blocks arrive as the blocks, with the text one hop further in at `[0].text`.
 
 ```yaml
       - identities: [admin]
         tool_result_json_path:
-          - { tool: "mcp__unimarket__contract*", path: "contracts[0].type", contains: "SUPPLY" }
+          # These tools declare an output schema, so the path starts at structuredContent.
+          - { tool: "mcp__unimarket__contract*", path: "structuredContent.contracts[0].type", contains: "SUPPLY" }
 ```
 
 ### 5. A separate, stronger, non-MCP judge

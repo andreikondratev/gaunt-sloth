@@ -77,7 +77,7 @@ import type { ToolCoverageSpec } from '#src/toolCoverage.js';
  *       - { path: "data.status", contains: "ok" }
  *     must_error: [ "mcp__unimarket__*" ]       # BATCH-21: a matching called tool RETURNED an error
  *     tool_result_json_path:                    # BATCH-21: over a matching tool RESULT's payload
- *       - { tool: "mcp__unimarket__*", path: "error.code", equals: "ACCESS_DENIED" }
+ *       - { tool: "mcp__unimarket__*", path: "code", equals: "ACCESS_DENIED" }
  *     judge: "Answers with a ranked summary and correctly formatted values."
  *     pass_threshold: 7
  *   # Matrix case — per-identity expectations:
