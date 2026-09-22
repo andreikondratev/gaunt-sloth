@@ -2,7 +2,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { AgentCapabilitiesSchema, EventType } from '@ag-ui/core';
+import { EventType } from '@ag-ui/core';
+// The schemas live behind their own subpath: `@ag-ui/core`'s main entry is deliberately zod-free
+// (zod is an optional peer), so the root export carries the types and the enum but no schema.
+import { AgentCapabilitiesSchema } from '@ag-ui/core/schemas';
 import type { GthConfig } from '#src/config.js';
 import type { GthAdvertisedTools } from '@gaunt-sloth/core/core/types.js';
 

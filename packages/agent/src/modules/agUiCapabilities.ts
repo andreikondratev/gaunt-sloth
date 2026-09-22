@@ -11,7 +11,7 @@ import { z } from 'zod';
 /**
  * [[EXT-166]] — what the AG-UI server says about itself, for `GET /agents/:agentId/capabilities`.
  *
- * The protocol defines the shape (`AgentCapabilitiesSchema` in `@ag-ui/core`) and the client-side
+ * The protocol defines the shape (`AgentCapabilitiesSchema` in `@ag-ui/core/schemas`) and the client-side
  * hook (`getCapabilities()` on `AbstractAgent`) and deliberately defines no transport, so the
  * endpoint follows the one worked example in the ag-ui repository: the ADK middleware, whose server
  * half serves the declaration as JSON on a sibling path of the run endpoint and whose client half

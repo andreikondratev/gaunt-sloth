@@ -85,11 +85,11 @@ importers:
         specifier: ^1.2.0
         version: 1.2.0(@bufbuild/protobuf@2.15.0)(express@5.2.1)
       '@ag-ui/core':
-        specifier: ^0.0.59
-        version: 0.0.59
+        specifier: ^1.0.0
+        version: 1.0.0(zod@4.6.5)
       '@ag-ui/encoder':
-        specifier: ^0.0.59
-        version: 0.0.59
+        specifier: ^1.0.0
+        version: 1.0.0(zod@4.6.5)
       '@agentclientprotocol/sdk':
         specifier: 1.4.0
         version: 1.4.0(zod@4.6.5)
@@ -104,7 +104,7 @@ importers:
         version: 1.4.16(@langchain/core@1.2.12(openai@7.20.0(undici@8.10.2)(ws@8.21.3)(zod@4.6.5))(ws@8.21.3))(react@19.2.8)(zod@4.6.5)
       '@langchain/mcp-adapters':
         specifier: ^1.1.4
-        version: 1.1.4(@cfworker/json-schema@4.1.1)(@langchain/core@1.2.12(openai@7.20.0(undici@8.10.2)(ws@8.21.3)(zod@4.6.5))(ws@8.21.3))(@langchain/langgraph@1.4.16(@langchain/core@1.2.12(openai@7.20.0(undici@8.10.2)(ws@8.21.3)(zod@4.6.5))(ws@8.21.3))(react@19.2.8)(zod@4.6.5))
+        version: 1.1.4(@cfworker/json-schema@4.1.1)(@langchain/core@1.2.12(openai@7.20.0(undici@8.10.2)(ws@8.21.3)(zod@4.6.5))(ws@8.21.3))(@langchain/langgraph@1.4.16(@langchain/core@1.2.12(openai@7.20.0(undici@8.10.2)(ws@8.21.3)(zod@4.6.5))(ws@8.21.3))(zod@4.6.5))
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
         version: 1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5)
@@ -130,8 +130,8 @@ importers:
   packages/app:
     dependencies:
       '@ag-ui/core':
-        specifier: ^0.0.59
-        version: 0.0.59
+        specifier: ^1.0.0
+        version: 1.0.0(zod@4.6.5)
       '@gaunt-sloth/agent':
         specifier: workspace:*
         version: link:../agent
@@ -284,7 +284,7 @@ importers:
     devDependencies:
       '@gaunt-sloth/batch':
         specifier: 2.0.0-beta.14
-        version: 2.0.0-beta.14(98d12899b49392096fa55d06b9f60308)
+        version: 2.0.0-beta.14(2c4fbde8c29b58b593a7ecc08751cb08)
       fast-xml-parser:
         specifier: ^5.11.1
         version: 5.11.1
@@ -293,7 +293,7 @@ importers:
     devDependencies:
       '@gaunt-sloth/batch':
         specifier: 2.0.0-beta.14
-        version: 2.0.0-beta.14(98d12899b49392096fa55d06b9f60308)
+        version: 2.0.0-beta.14(2c4fbde8c29b58b593a7ecc08751cb08)
 
   packages/review:
     dependencies:
@@ -333,11 +333,25 @@ packages:
   '@ag-ui/core@0.0.59':
     resolution: {integrity: sha512-hDgy4ipTqXieT8YG8Mr917Y+FD/f11VK1GefZ5CwTDCuNqS/oTwjJ5l/DZkicThgS8hQW/Y7wPylPBMBJ8BkUg==}
 
+  '@ag-ui/core@1.0.0':
+    resolution: {integrity: sha512-yCRhsQvb4+lmGMrDsi4TOJxqKpm/kb3H64wwL+Z90jNVrkhy17RErfzsNgybfbjNKLM0nenEDYDVJsZHJJSigQ==}
+    peerDependencies:
+      zod: ^3.25.18 || ^4.0.0
+    peerDependenciesMeta:
+      zod:
+        optional: true
+
   '@ag-ui/encoder@0.0.59':
     resolution: {integrity: sha512-wQCzBsStyZMm8nzhTdTx1G0B1C8yv5rbzZLnz1ka/l5LcJEsK3KTounU8CR9l+7QtcpOUUDJKd0xAbyI6gNcSw==}
 
+  '@ag-ui/encoder@1.0.0':
+    resolution: {integrity: sha512-8w+SHIjsatOcHHe5UBqdlqOiZaQWa3rMv1cUdNFXtHmfcIOLbMd1PG3SRWHD9AMUzApDl4964BV9xs3QPZogrw==}
+
   '@ag-ui/proto@0.0.59':
     resolution: {integrity: sha512-X+uvDaegLEHw5kJu8tv2eSqHH8ouat+JCfFokGV1uuMquY8qCEQSlGsM7xzexwX9fujuxgHOWumg5kJDqa0+RA==}
+
+  '@ag-ui/proto@1.0.0':
+    resolution: {integrity: sha512-RXEdjD3RfZ/8fUEX+ZqN5SrZAxrOZ9oQt0FlEhN4Ie/YEOKDVv0u1g83fOhGxWJTTVAmYSM/xf+ijwixsmz2RA==}
 
   '@agentclientprotocol/sdk@1.4.0':
     resolution: {integrity: sha512-/eufudw+aFY1LKLolT6yFE6UMmYRl7fMJ/DEONSIyR6wI3slHWITBsANRGqXEY8FRzqUxwh7QEaGiZHcJPVThg==}
@@ -2857,16 +2871,38 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
+  '@ag-ui/core@1.0.0(zod@3.25.76)':
+    optionalDependencies:
+      zod: 3.25.76
+
+  '@ag-ui/core@1.0.0(zod@4.6.5)':
+    optionalDependencies:
+      zod: 4.6.5
+
   '@ag-ui/encoder@0.0.59':
     dependencies:
       '@ag-ui/core': 0.0.59
       '@ag-ui/proto': 0.0.59
+
+  '@ag-ui/encoder@1.0.0(zod@4.6.5)':
+    dependencies:
+      '@ag-ui/core': 1.0.0(zod@4.6.5)
+      '@ag-ui/proto': 1.0.0
+    transitivePeerDependencies:
+      - zod
 
   '@ag-ui/proto@0.0.59':
     dependencies:
       '@ag-ui/core': 0.0.59
       '@bufbuild/protobuf': 2.15.0
       '@protobuf-ts/protoc': 2.11.1
+
+  '@ag-ui/proto@1.0.0':
+    dependencies:
+      '@ag-ui/core': 1.0.0(zod@3.25.76)
+      '@bufbuild/protobuf': 2.15.0
+      '@protobuf-ts/protoc': 2.11.1
+      zod: 3.25.76
 
   '@agentclientprotocol/sdk@1.4.0(zod@4.6.5)':
     dependencies:
@@ -3053,16 +3089,16 @@ snapshots:
       '@eslint/core': 1.2.1
       levn: 0.4.1
 
-  '@gaunt-sloth/agent@2.0.0-beta.14(98d12899b49392096fa55d06b9f60308)':
+  '@gaunt-sloth/agent@2.0.0-beta.14(2c4fbde8c29b58b593a7ecc08751cb08)':
     dependencies:
       '@a2a-js/sdk': 1.2.0(@bufbuild/protobuf@2.15.0)(express@5.2.1)
       '@ag-ui/core': 0.0.59
       '@ag-ui/encoder': 0.0.59
       '@agentclientprotocol/sdk': 1.4.0(zod@4.6.5)
-      '@gaunt-sloth/core': 2.0.0-beta.14(2eabf2f4dd85a2aad43d7174b80f2536)
+      '@gaunt-sloth/core': 2.0.0-beta.14(3bbeb864f201089fafe8006b1e42c251)
       '@langchain/core': 1.2.12(openai@7.20.0(undici@8.10.2)(ws@8.21.3)(zod@4.6.5))(ws@8.21.3)
       '@langchain/langgraph': 1.4.16(@langchain/core@1.2.12(openai@7.20.0(undici@8.10.2)(ws@8.21.3)(zod@4.6.5))(ws@8.21.3))(react@19.2.8)(zod@4.6.5)
-      '@langchain/mcp-adapters': 1.1.4(@cfworker/json-schema@4.1.1)(@langchain/core@1.2.12(openai@7.20.0(undici@8.10.2)(ws@8.21.3)(zod@4.6.5))(ws@8.21.3))(@langchain/langgraph@1.4.16(@langchain/core@1.2.12(openai@7.20.0(undici@8.10.2)(ws@8.21.3)(zod@4.6.5))(ws@8.21.3))(react@19.2.8)(zod@4.6.5))
+      '@langchain/mcp-adapters': 1.1.4(@cfworker/json-schema@4.1.1)(@langchain/core@1.2.12(openai@7.20.0(undici@8.10.2)(ws@8.21.3)(zod@4.6.5))(ws@8.21.3))(@langchain/langgraph@1.4.16(@langchain/core@1.2.12(openai@7.20.0(undici@8.10.2)(ws@8.21.3)(zod@4.6.5))(ws@8.21.3))(zod@4.6.5))
       '@modelcontextprotocol/sdk': 1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5)
       diff: 9.0.0
       express: 5.2.1
@@ -3091,10 +3127,10 @@ snapshots:
       - supports-color
       - ws
 
-  '@gaunt-sloth/batch@2.0.0-beta.14(98d12899b49392096fa55d06b9f60308)':
+  '@gaunt-sloth/batch@2.0.0-beta.14(2c4fbde8c29b58b593a7ecc08751cb08)':
     dependencies:
-      '@gaunt-sloth/agent': 2.0.0-beta.14(98d12899b49392096fa55d06b9f60308)
-      '@gaunt-sloth/core': 2.0.0-beta.14(2eabf2f4dd85a2aad43d7174b80f2536)
+      '@gaunt-sloth/agent': 2.0.0-beta.14(2c4fbde8c29b58b593a7ecc08751cb08)
+      '@gaunt-sloth/core': 2.0.0-beta.14(3bbeb864f201089fafe8006b1e42c251)
       '@langchain/core': 1.2.12(openai@7.20.0(undici@8.10.2)(ws@8.21.3)(zod@4.6.5))(ws@8.21.3)
       yaml: 2.9.1
       zod: 4.6.5
@@ -3119,7 +3155,7 @@ snapshots:
       - supports-color
       - ws
 
-  '@gaunt-sloth/core@2.0.0-beta.14(2eabf2f4dd85a2aad43d7174b80f2536)':
+  '@gaunt-sloth/core@2.0.0-beta.14(3bbeb864f201089fafe8006b1e42c251)':
     dependencies:
       '@langchain/core': 1.2.12(openai@7.20.0(undici@8.10.2)(ws@8.21.3)(zod@4.6.5))(ws@8.21.3)
       '@langchain/langgraph': 1.4.16(@langchain/core@1.2.12(openai@7.20.0(undici@8.10.2)(ws@8.21.3)(zod@4.6.5))(ws@8.21.3))(react@19.2.8)(zod@4.6.5)
@@ -3300,7 +3336,7 @@ snapshots:
       - react
       - react-dom
 
-  '@langchain/mcp-adapters@1.1.4(@cfworker/json-schema@4.1.1)(@langchain/core@1.2.12(openai@7.20.0(undici@8.10.2)(ws@8.21.3)(zod@4.6.5))(ws@8.21.3))(@langchain/langgraph@1.4.16(@langchain/core@1.2.12(openai@7.20.0(undici@8.10.2)(ws@8.21.3)(zod@4.6.5))(ws@8.21.3))(react@19.2.8)(zod@4.6.5))':
+  '@langchain/mcp-adapters@1.1.4(@cfworker/json-schema@4.1.1)(@langchain/core@1.2.12(openai@7.20.0(undici@8.10.2)(ws@8.21.3)(zod@4.6.5))(ws@8.21.3))(@langchain/langgraph@1.4.16(@langchain/core@1.2.12(openai@7.20.0(undici@8.10.2)(ws@8.21.3)(zod@4.6.5))(ws@8.21.3))(zod@4.6.5))':
     dependencies:
       '@langchain/core': 1.2.12(openai@7.20.0(undici@8.10.2)(ws@8.21.3)(zod@4.6.5))(ws@8.21.3)
       '@langchain/langgraph': 1.4.16(@langchain/core@1.2.12(openai@7.20.0(undici@8.10.2)(ws@8.21.3)(zod@4.6.5))(ws@8.21.3))(react@19.2.8)(zod@4.6.5)
