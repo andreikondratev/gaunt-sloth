@@ -109,6 +109,28 @@ vi.mock('#src/utils/llmUtils.js', async () => {
 vi.mock('#src/config.js', () => configMock);
 vi.mock('#src/utils/utils.js', () => utilsMock);
 
+// Vitest 5 throws if vi.mock is not at module scope. This factory was written inside one test,
+// but the call is hoisted and ran before anything in the file either way, so the empty env and
+// the fixed terminal width were already the module under test for every case in this file.
+// getProjectDir is read lazily so the stub returns the temp directory created above rather than
+// whatever exists when the factory runs.
+vi.mock('#src/utils/systemUtils.js', () => ({
+  env: {}, // Empty env object to ensure no environment variables are used
+  error: vi.fn(),
+  exit: vi.fn(),
+  getCurrentWorkDir: vi.fn().mockReturnValue('/mock/dir'),
+  getProjectDir: vi.fn(() => PROJECT_DIR),
+  getUseColour: vi.fn().mockReturnValue(false),
+  log: vi.fn(),
+  setExitCode: vi.fn(),
+  // [[TUI-C71]] — a run-ending approvals stop from the discovery agent is framed against the
+  // terminal width before it is printed, so this surface reports one. A FIXED width rather
+  // than the real `process.stdout`: framing is arithmetic against columns, and a width taken
+  // from whatever terminal the suite runs in would make where a row wraps a property of the
+  // runner.
+  stdout: { columns: 120 },
+}));
+
 describe('prCommand', () => {
   afterAll(() => {
     rmSync(PROJECT_DIR, { recursive: true, force: true });
@@ -476,25 +498,9 @@ describe('prCommand', () => {
 
     const testOutput = { text: '' };
 
-    // Mock systemUtils to ensure environment variables don't interfere with the test
-    vi.mock('#src/utils/systemUtils.js', () => ({
-      env: {}, // Empty env object to ensure no environment variables are used
-      error: vi.fn(),
-      exit: vi.fn(),
-      getCurrentWorkDir: vi.fn().mockReturnValue('/mock/dir'),
-      // REL-20 — resolving the report path reaches this. Read lazily so the stub returns the
-      // temp directory created at module scope rather than whatever exists when this factory runs.
-      getProjectDir: vi.fn(() => PROJECT_DIR),
-      getUseColour: vi.fn().mockReturnValue(false),
-      log: vi.fn(),
-      setExitCode: vi.fn(),
-      // [[TUI-C71]] — a run-ending approvals stop from the discovery agent is framed against the
-      // terminal width before it is printed, so this surface reports one. A FIXED width rather
-      // than the real `process.stdout`: framing is arithmetic against columns, and a width taken
-      // from whatever terminal the suite runs in would make where a row wraps a property of the
-      // runner.
-      stdout: { columns: 120 },
-    }));
+    // systemUtils is mocked at module scope. The call used to sit here, but it was hoisted and
+    // already applied to every case in this file; vitest 5 refuses a vi.mock that is not written
+    // at the top level.
 
     const { prCommand } = await import('#src/commands/prCommand.js');
     const program = new Command();
