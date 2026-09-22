@@ -75,7 +75,24 @@ allowBuilds:
 minimumReleaseAge: 1440
 minimumReleaseAgeStrict: true
 
-# Exemptions from the minimum-release-age gate, for versions we needed before they had aged in.
-# Empty: the two entries that lived here (deepagents 1.11.0, deepagents-acp 0.1.19) named exact
-# versions no longer in the tree, and their successors resolve without an exemption.
-minimumReleaseAgeExclude: []
+# Exemptions from the minimum-release-age gate. The gate exists to keep a freshly published
+# third-party version out of the tree until someone would have noticed it going wrong; a package we
+# publish ourselves has no such unknown behind it, so it is exempt and listed bare (OPS-115). A bare
+# name matches every version, so nothing here needs a hand edit when one of our releases lands.
+#
+# ONE entry per package name. pnpm returns on the first rule whose name matches and never consults a
+# later one, so a second entry for the same package is silently ignored and the exception it names is
+# not in force — including the plain `name@version` line `pnpm install` appends for itself when it
+# meets an immature package, which lands after these and is dead on arrival. Splitting a package's
+# versions into a line per version looks tidier and switches the exception off with no error anywhere.
+#
+# A bare entry already grants every version, so pnpm never has anything to append for our own
+# packages: an appended line here is third-party by construction, and worth a look before it is kept.
+# The list covers what we publish, not only what a manifest names today: our own packages depend on
+# each other, so a bare entry for one of them drags its siblings in as transitive dependencies and
+# the gate stops the install on those instead.
+minimumReleaseAgeExclude:
+  - '@gaunt-sloth/agent'
+  - '@gaunt-sloth/batch'
+  - '@gaunt-sloth/core'
+  - '@gaunt-sloth/review'
