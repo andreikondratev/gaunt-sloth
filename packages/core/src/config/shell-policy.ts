@@ -1748,3 +1748,48 @@ export function resolveShellApprovalGate(
     },
   };
 }
+
+/**
+ * Whether the effective `filesystem` registers any real-path filesystem tool.
+ *
+ * `'none'` registers nothing. Every other value — including an absent one, which the toolkit
+ * treats as unrestricted — registers at least one. An allow-list is real-path too, but only when
+ * it names something: the array form is an allow-list of tool names, so `[]` registers nothing,
+ * and the cwd note is about the path namespace those tools share, not about which name is on the
+ * list. Asking {@link isFilesystemToolRegistered} whether a name in the list is in the list would
+ * say the same thing and nothing more — a non-empty array always contains a name that helper
+ * would accept — so the question is the length, not a per-name lookup.
+ */
+function registersFilesystemCapability(filesystem: GthConfig['filesystem'] | undefined): boolean {
+  if (filesystem === 'none') return false;
+  if (Array.isArray(filesystem)) return filesystem.length > 0;
+  return true;
+}
+
+/**
+ * EXT-195 — which of the three path/shell/commit notes the resolved toolset earns.
+ *
+ * The three do not share one predicate. The cwd note is about the path namespace, and its own
+ * text says both the filesystem tools and `run_shell_command` operate on those same real paths,
+ * so it is earned by the shell OR by any filesystem capability other than `'none'`. The OS/shell
+ * note and the commit note describe `run_shell_command` (git commit rides on that tool), so both
+ * are earned only when that tool is registered.
+ *
+ * Shell enablement is the SAME pair {@link resolveShellApprovalGate} uses
+ * ({@link getEffectiveDevToolsConfig} + {@link isShellToolEnabled}), so the prompt stays in
+ * lockstep with where the shell tool is actually emitted. `filesystem` is read off the config the
+ * caller already merged — the agent passes `this.config`, the command-merged effective config the
+ * tool resolver sees. One function, so a second backend cannot inherit half of the rule.
+ */
+export function resolveSystemPromptNoteGates(
+  config: Pick<GthConfig, 'commands' | 'builtInTools' | 'askWriteMode' | 'filesystem'> | undefined,
+  command: GthCommand | undefined
+): { cwd: boolean; osShell: boolean; commit: boolean } {
+  const devTools = getEffectiveDevToolsConfig(config, command);
+  const shell = isShellToolEnabled(devTools, command);
+  return {
+    cwd: shell || registersFilesystemCapability(config?.filesystem),
+    osShell: shell,
+    commit: shell,
+  };
+}

@@ -207,7 +207,7 @@ describe('composed system prompt (GS2-27)', () => {
 
   // GS2-34 — the resolved provider:model identity reaches the prompt, in ALL modes, by default, and
   // is fully removed under the `injectModelContext: false` opt-out.
-  type Mode = 'code' | 'chat' | 'exec';
+  type Mode = 'code' | 'chat' | 'exec' | 'ask';
   async function promptFor(mode: Mode, over: Partial<GthConfig>): Promise<string | undefined> {
     getCurrentWorkDirMock.mockReturnValue('/home/user/proj');
     createAgentMock.mockReturnValue({ invoke: vi.fn(), stream: vi.fn() });
@@ -223,6 +223,63 @@ describe('composed system prompt (GS2-27)', () => {
     modelDisplayName: 'claude-sonnet-5',
   } as unknown as Partial<GthConfig>;
 
+  // EXT-195 — the three notes follow the resolved toolset, not the command name. Each case is
+  // its own test, and each note is asserted on its own line, so one silently dropped fails
+  // visibly rather than hiding inside a loop. `code` is covered by the cases above and must not
+  // change.
+  function expectAllThreeNotes(prompt: string): void {
+    expect(prompt).toContain('Co-Authored-By: Gaunt Sloth <code@gauntsloth.app>');
+    expect(prompt).toContain('Host operating system:');
+    expect(prompt).toContain('Working directory: /home/user/proj');
+  }
+
+  it('composes all three notes for exec when the shell is registered (EXT-195)', async () => {
+    const prompt = await promptFor('exec', {
+      builtInTools: { run_shell_command: true },
+    });
+    expectAllThreeNotes(prompt ?? '');
+  });
+
+  it('composes only the cwd note for exec when the shell is not registered (EXT-195)', async () => {
+    // exec defaults to filesystem: 'all', so it writes real files even with no shell. The cwd
+    // note is about that path namespace; the other two describe run_shell_command.
+    const prompt = await promptFor('exec', {
+      builtInTools: { run_shell_command: false },
+    });
+    expect(prompt).toContain('Working directory: /home/user/proj');
+    expect(prompt).not.toContain('Host operating system:');
+    expect(prompt).not.toContain('Co-Authored-By:');
+  });
+
+  it('composes all three notes for ask --write when the shell is registered (EXT-195)', async () => {
+    const prompt = await promptFor('ask', {
+      askWriteMode: true,
+      builtInTools: { run_shell_command: true },
+    });
+    expectAllThreeNotes(prompt ?? '');
+  });
+
+  it('composes only the cwd note for chat with a read filesystem (EXT-195)', async () => {
+    // chat defaults to filesystem: 'read' and never registers the shell, so a model handed
+    // real-path read tools must be told the working directory and nothing about the shell.
+    const prompt = await promptFor('chat', {
+      filesystem: 'read',
+    });
+    expect(prompt).toContain('Working directory: /home/user/proj');
+    expect(prompt).not.toContain('Host operating system:');
+    expect(prompt).not.toContain('Co-Authored-By:');
+  });
+
+  it('composes none of the three notes for chat with filesystem none (EXT-195)', async () => {
+    const prompt = await promptFor('chat', {
+      filesystem: 'none',
+    });
+    expect(prompt).toBe('SYSTEM PROMPT');
+    expect(prompt).not.toContain('Working directory:');
+    expect(prompt).not.toContain('Host operating system:');
+    expect(prompt).not.toContain('Co-Authored-By:');
+  });
+
   it('injects the resolved provider:model identity by default (GS2-34)', async () => {
     // injectModelContext is UNSET here → the read-site default (inject-on) applies. This is the
     // behavioral proof that the default resolves to inject-on.
@@ -232,8 +289,8 @@ describe('composed system prompt (GS2-27)', () => {
   });
 
   it('injects the identity in NON-code modes too (all-modes, not code-gated) (GS2-34)', async () => {
-    // The mode-gate decision: unlike the code-only cwd/os-shell/commit notes, the identity is
-    // present in chat/exec as well — "what model are you?" is answerable in any session.
+    // The identity is present in chat/exec as well — "what model are you?" is answerable in any
+    // session, so it is not gated on the resolved toolset the way the cwd/os-shell/commit notes are.
     for (const mode of ['chat', 'exec'] as const) {
       expect(await promptFor(mode, IDENTITY_OVER)).toContain('`anthropic:claude-sonnet-5`');
     }

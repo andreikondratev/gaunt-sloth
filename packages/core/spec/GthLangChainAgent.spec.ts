@@ -2136,7 +2136,25 @@ describe('GthLangChainAgent', () => {
 
         // Chat mode has no run_shell_command / real-fs cwd concern, so the shared code notes are
         // absent and the composed prompt is exactly what buildSystemMessages returned.
+        // EXT-195: this fixture's `filesystem: 'none'` is what keeps the cwd note off. A chat
+        // session with a real-path filesystem tool is a different case, asserted below.
         expect(createAgentMock.mock.calls.at(-1)?.[0].systemPrompt).toBe('SYSTEM PROMPT');
+      });
+
+      // EXT-195: the three notes follow the resolved toolset, not the command name. `code` used
+      // to stand in for "the shell is registered"; CFG-18 made that false for exec and for
+      // ask --write, and a filesystem other than 'none' is a real-path tool on its own. Each note
+      // is asserted individually so one silently dropped fails on its own line.
+      it('composes the cwd note only for chat with a read filesystem (EXT-195)', async () => {
+        systemUtilsMock.getCurrentWorkDir.mockReturnValue('/proj/work');
+
+        const agent = new GthLangChainAgent(statusUpdateCallback);
+        await agent.init('chat', { ...mockConfig, filesystem: 'read' });
+
+        const systemPrompt = createAgentMock.mock.calls.at(-1)?.[0].systemPrompt as string;
+        expect(systemPrompt).toContain('Working directory: /proj/work');
+        expect(systemPrompt).not.toContain('Host operating system:');
+        expect(systemPrompt).not.toContain('Co-Authored-By:');
       });
 
       it('omits systemPrompt entirely when no prompt content is composed', async () => {

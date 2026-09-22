@@ -80,12 +80,21 @@ describe('mode-prompt selection per command (GS2-79)', () => {
       expect(chatPrompt.trim().length).toBeGreaterThan(0);
       expect(reviewInstructions).not.toBe(chatPrompt);
 
-      const expected = llmUtils.buildSystemMessages(config, reviewInstructions)[0]?.content;
-      expect(typeof expected).toBe('string');
+      const base = llmUtils.buildSystemMessages(config, reviewInstructions)[0]?.content;
+      expect(typeof base).toBe('string');
+      // EXT-195 — review and pr default to filesystem: 'read', so the cwd note is earned by the
+      // path namespace even though neither command registers the shell. The equality is against
+      // the composition the agent now performs, not the bare mode prompt, so a dropped cwd note
+      // fails here and a shell note that should not be present fails the negative checks below.
+      const { appendCwdNote } = await import('@gaunt-sloth/core/utils/systemPromptNotes.js');
+      const expected = appendCwdNote(base as string, '/home/user/proj');
 
       const prompt = await systemPromptFor(command, config);
       expect(prompt).toBe(expected);
       expect(prompt).toContain(reviewInstructions);
+      expect(prompt).toContain('Working directory: /home/user/proj');
+      expect(prompt).not.toContain('Host operating system:');
+      expect(prompt).not.toContain('Co-Authored-By:');
       expect(prompt).not.toContain(chatPrompt);
     }
   );
@@ -129,6 +138,13 @@ describe('mode-prompt selection per command (GS2-79)', () => {
     expect(llmUtils.readReviewInstructions(config)).toBe('');
     const prompt = await systemPromptFor('review', config);
     expect(prompt).not.toContain(bundledReviewInstructions);
-    expect(prompt).toBe(llmUtils.buildSystemMessages(config, '')[0]?.content);
+    // EXT-195 — dropping the review segment does not drop the cwd note. review still defaults to
+    // filesystem: 'read', so the composed prompt is the empty base plus that note, and neither
+    // shell note.
+    const { appendCwdNote } = await import('@gaunt-sloth/core/utils/systemPromptNotes.js');
+    const base = llmUtils.buildSystemMessages(config, '')[0]?.content;
+    expect(prompt).toBe(appendCwdNote(base as string, '/home/user/proj'));
+    expect(prompt).not.toContain('Host operating system:');
+    expect(prompt).not.toContain('Co-Authored-By:');
   });
 });

@@ -298,12 +298,12 @@ export function resolveModelIdentity(
  * cannot answer "what model are you?" accurately or reason about its own capabilities/limits. This
  * injects a single first-party line naming the resolved identity (see {@link resolveModelIdentity}).
  *
- * Injected in EVERY mode (chat/ask/code/exec), NOT gated to `code` like the cwd/os-shell/commit
- * notes: "which model are you?" can be asked in any session, so the identity must be visible
- * everywhere. Config-gated by `injectModelContext` (default ON): a caller passes an `undefined`
- * `modelIdentity` — because the config opted out (`injectModelContext: false`) or because no model
- * could be resolved — and the base prompt is returned UNCHANGED (no line), preserving the current
- * prompt byte-for-byte.
+ * Injected in EVERY mode (chat/ask/code/exec), NOT gated on the resolved toolset like the
+ * cwd/os-shell/commit notes: "which model are you?" can be asked in any session, so the identity
+ * must be visible everywhere. Config-gated by `injectModelContext` (default ON): a caller passes
+ * an `undefined` `modelIdentity` — because the config opted out (`injectModelContext: false`) or
+ * because no model could be resolved — and the base prompt is returned UNCHANGED (no line),
+ * preserving the current prompt byte-for-byte.
  *
  * A short capability note from the GS2-6 model catalog is a DEFERRED follow-up (GS2-6 has not
  * landed): this injects the bare `provider:model` identity only.

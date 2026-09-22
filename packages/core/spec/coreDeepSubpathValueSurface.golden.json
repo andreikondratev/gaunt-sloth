@@ -334,6 +334,10 @@
           "kind": "function"
         },
         {
+          "name": "resolveSystemPromptNoteGates",
+          "kind": "function"
+        },
+        {
           "name": "resolveTokenBudget",
           "kind": "function"
         },

@@ -6,6 +6,7 @@ import {
   resolveGatedToolNames,
   resolveInterruptToolNames,
   resolveShellApprovalGate,
+  resolveSystemPromptNoteGates,
 } from '#src/config.js';
 import type { GthAdvertisedTool, GthAdvertisedTools } from '#src/core/types.js';
 import { GthAgentInitOptions, GthCommand, StatusLevel } from '#src/core/types.js';
@@ -1477,11 +1478,6 @@ export class GthLangChainAgent extends GthAbstractAgent {
     const baseSystemPrompt =
       typeof systemMessages[0]?.content === 'string' ? systemMessages[0].content : undefined;
 
-    // GS2-27: in `code` mode append the SHARED code-mode notes — the real-cwd / path-model note
-    // (EXT-13) and the OS + shell-dialect note (EXT-26). They are backend-agnostic (they describe
-    // the opt-in `run_shell_command` tool and the real-fs cwd), which is why they are composed from
-    // core's `systemPromptNotes` rather than inline here. Order: cwd note first, OS/shell note
-    // last. `getCurrentWorkDir()` is already read above for the status line, so the value is free.
     // GS2-34/EXT-83: resolve the active model identity ONCE, honouring the `injectModelContext`
     // opt-out (default ON) at this single read site. Both consumers below take this same value, so
     // the commit trailer and the model-context note can never disagree about which model is serving
@@ -1490,28 +1486,36 @@ export class GthLangChainAgent extends GthAbstractAgent {
     const modelIdentity =
       this.config.injectModelContext !== false ? resolveModelIdentity(this.config) : undefined;
 
-    // GS2-35: also append the commit co-authoring rule so the agent credits Gaunt Sloth (config
-    // `commit.coAuthor`, defaulting to the Gaunt Sloth account) in the `Co-Authored-By` trailer, and
-    // the EXT-83 commit-message rules (plain English, and passed by file — never inline, where the
-    // shell would expand the message before git runs). Same code-mode gate as the shell/cwd notes —
-    // the git-commit capability rides on `run_shell_command`, which is a code-mode tool.
-    // EXT-84: the effective `filesystem` is threaded in so the note names the writing tool only
-    // where that tool is registered. `this.config` is the command-merged value (getEffectiveConfig,
-    // above) — the SAME value handed to the tool resolver, so the note and the registered toolset
-    // cannot disagree.
-    const codeNotesPrompt =
-      this.command === 'code'
-        ? appendCommitCoAuthorNote(
-            appendOsShellNote(appendCwdNote(baseSystemPrompt, getCurrentWorkDir())),
-            this.config.commit?.coAuthor,
-            modelIdentity,
-            this.config.filesystem
-          )
-        : baseSystemPrompt;
+    // EXT-195: each note is gated on the RESOLVED toolset, not on the command name. `code` used to
+    // be a proxy for "the shell is registered", and CFG-18 made that false: `exec` and
+    // `ask --write` resolve a shell registry too, and a filesystem other than `'none'` is a
+    // real-path tool on its own. The three notes do not share one predicate — the cwd note is
+    // about the path namespace (shell OR a filesystem capability), the OS/shell note and the
+    // commit note are about `run_shell_command` (git commit rides on it). The decision is
+    // {@link resolveSystemPromptNoteGates}, the same `getEffectiveDevToolsConfig` +
+    // `isShellToolEnabled` pair the approval gate uses, so the prompt stays in lockstep with where
+    // the shell is actually emitted. `this.config` is the command-merged value (getEffectiveConfig,
+    // above) — the SAME value handed to the tool resolver.
+    // Order stays cwd, then OS/shell, then commit, so an unchanged session's prompt does not
+    // reshuffle. EXT-84: the effective `filesystem` is threaded into the commit note so it names
+    // the writing tool only where that tool is registered.
+    const noteGates = resolveSystemPromptNoteGates(this.config, this.command);
+    const withCwd = noteGates.cwd
+      ? appendCwdNote(baseSystemPrompt, getCurrentWorkDir())
+      : baseSystemPrompt;
+    const withOsShell = noteGates.osShell ? appendOsShellNote(withCwd) : withCwd;
+    const codeNotesPrompt = noteGates.commit
+      ? appendCommitCoAuthorNote(
+          withOsShell,
+          this.config.commit?.coAuthor,
+          modelIdentity,
+          this.config.filesystem
+        )
+      : withOsShell;
 
     // GS2-34: inject the resolved provider:model identity so the agent knows which model is serving
     // it (to answer "what model are you?" and reason about its own capabilities/limits). Composed
-    // OUTSIDE the code-mode gate above — unlike the cwd/os-shell/commit notes, that question can
+    // OUTSIDE the toolset gates above — unlike the cwd/os-shell/commit notes, that question can
     // arise in ANY mode (chat/ask/code/exec), so the identity must be visible everywhere. The
     // `injectModelContext` opt-out is applied at the single read site above; when it is off — or
     // when no model resolves — `modelIdentity` is undefined, nothing is appended, and the prompt is
