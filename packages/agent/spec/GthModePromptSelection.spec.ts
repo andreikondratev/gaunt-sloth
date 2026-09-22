@@ -82,10 +82,13 @@ describe('mode-prompt selection per command (GS2-79)', () => {
 
       const base = llmUtils.buildSystemMessages(config, reviewInstructions)[0]?.content;
       expect(typeof base).toBe('string');
-      // EXT-195 — review and pr default to filesystem: 'read', so the cwd note is earned by the
-      // path namespace even though neither command registers the shell. The equality is against
-      // the composition the agent now performs, not the bare mode prompt, so a dropped cwd note
-      // fails here and a shell note that should not be present fails the negative checks below.
+      // EXT-195 — this fixture sets filesystem: 'all', so the cwd note is earned by the path
+      // namespace even though neither command registers the shell. It is the FIXTURE that earns
+      // it, not a per-command default: there is no commands.review or commands.pr entry, so both
+      // fall back to the root default of 'none' and a stock review session composes no note at
+      // all. The equality is against the composition the agent now performs, not the bare mode
+      // prompt, so a dropped cwd note fails here and a shell note that should not be present
+      // fails the negative checks below.
       const { appendCwdNote } = await import('@gaunt-sloth/core/utils/systemPromptNotes.js');
       const expected = appendCwdNote(base as string, '/home/user/proj');
 
@@ -138,9 +141,9 @@ describe('mode-prompt selection per command (GS2-79)', () => {
     expect(llmUtils.readReviewInstructions(config)).toBe('');
     const prompt = await systemPromptFor('review', config);
     expect(prompt).not.toContain(bundledReviewInstructions);
-    // EXT-195 — dropping the review segment does not drop the cwd note. review still defaults to
-    // filesystem: 'read', so the composed prompt is the empty base plus that note, and neither
-    // shell note.
+    // EXT-195 — dropping the review segment does not drop the cwd note. This fixture still sets
+    // filesystem: 'all', so the composed prompt is the empty base plus that note, and neither
+    // shell note. Again the fixture earns it, not a per-command default.
     const { appendCwdNote } = await import('@gaunt-sloth/core/utils/systemPromptNotes.js');
     const base = llmUtils.buildSystemMessages(config, '')[0]?.content;
     expect(prompt).toBe(appendCwdNote(base as string, '/home/user/proj'));
