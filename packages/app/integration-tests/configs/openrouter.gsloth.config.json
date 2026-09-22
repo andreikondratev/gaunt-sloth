@@ -1,7 +1,7 @@
 {
   "llm": {
     "type": "openrouter",
-    "model": "mistralai/mistral-medium-3-5"
+    "model": "xiaomi/mimo-v2.6-flash"
   },
   "commands": {
     "api": {
