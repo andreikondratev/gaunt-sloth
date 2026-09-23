@@ -5,6 +5,7 @@ import type {
   OAuthClientMetadata,
   OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
+import type { FetchLike } from '@modelcontextprotocol/sdk/shared/transport.js';
 import express from 'express';
 import * as crypto from 'node:crypto';
 import { platform } from 'node:os';
@@ -190,27 +191,70 @@ export class OAuthClientProviderImpl implements OAuthClientProvider {
   }
 }
 
+/** How long to wait for the user to finish the browser login before giving up. */
+const OAUTH_CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
+
+/**
+ * Fetch for the OAuth calls that asks for an uncompressed body. The Atlassian token endpoint
+ * (`auth.atlassian.com/oauth/token`) has been observed returning a gzipped body that reaches the
+ * SDK still compressed, so its JSON parse fails and every token exchange and refresh is lost.
+ * OAuth responses are small, so declining compression costs nothing.
+ */
+const oauthFetch: FetchLike = (url, init) => {
+  const headers = new Headers(init?.headers);
+  headers.set('accept-encoding', 'identity');
+  return fetch(url, { ...init, headers });
+};
+
 export async function createAuthProviderAndAuthenticate(
-  mcpServer: StreamableHTTPConnection
+  mcpServer: StreamableHTTPConnection,
+  callbackTimeoutMs: number = OAUTH_CALLBACK_TIMEOUT_MS
 ): Promise<OAuthClientProviderImpl> {
   const { port, server, codePromise } = await createOAuthRedirectServer('/oauth/callback');
-  const authProvider = new OAuthClientProviderImpl({
-    redirectUrl: `http://localhost:${port}/oauth/callback`,
-    serverUrl: mcpServer.url,
-  });
-  const outcome = await auth(authProvider, { serverUrl: mcpServer.url });
-  if (outcome == 'REDIRECT') {
-    const authorizationCode = await codePromise;
-    await auth(authProvider, { serverUrl: mcpServer.url, authorizationCode });
-  } else if (outcome == 'AUTHORIZED') {
-    try {
-      server.close();
-    } catch {}
-    displayInfo('Authorized');
-  } else {
-    throw new Error(`Unexpected Auth outcome: ${outcome}`);
+  // The listening callback server keeps the process alive, so it is closed on every exit path.
+  try {
+    const authProvider = new OAuthClientProviderImpl({
+      redirectUrl: `http://localhost:${port}/oauth/callback`,
+      serverUrl: mcpServer.url,
+    });
+    const outcome = await auth(authProvider, { serverUrl: mcpServer.url, fetchFn: oauthFetch });
+    if (outcome == 'REDIRECT') {
+      const authorizationCode = await withTimeout(
+        codePromise,
+        callbackTimeoutMs,
+        `OAuth login for ${mcpServer.url} was not completed within ${Math.round(callbackTimeoutMs / 1000)}s`
+      );
+      await auth(authProvider, {
+        serverUrl: mcpServer.url,
+        authorizationCode,
+        fetchFn: oauthFetch,
+      });
+    } else if (outcome == 'AUTHORIZED') {
+      displayInfo('Authorized');
+    } else {
+      throw new Error(`Unexpected Auth outcome: ${outcome}`);
+    }
+    return authProvider;
+  } finally {
+    closeQuietly(server);
   }
-  return authProvider;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+function closeQuietly(server: http.Server): void {
+  if (!server.listening) {
+    return;
+  }
+  try {
+    server.close();
+  } catch {}
 }
 
 export function createOAuthRedirectServer(
