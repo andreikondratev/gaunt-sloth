@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import type { RunnableConfig } from '@langchain/core/runnables';
 import { GthAbstractAgent } from '#src/core/GthAbstractAgent.js';
+import { TOOL_RESULT_CONTENT_CAP } from '#src/core/runStats.js';
 import type { GthConfig } from '#src/config.js';
 import type { GthCompiledGraph } from '#src/core/types.js';
 
@@ -203,5 +204,46 @@ describe('GthAbstractAgent run-stats MCP error capture (BATCH-43 wiring)', () =>
     expect(agent.getRunStats().toolResults).toEqual([
       { name: REGISTERED, isError: true, content: OBSERVED },
     ]);
+  });
+
+  it('truncates at the cap from the agent CONFIG, not at the default', async () => {
+    // The only cell that fails if `recordRunStats` stops passing the configured cap: every other
+    // spec calls `accumulateMessage` with the cap by hand, and the parameter defaults to the
+    // constant, so a dropped argument records the full payload here while the suite stays green.
+    // A success status keeps the error-body recovery out of this cell, so it pins the content site
+    // alone; the cell below pins the error-body site through the same wiring.
+    const agent = new TestAgent(() => {});
+    const payload = 'p'.repeat(100);
+    agent.useGraphWithConfig(createMcpErrorGraph(payload, 'read_file', 'success'), {
+      toolResultCaptureMaxBytes: 40,
+    });
+
+    agent.resetRunStats();
+    await agent.invoke([new HumanMessage('read it')], runConfig);
+
+    const record = agent.getRunStats().toolResults![0];
+    expect(Buffer.byteLength(record.content!)).toBe(40);
+    expect(record.contentTruncated).toBe(true);
+    expect(record.contentOriginalBytes).toBe(100);
+    expect(record.errorPayload).toBeUndefined();
+  });
+
+  it('recovers an MCP error body at the cap from the agent CONFIG, not at the default', async () => {
+    // A body the default cap drops, recovered only because the configured cap reached it. If
+    // `recordRunStats` stopped passing the cap into the error-body site, this field stays absent
+    // while the content-truncation cell above stays green.
+    const body = `{"reason":"${'z'.repeat(TOOL_RESULT_CONTENT_CAP)}"}`;
+    expect(Buffer.byteLength(body)).toBeGreaterThan(TOOL_RESULT_CONTENT_CAP);
+    const observed = `MCP tool 'contract_search' on server 'unimarket' returned an error: ${body}`;
+    const agent = new TestAgent(() => {});
+    agent.useGraphWithConfig(createMcpErrorGraph(observed, 'mcp__unimarket__contract_search'), {
+      mcpServers: { unimarket: { command: 'node', args: ['server.js'] } },
+      toolResultCaptureMaxBytes: Buffer.byteLength(body),
+    });
+
+    agent.resetRunStats();
+    await agent.invoke([new HumanMessage('search the contracts')], runConfig);
+
+    expect(agent.getRunStats().toolResults![0].errorPayload).toBe(body);
   });
 });

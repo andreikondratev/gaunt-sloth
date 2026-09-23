@@ -225,6 +225,41 @@ truncates the file the model is reasoning about, and `previewLines` set to save 
 
 A fractional depth is rounded down. A negative or non-numeric one falls back to the next level.
 
+## Recorded tool-result size (toolResultCaptureMaxBytes)
+
+A search tool returns a payload several times larger than you expected, and a `tool_result_json_path`
+assertion on it fails — not because the server answered in prose, but because the recorded copy was
+cut off. The reason names `toolResultCaptureMaxBytes` and the number of bytes the tool returned.
+Raise the cap to that, or past it:
+
+```json
+{ "toolResultCaptureMaxBytes": 65536 }
+```
+
+This is the third of three stages, and it caps a different thing from the other two. What the model
+receives is capped per tool, by
+[`maxOutputBytes`](tools.md#general-purpose-shell-tool-run_shell_command) and
+[`maxBytes`](tools.md#github-file-reads-during-a-pr-review-gth_gh_read_file). What you see drawn
+under a tool's summary is capped by
+[`toolOutputPreviewLines`](#tool-output-preview-depth-tooloutputpreviewlines) above. This key caps
+what is **recorded** — the copy that lands in run stats and that `gth eval` grades — and the model
+has already seen the whole result by then. Setting it does not change the model's context, and it
+does not change the preview.
+
+The unit is UTF-8 bytes. The default is 8192, applied when the value is read, so a config that never
+sets the key records exactly what it recorded before and prints no new key. A longer payload is cut
+on a character boundary, so the recorded prefix is always valid text and can land a few bytes under
+the cap; the record carries the original size, which is the number the failure reason quotes. An MCP
+error body over the cap is dropped whole rather than recovered half-cut, because a cut JSON document
+does not parse — that threshold is this key, so raising it recovers error bodies the default would
+have dropped.
+
+`0` is rejected, not "no cap". [`toolOutputPreviewLines`](#tool-output-preview-depth-tooloutputpreviewlines)
+uses `0` to mean the minimum, and the same number meaning the opposite here would be a trap; someone
+who wants no practical cap sets a large number, and the cost stays visible in the config. Negatives
+and fractions are rejected too — a byte budget is a positive whole number. The key is top level,
+because the cap applies to every recorded result, MCP ones included, rather than to one built-in tool.
+
 ## Colour (useColour, NO_COLOR, FORCE_COLOR)
 
 Turn colour off for a single run, without touching your config:

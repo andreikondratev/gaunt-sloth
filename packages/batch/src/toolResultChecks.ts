@@ -25,8 +25,11 @@ import type { ToolResultRecord } from '#src/types.js';
  * - `toolResultJsonPath` — each entry passes iff **at least one** result from a tool matching its
  *   `tool` pattern satisfies it: the payload parses as JSON, the `path` resolves, and (when set)
  *   `equals` deep-equals / `contains` substring-matches the resolved value. A non-JSON (or absent)
- *   payload is a deterministic per-result FAIL, never a throw — note capture caps payloads
- *   (`TOOL_RESULT_CONTENT_CAP`), so a truncated over-cap payload also fails as non-JSON.
+ *   payload is a deterministic per-result FAIL, never a throw. A payload capture cut at
+ *   `toolResultCaptureMaxBytes` fails too, with its own reason naming that key, even when the
+ *   cut prefix still parses — the cut is recorded on the result at capture (`contentTruncated`),
+ *   and this check reads that record rather than inferring the cut from the stored length or from
+ *   a parse of the prefix.
  *   (BATCH-43) The payload it reads is the result's `errorPayload` when capture recovered one — an
  *   errored MCP tool's own error body, freed from the adapter's prose prefix — and otherwise the
  *   observed `content`, which is left exactly as the model saw it in either case.
@@ -85,6 +88,27 @@ function checkToolResultJsonPath(
   return `${label}: ${[...reasons].join('; ')}`;
 }
 
+/**
+ * BATCH-49 — the reason a payload that capture cut gets, distinct from the one a prose payload
+ * gets.
+ *
+ * The two used to share `result payload is not JSON`, which sent the person reading it to the
+ * server when the cut had happened here. The wording names `toolResultCaptureMaxBytes` because
+ * that is the key to raise, and it quotes the original size when capture recorded one, because a
+ * reason that only names the key still leaves the new value to be guessed. The original size is
+ * optional in the wording only: a record written before the field existed still has to produce a
+ * reason that names the key.
+ */
+function truncatedPayloadReason(originalBytes: number | undefined): string {
+  const measured =
+    typeof originalBytes === 'number' ? ` (the tool returned ${originalBytes} bytes)` : '';
+  return (
+    'result payload was truncated at toolResultCaptureMaxBytes' +
+    measured +
+    ' and is no longer JSON; raise toolResultCaptureMaxBytes to capture it whole'
+  );
+}
+
 /** Evaluate ONE tool result against ONE check: `undefined` = satisfied, else the failure reason.
  * Deterministic and throw-free: a non-JSON/absent payload is a reason, not an exception. */
 function evaluateResultAgainstCheck(
@@ -97,7 +121,19 @@ function evaluateResultAgainstCheck(
   // and it is only ever recorded when it parses, so this branch cannot introduce a new failure —
   // when it is absent (any non-MCP result, or an MCP error whose body is prose) the reason below
   // is the same deterministic one the check has always given.
+  // The recovered body is graded when capture produced one; it is only recorded when it
+  // parsed, so this branch never sees a truncated `errorPayload` — an over-cap body is dropped
+  // whole rather than cut. The truncation flag is about `content`, and it is only consulted when
+  // `content` is what is being graded.
+  const gradingContent = result.errorPayload === undefined;
   const payload = result.errorPayload ?? result.content ?? '';
+  // Consult the flag before the parse. A cut between array elements leaves valid JSON that is
+  // not what the tool returned, and grading that prefix would pass a payload the server did not
+  // send. `errorPayload` is only recorded when it parsed whole, so a truncated observed payload
+  // must not turn that recovered body into a truncation failure.
+  if (gradingContent && result.contentTruncated) {
+    return truncatedPayloadReason(result.contentOriginalBytes);
+  }
   let root: unknown;
   try {
     root = JSON.parse(payload.trim());

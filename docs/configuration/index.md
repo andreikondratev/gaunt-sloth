@@ -40,7 +40,7 @@ and tune. From there, follow the page for whatever you want to set up:
 | [MCP servers](mcp.md) | Connecting MCP servers, including remote OAuth and TLS trust. |
 | [Content sources](content-sources.md) | Pulling review requirements from GitHub issues or Jira, and change-requirements discovery. |
 | [Prompts](prompts.md) | The `prompts` object — guidelines, review, system and the other prompt segments, and scoping them to paths. |
-| [Output & files](output.md) | Where and whether `gth` writes output, run headers, end-of-run recaps, logging, colour, and redaction. |
+| [Output & files](output.md) | Where and whether `gth` writes output, run headers, end-of-run recaps, logging, colour, redaction, and how much of a tool result is recorded. |
 | [Profiles & runtime](profiles.md) | Named identity profiles, subagents, the AG-UI server, and the agent backend. |
 | [Interactive sessions](../guides/interactive-sessions.md#setting-it-yourself-the-autocompact-key) | The `autocompact` key — the conversation size at which a session folds its own history. |
 

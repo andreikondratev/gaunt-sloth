@@ -130,6 +130,111 @@ describe('runToolResultChecks — tool_result_json_path', () => {
     expect(failures).toEqual([]);
   });
 
+  // BATCH-49 — a cut payload and a prose payload must fail with reasons neither of which fits
+  // the other. Asserting each contains a private substring is what makes that hold: a message
+  // worded to satisfy both would still have to carry both substrings, and these two assert the
+  // absence of the other.
+  it('fails a truncated payload and a prose payload with different reasons', async () => {
+    const { runToolResultChecks } = await import('#src/toolResultChecks.js');
+    const check = {
+      mustError: [],
+      toolResultJsonPath: [{ tool: 'search', path: 'hits' }],
+    };
+    const truncated = runToolResultChecks(
+      [
+        {
+          name: 'search',
+          isError: false,
+          content: '{"hits":[',
+          contentTruncated: true,
+          contentOriginalBytes: 20000,
+        },
+      ],
+      check
+    );
+    const prose = runToolResultChecks(
+      [{ name: 'search', isError: false, content: 'here are the hits, in prose' }],
+      check
+    );
+
+    expect(truncated).toHaveLength(1);
+    expect(prose).toHaveLength(1);
+    expect(truncated[0]).toContain('toolResultCaptureMaxBytes');
+    expect(truncated[0]).toContain('20000');
+    expect(truncated[0]).not.toContain('result payload is not JSON');
+    expect(prose[0]).toContain('result payload is not JSON');
+    expect(prose[0]).not.toContain('toolResultCaptureMaxBytes');
+    expect(truncated[0]).not.toBe(prose[0]);
+  });
+
+  it('fails a truncated payload that still parses, naming the key rather than grading the prefix', async () => {
+    // A cut between array elements leaves valid JSON that is not what the tool returned. Grading
+    // that prefix would pass the check on a payload the server did not send.
+    const { runToolResultChecks } = await import('#src/toolResultChecks.js');
+    const failures = runToolResultChecks(
+      [
+        {
+          name: 'search',
+          isError: false,
+          content: '[1]',
+          contentTruncated: true,
+          contentOriginalBytes: 9000,
+        },
+      ],
+      { mustError: [], toolResultJsonPath: [{ tool: 'search', path: '[0]', equals: 1 }] }
+    );
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain('toolResultCaptureMaxBytes');
+    expect(failures[0]).toContain('9000');
+    expect(failures[0]).not.toContain('result payload is not JSON');
+  });
+
+  it('names the key even when the original size was not recorded', async () => {
+    // A record from a capture that predates the size field still has to point at the key.
+    const { runToolResultChecks } = await import('#src/toolResultChecks.js');
+    const failures = runToolResultChecks(
+      [{ name: 'search', isError: false, content: '{"hits":[', contentTruncated: true }],
+      { mustError: [], toolResultJsonPath: [{ tool: 'search', path: 'hits' }] }
+    );
+    expect(failures[0]).toContain('toolResultCaptureMaxBytes');
+    expect(failures[0]).not.toContain('result payload is not JSON');
+  });
+
+  it('grades a recovered error body even when the observed payload was truncated', async () => {
+    // The flag is about `content`. `errorPayload` is only recorded when it parsed, so a truncated
+    // observed payload must not turn a gradable recovered body into a truncation failure.
+    const { runToolResultChecks } = await import('#src/toolResultChecks.js');
+    const failures = runToolResultChecks(
+      [
+        {
+          name: 'mcp__x__y',
+          isError: true,
+          content: 'MCP tool \'y\' on server \'x\' returned an error: {"code":"forbidden"',
+          contentTruncated: true,
+          contentOriginalBytes: 9000,
+          errorPayload: '{"code":"forbidden"}',
+        },
+      ],
+      {
+        mustError: [],
+        toolResultJsonPath: [{ tool: 'mcp__x__*', path: 'code', equals: 'forbidden' }],
+      }
+    );
+    expect(failures).toEqual([]);
+  });
+
+  it('passes a valid JSON payload shorter than the cap (nothing that passes today starts failing)', async () => {
+    const { runToolResultChecks } = await import('#src/toolResultChecks.js');
+    const failures = runToolResultChecks(
+      [{ name: 'search', isError: false, content: '{"hits":[1,2,3]}' }],
+      {
+        mustError: [],
+        toolResultJsonPath: [{ tool: 'search', path: 'hits[0]', equals: 1 }],
+      }
+    );
+    expect(failures).toEqual([]);
+  });
+
   it('fails deterministically (no throw) on a NON-JSON payload', async () => {
     const { runToolResultChecks } = await import('#src/toolResultChecks.js');
     const failures = runToolResultChecks([result('t', true, 'Error: access denied')], {

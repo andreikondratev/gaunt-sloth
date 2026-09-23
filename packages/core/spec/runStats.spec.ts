@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages';
 import {
   accumulateMessage,
+  capToolResultText,
   createRunStatsAccumulator,
   extractRunStats,
   finalizeRunStats,
@@ -140,7 +141,9 @@ describe('core/runStats', () => {
     ]);
   });
 
-  it(`caps a giant tool payload at TOOL_RESULT_CONTENT_CAP (${TOOL_RESULT_CONTENT_CAP}) chars`, () => {
+  it(`caps a giant ASCII tool payload at TOOL_RESULT_CONTENT_CAP (${TOOL_RESULT_CONTENT_CAP}) bytes`, () => {
+    // ASCII, so a byte and a character are the same size and the cut lands exactly on the cap —
+    // the behaviour this capture had before the unit changed, pinned so the change cannot move it.
     const acc = createRunStatsAccumulator();
     const giant = 'x'.repeat(TOOL_RESULT_CONTENT_CAP + 1000);
     accumulateMessage(
@@ -149,8 +152,133 @@ describe('core/runStats', () => {
     );
     const stats = finalizeRunStats(acc);
     expect(stats.toolResults).toHaveLength(1);
-    expect(stats.toolResults![0].content).toHaveLength(TOOL_RESULT_CONTENT_CAP);
-    expect(stats.toolResults![0].content).toBe(giant.slice(0, TOOL_RESULT_CONTENT_CAP));
+    const record = stats.toolResults![0];
+    expect(Buffer.byteLength(record.content!)).toBe(TOOL_RESULT_CONTENT_CAP);
+    expect(record.content).toBe(giant.slice(0, TOOL_RESULT_CONTENT_CAP));
+    // The cut is recorded AT capture, with the size the tool actually returned.
+    expect(record.contentTruncated).toBe(true);
+    expect(record.contentOriginalBytes).toBe(Buffer.byteLength(giant));
+  });
+
+  it('records no truncation fields when the payload fits the cap', () => {
+    const acc = createRunStatsAccumulator();
+    accumulateMessage(
+      acc,
+      new ToolMessage({ content: 'short', tool_call_id: 'c1', name: 'read_file' })
+    );
+    expect(finalizeRunStats(acc).toolResults).toEqual([
+      { name: 'read_file', isError: false, content: 'short' },
+    ]);
+  });
+
+  // BATCH-49 — the configured cap, not the constant, is what the capture applies. A cell that only
+  // asserted against the default could not tell a wired key from a hardcoded one.
+  it('truncates at the configured capture cap rather than at 8192', () => {
+    const acc = createRunStatsAccumulator();
+    const payload = 'y'.repeat(100);
+    accumulateMessage(
+      acc,
+      new ToolMessage({ content: payload, tool_call_id: 'c1', name: 'read_file' }),
+      [],
+      40
+    );
+    const record = finalizeRunStats(acc).toolResults![0];
+    expect(Buffer.byteLength(record.content!)).toBe(40);
+    expect(record.content).toBe(payload.slice(0, 40));
+    expect(record.contentTruncated).toBe(true);
+    expect(record.contentOriginalBytes).toBe(100);
+    // And the default is untouched: the same payload under no configured cap is stored whole.
+    const uncapped = createRunStatsAccumulator();
+    accumulateMessage(
+      uncapped,
+      new ToolMessage({ content: payload, tool_call_id: 'c1', name: 'read_file' })
+    );
+    expect(finalizeRunStats(uncapped).toolResults![0].content).toBe(payload);
+  });
+
+  it('cuts on a character boundary, so a budget landing mid-character still decodes', () => {
+    // U+1F426 (a bird) encodes as four UTF-8 bytes, F0 9F 90 A6. A cap of 2 would land two bytes
+    // inside it; the cut must end before the character, not inside it. `codePointAt` is the pin a
+    // U+FFFD check is not: a truncated lead byte decodes as U+FFFD, and so does a genuine U+FFFD a
+    // payload was allowed to contain, whereas a kept code point that is not in the original is a
+    // split whatever the replacement character is.
+    const bird = '\u{1F426}';
+    expect(Buffer.byteLength(bird)).toBe(4);
+    const text = `ok${bird}tail`;
+    const capped = capToolResultText(text, 4);
+    expect(capped.truncated).toBe(true);
+    expect(capped.text).toBe('ok');
+    expect(Buffer.byteLength(capped.text)).toBeLessThanOrEqual(4);
+    expect(text.startsWith(capped.text)).toBe(true);
+    expect(Buffer.from(capped.text).toString('utf8')).toBe(capped.text);
+    for (let i = 0; i < capped.text.length;) {
+      const point = capped.text.codePointAt(i)!;
+      expect(text.codePointAt(i)).toBe(point);
+      i += point > 0xffff ? 2 : 1;
+    }
+    expect(capped.originalBytes).toBe(Buffer.byteLength(text));
+
+    // The boundary case the walk exists for: the budget ends ON the lead byte of a 2-byte
+    // character (U+00E9 is C3 A9). A cut that includes that lead emits a code point the original
+    // does not contain at that index.
+    const accented = 'caf\u00e9';
+    expect(Buffer.from(accented)).toEqual(Buffer.from([0x63, 0x61, 0x66, 0xc3, 0xa9]));
+    const onLead = capToolResultText(accented, 4);
+    expect(onLead.text).toBe('caf');
+    expect(accented.startsWith(onLead.text)).toBe(true);
+    expect(onLead.text.codePointAt(onLead.text.length - 1)).toBe(accented.codePointAt(2));
+
+    // The same cut through the capture, at a configured cap, lands on the record.
+    const acc = createRunStatsAccumulator();
+    accumulateMessage(
+      acc,
+      new ToolMessage({ content: text, tool_call_id: 'c1', name: 'read_file' }),
+      [],
+      4
+    );
+    const record = finalizeRunStats(acc).toolResults![0];
+    expect(record.content).toBe('ok');
+    expect(record.contentTruncated).toBe(true);
+    expect(Buffer.from(record.content!).toString('utf8')).toBe(record.content);
+  });
+
+  it('applies the configured cap to the recovered MCP error body too', () => {
+    // A body the default cap would recover, and a small configured cap must drop — the two capture
+    // sites share one budget, so raising or lowering the key moves both.
+    const body = `{"reason":"${'z'.repeat(60)}"}`;
+    expect(Buffer.byteLength(body)).toBeGreaterThan(40);
+    expect(Buffer.byteLength(body)).toBeLessThan(TOOL_RESULT_CONTENT_CAP);
+    const observed = `MCP tool 'contract_search' on server 'unimarket' returned an error: ${body}`;
+
+    const atDefault = createRunStatsAccumulator();
+    accumulateMessage(
+      atDefault,
+      new ToolMessage({
+        content: observed,
+        tool_call_id: 'c1',
+        name: 'mcp__unimarket__contract_search',
+        status: 'error',
+      }),
+      ['unimarket']
+    );
+    expect(finalizeRunStats(atDefault).toolResults![0].errorPayload).toBe(body);
+
+    const atSmallCap = createRunStatsAccumulator();
+    accumulateMessage(
+      atSmallCap,
+      new ToolMessage({
+        content: observed,
+        tool_call_id: 'c1',
+        name: 'mcp__unimarket__contract_search',
+        status: 'error',
+      }),
+      ['unimarket'],
+      40
+    );
+    const record = finalizeRunStats(atSmallCap).toolResults![0];
+    expect(record.errorPayload).toBeUndefined();
+    expect(record.contentTruncated).toBe(true);
+    expect(Buffer.byteLength(record.content!)).toBeLessThanOrEqual(40);
   });
 
   it('records no toolResult for a ToolMessage without a usable name (matches name capture)', () => {
@@ -251,7 +379,10 @@ describe('core/runStats', () => {
       ['unimarket']
     );
     const record = finalizeRunStats(acc).toolResults![0];
-    expect(record.content).toHaveLength(TOOL_RESULT_CONTENT_CAP);
+    // ASCII, so the byte cap and the old character cap land on the same character — pinned in
+    // bytes now, because that is the unit the cap counts.
+    expect(Buffer.byteLength(record.content!)).toBe(TOOL_RESULT_CONTENT_CAP);
+    expect(record.contentTruncated).toBe(true);
     expect(record.errorPayload).toBeUndefined();
   });
 

@@ -138,16 +138,34 @@ export interface GthRunStats {
 /**
  * BATCH-21 — one executed tool call's result, harvested from its `ToolMessage` by the GS2-16
  * run-stats accumulator (`core/runStats.ts`). Fail-soft like everything else there: `content` is
- * omitted when no text payload could be derived, and is size-capped
- * ({@link @gaunt-sloth/core!core/runStats.TOOL_RESULT_CONTENT_CAP | TOOL_RESULT_CONTENT_CAP}) so a giant payload can't bloat run stats.
+ * omitted when no text payload could be derived, and is size-capped in UTF-8 bytes
+ * ({@link @gaunt-sloth/core!core/runStats.TOOL_RESULT_CONTENT_CAP | TOOL_RESULT_CONTENT_CAP}, overridable by
+ * `toolResultCaptureMaxBytes`) so a giant payload can't bloat run stats.
  */
 export interface GthToolResult {
   /** The tool that produced the result (`ToolMessage.name`). */
   name: string;
   /** `true` iff the result carried LangChain's real error signal (`ToolMessage.status === 'error'`). */
   isError: boolean;
-  /** The result payload as text (a non-string payload is JSON-stringified), capped in length. */
+  /**
+   * The result payload as text (a non-string payload is JSON-stringified), capped in UTF-8 bytes
+   * at capture. When the cap cut it, this is a character-boundary prefix of what the tool returned
+   * and {@link contentTruncated} says so — the stored string alone cannot, because a cut can land
+   * up to three bytes under the cap.
+   */
   content?: string;
+  /**
+   * BATCH-49 — `true` iff {@link content} was cut at the capture cap. Recorded at capture, never
+   * inferred from the stored length, and absent (not `false`) when nothing was cut, so a record
+   * that fitted is identical to one captured before this field existed.
+   */
+  contentTruncated?: boolean;
+  /**
+   * BATCH-49 — {@link content}'s size in UTF-8 bytes BEFORE the cap cut it. Present only together
+   * with {@link contentTruncated}: it is the number a person needs in order to choose a new
+   * `toolResultCaptureMaxBytes`, which the stored prefix's length cannot supply.
+   */
+  contentOriginalBytes?: number;
   /**
    * BATCH-43 — an errored MCP tool's own error body, recovered from {@link content} and recorded
    * **beside** it, never in place of it: `content` stays byte-identical to what the model observed,

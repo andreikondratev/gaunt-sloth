@@ -14,12 +14,86 @@ import { mcpToolErrorPayload } from '#src/core/mcpErrorPayload.js';
 import type { GthRunStats, GthToolResult } from '#src/core/types.js';
 
 /**
- * BATCH-21 — cap on a captured tool-result `content` (characters). Keeps a giant payload (a whole
- * file read, a long shell log) from bloating run stats; anything longer is truncated to this
- * length. Sized so realistic structured payloads (the `gth eval` tool-result-assertion use case)
- * survive intact.
+ * BATCH-21 / BATCH-49 — the DEFAULT cap on a captured tool-result payload, in **UTF-8 bytes**.
+ *
+ * Deliberately bytes, and deliberately a change from the character count this used to be. The cap
+ * was applied to `text.length`, which counts UTF-16 code units, while every user-facing sentence
+ * about it said "8 KB" — exact only for ASCII, and a different size from the one the code cut at
+ * the moment a payload contained a character outside the ASCII range. Measuring UTF-8 bytes is what
+ * those sentences already claimed, and it is the unit both neighbouring caps
+ * (`builtInTools.<tool>.maxOutputBytes` / `maxBytes`) already use, so one number now means one size
+ * to the person setting it and to the code applying it. An ASCII payload behaves exactly as it did
+ * at this default; a non-ASCII one is cut somewhat earlier, which is the size the docs promised.
+ *
+ * This constant is the default's single source. A configured `toolResultCaptureMaxBytes` overrides
+ * it at the read site (`resolveToolResultCaptureMaxBytes`); nothing else may restate the number.
  */
 export const TOOL_RESULT_CONTENT_CAP = 8192;
+
+/**
+ * BATCH-49 — one captured payload after the cap has been applied: the text that is safe to store,
+ * and whether the cap is what produced it.
+ *
+ * `truncated` is recorded HERE, at capture, rather than inferred later from the stored length. The
+ * cut is on a character boundary (see {@link capToolResultText}), so a truncated payload can land
+ * up to three bytes under the cap, and `.length` does not count bytes at all — a check that
+ * compared the stored length with the cap would both miss real truncations and fire on a payload
+ * that merely happened to be the same length. The capture site is the only place that still holds
+ * the original, so it is the only place the fact can be recorded honestly.
+ */
+export interface CappedToolResultText {
+  /** The payload as stored: the original when it fitted, the character-boundary prefix when it did not. */
+  text: string;
+  /** `true` iff `text` is a prefix of a longer payload — the cap is what cut it. */
+  truncated: boolean;
+  /**
+   * The original payload's size in UTF-8 bytes, recorded only when {@link truncated} is `true`.
+   *
+   * This is the number a person needs in order to choose a new cap: the stored prefix's length
+   * cannot say how far short the cut fell, and a reason string that only names the key still
+   * leaves them guessing what to raise it to.
+   */
+  originalBytes?: number;
+}
+
+/**
+ * BATCH-49 — apply `maxBytes` to `text`, cutting on a character boundary so the stored prefix is
+ * always valid UTF-8.
+ *
+ * A byte cap applied as `slice` would split a multi-byte character: UTF-8 encodes one code point
+ * in up to four bytes, and a cut that lands inside one yields a string that does not decode. So
+ * the cut walks back to the start of the character the byte budget ran out inside, which means a
+ * truncated payload can be up to three bytes *under* the cap and is never over it. A payload that
+ * fits is returned unchanged, with `truncated: false` and no `originalBytes` — absence is the
+ * record of "nothing was cut", and recording a size on every result would bloat the very trace
+ * the cap exists to bound.
+ *
+ * `maxBytes` is a positive integer by the time it arrives here: the config schema rejects
+ * anything else, and the read site substitutes {@link TOOL_RESULT_CONTENT_CAP} for an absent key.
+ * Zero is not "unlimited" and is not handled here — see the schema comment for why.
+ */
+export function capToolResultText(text: string, maxBytes: number): CappedToolResultText {
+  const encoded = Buffer.from(text);
+  if (encoded.length <= maxBytes) return { text, truncated: false };
+
+  // A continuation byte is 10xxxxxx. `encoded[maxBytes]` is the first byte that does not fit. When
+  // it is a continuation, the character started inside the budget; walk back onto its lead and end
+  // the prefix BEFORE that lead. `subarray` is exclusive, so stopping ON the lead is what drops it:
+  // including the lead emits a truncated code point, and `toString` on that sequence substitutes
+  // U+FFFD and still "decodes", which is a split papered over rather than avoided. A lead or an ASCII
+  // byte at `encoded[maxBytes]` is already a character boundary, so the walk does not move and the
+  // cut stays at the budget. The prefix is a genuine prefix of `text`, up to three bytes under the
+  // cap, and never over it.
+  let end = maxBytes;
+  while (end > 0 && (encoded[end] & 0xc0) === 0x80) {
+    end -= 1;
+  }
+  return {
+    text: encoded.subarray(0, end).toString('utf8'),
+    truncated: true,
+    originalBytes: encoded.length,
+  };
+}
 
 /** Mutable tally behind {@link finalizeRunStats}; see {@link createRunStatsAccumulator}. */
 export interface RunStatsAccumulator {
@@ -43,9 +117,9 @@ export function createRunStatsAccumulator(): RunStatsAccumulator {
 /**
  * BATCH-21 — derive a tool result's text payload from a `ToolMessage.content`, fail-soft. A string
  * passes through; anything else non-`undefined` is JSON-stringified (the same derivation the
- * `tool_result` stream event uses in `GthAbstractAgent`); the result is capped at
- * {@link TOOL_RESULT_CONTENT_CAP}. Returns `undefined` (payload omitted) when nothing textual can
- * be derived — never throws.
+ * `tool_result` stream event uses in `GthAbstractAgent`); the result is capped at `maxBytes`
+ * UTF-8 bytes (see {@link capToolResultText}). Returns `undefined` (payload omitted) when nothing
+ * textual can be derived — never throws.
  *
  * **A single content block is captured as the block, NOT unwrapped to its inner text — deliberately.**
  * The alternative (unwrap a lone `{type:'text',text}` so an eval's `tool_result_json_path` reaches
@@ -63,7 +137,10 @@ export function createRunStatsAccumulator(): RunStatsAccumulator {
  * - It would not help the case this capture exists for anyway: a SOFTENED MCP error's payload is
  *   the adapter's own error message (prose, then the server's text), so it is not JSON at any hop.
  */
-function toolResultContentText(content: unknown): string | undefined {
+function toolResultContentText(
+  content: unknown,
+  maxBytes: number
+): CappedToolResultText | undefined {
   try {
     let text: string | undefined;
     if (typeof content === 'string') {
@@ -72,7 +149,7 @@ function toolResultContentText(content: unknown): string | undefined {
       text = JSON.stringify(content);
     }
     if (text === undefined) return undefined;
-    return text.length > TOOL_RESULT_CONTENT_CAP ? text.slice(0, TOOL_RESULT_CONTENT_CAP) : text;
+    return capToolResultText(text, maxBytes);
   } catch {
     /* fail-soft: an unstringifiable payload just means no content is recorded */
     return undefined;
@@ -92,11 +169,18 @@ function toolResultContentText(content: unknown): string | undefined {
  * errored MCP tool belongs to (BATCH-43; see the record's `errorPayload`). It is passed per fold
  * rather than held on the accumulator so this never depends on the accumulator being re-created
  * after the config is known — the default leaves every non-MCP capture exactly as it was.
+ *
+ * `captureMaxBytes` is the same kind of argument, for the same reason (BATCH-49): the cap is a
+ * config value (`toolResultCaptureMaxBytes`, defaulted at the read site), and holding it on the
+ * accumulator would tie every fold to the accumulator having been rebuilt after the config was
+ * known. The default is {@link TOOL_RESULT_CONTENT_CAP}, so a caller that predates the argument
+ * caps exactly where it always did.
  */
 export function accumulateMessage(
   acc: RunStatsAccumulator,
   message: unknown,
-  configuredMcpServers: Iterable<string> = []
+  configuredMcpServers: Iterable<string> = [],
+  captureMaxBytes: number = TOOL_RESULT_CONTENT_CAP
 ): void {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -132,24 +216,33 @@ export function accumulateMessage(
       // `.status === 'error'` is LangChain's real tool-error signal, `.content` the returned
       // payload (capped; omitted when no text can be derived). One record per ToolMessage, in
       // arrival order — deliberately NOT deduplicated, unlike the name set above.
-      const content = toolResultContentText(m.content);
+      const captured = toolResultContentText(m.content, captureMaxBytes);
       // BATCH-43 — beside the observed payload, never instead of it: an errored MCP tool's result
       // is the adapter's own prose-prefixed message, which `tool_result_json_path` cannot parse.
       // `mcpToolErrorPayload` rebuilds that prefix from the resolved server + tool name and strips
       // it, yielding the server's own error body when (and only when) it is JSON. Derived from the
-      // RAW `m.content`, not from the capped `content` above — deriving after the cap would work on
-      // every payload short enough to test with and silently stop working on the long ones. The cap
-      // is applied inside, to the derived payload, for the reason its docblock gives.
+      // RAW `m.content`, not from the capped `captured` above — deriving after the cap would work
+      // on every payload short enough to test with and silently stop working on the long ones. The
+      // SAME cap is applied inside, to the derived payload: the two fields share one budget, so a
+      // raised `toolResultCaptureMaxBytes` recovers an error body the default would have dropped,
+      // and a lowered one drops one the default would have kept.
       const isError = m.status === 'error';
       const errorPayload = mcpToolErrorPayload(
         { name: m.name, isError, content: m.content },
         configuredMcpServers,
-        TOOL_RESULT_CONTENT_CAP
+        captureMaxBytes
       );
+      // BATCH-49 — the truncation fact rides the record, recorded at this capture rather than
+      // inferred later from the stored length (see {@link CappedToolResultText}). `contentTruncated`
+      // is present only when the cap cut something, so a record that fitted is byte-identical to the
+      // one this capture produced before the field existed.
       acc.toolResults.push({
         name: m.name,
         isError,
-        ...(content !== undefined ? { content } : {}),
+        ...(captured !== undefined ? { content: captured.text } : {}),
+        ...(captured?.truncated
+          ? { contentTruncated: true, contentOriginalBytes: captured.originalBytes }
+          : {}),
         ...(errorPayload !== undefined ? { errorPayload } : {}),
       });
     }
@@ -174,12 +267,13 @@ export function finalizeRunStats(acc: RunStatsAccumulator): GthRunStats {
  */
 export function extractRunStats(
   messages: unknown,
-  configuredMcpServers: Iterable<string> = []
+  configuredMcpServers: Iterable<string> = [],
+  captureMaxBytes: number = TOOL_RESULT_CONTENT_CAP
 ): GthRunStats {
   const acc = createRunStatsAccumulator();
   try {
     if (Array.isArray(messages)) {
-      for (const m of messages) accumulateMessage(acc, m, configuredMcpServers);
+      for (const m of messages) accumulateMessage(acc, m, configuredMcpServers, captureMaxBytes);
     }
   } catch {
     /* fail-soft */

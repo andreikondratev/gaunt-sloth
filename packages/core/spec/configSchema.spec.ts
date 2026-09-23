@@ -452,6 +452,43 @@ describe('config schema (GS2-1 B1)', () => {
       expect(findUnknownTopLevelKeys({ llm: {}, toolLoopGuard: { halt: true } })).toEqual([]);
     });
 
+    // BATCH-49 — the recorded-payload cap. A positive integer is the whole vocabulary; 0 is
+    // rejected rather than read as "unlimited", because its neighbour uses 0 to mean the minimum.
+    it('accepts toolResultCaptureMaxBytes as a positive integer', () => {
+      expect(rawGthConfigSchema.safeParse({ toolResultCaptureMaxBytes: 65536 }).success).toBe(true);
+      expect(rawGthConfigSchema.safeParse({ toolResultCaptureMaxBytes: 1 }).success).toBe(true);
+    });
+
+    it.each([
+      ['zero', 0],
+      ['a negative', -1],
+      ['a fraction', 1.5],
+    ])('rejects toolResultCaptureMaxBytes when it is %s, naming the key', (_label, value) => {
+      const bad = rawGthConfigSchema.safeParse({ toolResultCaptureMaxBytes: value });
+      expect(bad.success).toBe(false);
+      if (!bad.success) {
+        const message = formatConfigValidationError(bad.error);
+        expect(message).toContain('toolResultCaptureMaxBytes');
+        expect(message).toContain('positive integer');
+      }
+    });
+
+    it('rejects a non-numeric toolResultCaptureMaxBytes with a message naming the key', () => {
+      const bad = rawGthConfigSchema.safeParse({ toolResultCaptureMaxBytes: '8192' });
+      expect(bad.success).toBe(false);
+      if (!bad.success) {
+        const message = formatConfigValidationError(bad.error);
+        // The path names the key, and so does the message body: a customised `expected number`
+        // that dropped the key's name would still pass a path-only assertion.
+        expect(message).toContain('toolResultCaptureMaxBytes');
+        expect(message).toContain('toolResultCaptureMaxBytes must be a positive integer');
+      }
+    });
+
+    it('treats toolResultCaptureMaxBytes as a known top-level key (no unknown-key warning)', () => {
+      expect(findUnknownTopLevelKeys({ llm: {}, toolResultCaptureMaxBytes: 65536 })).toEqual([]);
+    });
+
     // OPS-81 removed four cases here that schema-checked the on-disk `examples/` configs, along
     // with that directory — its content now lives inline in the configuration docs. The realistic
     // consumer configs below are declared in this file and cover the same shapes.

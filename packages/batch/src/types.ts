@@ -48,8 +48,24 @@ export interface ToolResultRecord {
   name: string;
   /** `true` iff the tool result carried the error status (LangChain `ToolMessage.status === 'error'`). */
   isError: boolean;
-  /** The result payload as text (non-string payloads JSON-stringified), size-capped at capture. */
+  /**
+   * The result payload as text (non-string payloads JSON-stringified), capped in UTF-8 bytes at
+   * capture. When the cap cut it, this is a character-boundary prefix and {@link contentTruncated}
+   * says so.
+   */
   content?: string;
+  /**
+   * BATCH-49 — `true` iff {@link content} was cut by the capture cap (`toolResultCaptureMaxBytes`).
+   * Recorded at capture in core and carried through unchanged — the check reads it rather than
+   * guessing from the stored length, which a character-boundary byte cut makes unreliable. Absent
+   * when nothing was cut.
+   */
+  contentTruncated?: boolean;
+  /**
+   * BATCH-49 — {@link content}'s size in UTF-8 bytes before the cap cut it. Present only together
+   * with {@link contentTruncated}; the number a person needs to choose a larger cap.
+   */
+  contentOriginalBytes?: number;
   /**
    * BATCH-43 — an errored MCP tool's own error body, recovered at capture and carried BESIDE
    * {@link content}, which stays exactly what the model observed. `tool_result_json_path` grades

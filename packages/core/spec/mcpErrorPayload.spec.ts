@@ -165,7 +165,7 @@ describe('core/mcpErrorPayload', () => {
   it('records the body when it sits exactly ON the cap', () => {
     const filler = 'x'.repeat(TOOL_RESULT_CONTENT_CAP - '{"reason":""}'.length);
     const exact = `{"reason":"${filler}"}`;
-    expect(exact).toHaveLength(TOOL_RESULT_CONTENT_CAP);
+    expect(Buffer.byteLength(exact)).toBe(TOOL_RESULT_CONTENT_CAP);
     const payload = mcpToolErrorPayload(
       {
         name: 'mcp__unimarket__contract_search',

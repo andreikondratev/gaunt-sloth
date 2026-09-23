@@ -102,7 +102,7 @@ export interface McpToolErrorPayloadInput {
  * - the message does not start with the computed prefix (a different adapter message — an invalid
  *   result, an unexpected content type — or an upstream reword);
  * - the remainder is not JSON, which is simply a server that formats its errors as prose;
- * - the remainder is longer than `maxLength`.
+ * - the remainder is longer than `maxBytes` UTF-8 bytes.
  *
  * That last one is a deliberate choice rather than a fallout. The observed payload is capped at
  * capture so a giant result cannot bloat run stats, and the same per-field bound has to apply here
@@ -111,17 +111,20 @@ export interface McpToolErrorPayloadInput {
  * beside a gradable one. But a JSON document cut off at the bound does not parse, so recording
  * a truncated one would spend the bytes, break the present-implies-parseable contract, and leave
  * the check failing anyway — while looking, to whoever reads the record, as though the recovery
- * had worked. Dropping it says the true thing instead.
+ * had worked. Dropping it says the true thing instead. The bound counts UTF-8 bytes, the same unit
+ * the observed-payload cap counts (BATCH-49) — a character count here would recover a body the
+ * other site had already cut, or drop one it had kept, for any payload outside ASCII.
  *
  * @param result The captured result: registered name, error status, and the untouched content.
  * @param configuredMcpServers `Object.keys(config.mcpServers)` — the user's own keys, and the only
  *   thing consulted when resolving which server this tool belongs to.
- * @param maxLength The same cap the observed payload is held to.
+ * @param maxBytes The same cap the observed payload is held to, in UTF-8 bytes. A body whose
+ *   encoded size is over it is dropped whole rather than cut — see the contract above.
  */
 export function mcpToolErrorPayload(
   result: McpToolErrorPayloadInput,
   configuredMcpServers: Iterable<string>,
-  maxLength: number
+  maxBytes: number
 ): string | undefined {
   if (!result.isError) return undefined;
   if (typeof result.content !== 'string') return undefined;
@@ -134,7 +137,7 @@ export function mcpToolErrorPayload(
   if (!result.content.startsWith(prefix)) return undefined;
 
   const payload = result.content.slice(prefix.length);
-  if (payload.length > maxLength) return undefined;
+  if (Buffer.byteLength(payload) > maxBytes) return undefined;
 
   try {
     JSON.parse(payload);

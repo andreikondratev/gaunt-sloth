@@ -376,6 +376,21 @@ export interface GthConfig {
    */
   toolOutputPreviewLines?: number;
   /**
+   * BATCH-49 — how many UTF-8 bytes of a tool result are recorded into run stats and eval results.
+   *
+   * **The recorded stage, not the other two.** `builtInTools.<tool>.maxOutputBytes` / `maxBytes`
+   * cap what a tool returns to the model, and {@link toolOutputPreviewLines} caps what is drawn;
+   * this caps what is stored, after the model has already seen the whole result. A longer payload
+   * is cut on a character boundary, and the record says so (`contentTruncated`).
+   *
+   * A positive integer. `0` is rejected rather than read as "unlimited": {@link toolOutputPreviewLines}
+   * uses `0` to mean the minimum, and the same number meaning the opposite here is the confusion
+   * the rejection exists to prevent. Absent, the read site applies `TOOL_RESULT_CONTENT_CAP`;
+   * the default is deliberately not in `DEFAULT_CONFIG`, so the effective-config snapshot does not
+   * grow a key nobody set.
+   */
+  toolResultCaptureMaxBytes?: number;
+  /**
    * Stream session log instead of writing it when inference streaming is complete.
    * (only works when {@link streamOutput} is true)
    */

@@ -19,6 +19,7 @@ import {
   StatusLevel,
   StatusUpdateCallback,
 } from '#src/core/types.js';
+import { resolveToolResultCaptureMaxBytes } from '#src/config/toolResultCapture.js';
 import {
   accumulateMessage,
   createRunStatsAccumulator,
@@ -631,9 +632,20 @@ export abstract class GthAbstractAgent implements GthAgentInterface {
    * from `this.config` at fold time rather than captured when the accumulator is created: the
    * accumulator is rebuilt at every turn boundary while the config is set once at `init`, and a
    * capture would silently record nothing for any turn whose ordering ever changed.
+   *
+   * BATCH-49 — `toolResultCaptureMaxBytes` rides the same argument, for the same reason: the cap
+   * is a config value, and reading it here at fold time means a turn boundary that rebuilds the
+   * accumulator cannot lose it. The default is applied at that read
+   * ({@link resolveToolResultCaptureMaxBytes}), not stored on the config, so the effective-config
+   * snapshot does not grow a key nobody set.
    */
   protected recordRunStats(message: unknown): void {
-    accumulateMessage(this.runStatsAcc, message, Object.keys(this.config?.mcpServers ?? {}));
+    accumulateMessage(
+      this.runStatsAcc,
+      message,
+      Object.keys(this.config?.mcpServers ?? {}),
+      resolveToolResultCaptureMaxBytes(this.config ?? undefined)
+    );
   }
 
   /**

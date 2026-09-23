@@ -81,4 +81,23 @@ describe('effective-merged acceptance (B2b)', () => {
 
     expect(resolved.output).toEqual({ header: 'debug' });
   });
+
+  /**
+   * BATCH-49 — `toolResultCaptureMaxBytes` is defaulted at the read site, same pattern as
+   * `output.header`. The consumer snapshot above would absorb a new key on the next re-record, so
+   * the absence is asserted by name, and a value the user did set is asserted to survive the merge.
+   */
+  it('adds no toolResultCaptureMaxBytes to the effective config of a config that never set it', () => {
+    const resolved = effective({ llm: { type: 'openai', model: 'gpt-5.4' } });
+    expect(resolved).not.toHaveProperty('toolResultCaptureMaxBytes');
+    expect(Object.keys(resolved)).not.toContain('toolResultCaptureMaxBytes');
+  });
+
+  it('still carries a toolResultCaptureMaxBytes the user DID set', () => {
+    const resolved = effective({
+      llm: { type: 'openai', model: 'gpt-5.4' },
+      toolResultCaptureMaxBytes: 65536,
+    });
+    expect(resolved.toolResultCaptureMaxBytes).toBe(65536);
+  });
 });

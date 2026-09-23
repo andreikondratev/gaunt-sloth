@@ -35,6 +35,7 @@
  * is additive and legitimately differs (no deprecated fields).
  */
 import { z } from 'zod';
+import { TOOL_RESULT_CONTENT_CAP } from '#src/core/runStats.js';
 
 // `constants.ts` is a plain, import-free string module, so this does NOT compromise the purity
 // this file depends on (it feeds `z.toJSONSchema` and must stay cwd/fs-independent).
@@ -1193,6 +1194,59 @@ export const rawGthConfigSchema = z.looseObject({
   // (`TOOL_OUTPUT_PREVIEW_LINES`), and the fallback collapses without it. This caps what is DRAWN,
   // never what the model receives. User docs: docs/configuration/output.md
   toolOutputPreviewLines: z.number().optional(),
+  // BATCH-49 — how many UTF-8 bytes of a tool result are RECORDED into run stats and eval results.
+  //
+  // The THIRD stage, and naming it is the point. `builtInTools.<tool>.maxOutputBytes` / `maxBytes`
+  // cap what the tool returns TO THE MODEL; `toolOutputPreviewLines` above caps what is DRAWN for
+  // the human. This key caps neither of those — the model has already seen the whole result, and
+  // the preview is drawn from that — it caps what is stored, which is what `tool_result_json_path`
+  // later grades. Reading it as a model-facing cap is the confusion a user cannot recover from,
+  // because nothing on screen would show the result the model never got.
+  //
+  // Unit: UTF-8 bytes, cut on a character boundary so the stored prefix stays valid UTF-8. That is
+  // a deliberate change from the character count the capture used to apply (`text.length`, UTF-16
+  // code units): the docs already said "8 KB", and a character count makes that sentence true only
+  // for ASCII.
+  //
+  // `0` is REJECTED, not "unlimited". `toolOutputPreviewLines: 0` means "the minimum" — the summary
+  // line alone — so a `0` that meant "no cap" here would be the opposite of what its neighbour
+  // means, and a person who has learned one would silently get the other. Someone who wants no
+  // practical cap sets a large number, and the cost stays visible in their config. Negatives and
+  // non-integers are rejected for the same reason: a byte budget that is not a whole number of
+  // bytes is not a budget. The message names the key, because a bare "expected integer" at the
+  // root does not say which setting refused the value.
+  //
+  // MUST stay `.optional()` with NO `.default()`: the default (`TOOL_RESULT_CONTENT_CAP`) is
+  // applied at the read site, and a default here would land in the effective-config snapshot for
+  // everyone who never set the key. The description interpolates that constant rather than
+  // restating the number, so the generated JSON Schema cannot drift from the capture code. Top
+  // level on purpose — not under `builtInTools` (per built-in tool, while this applies to every
+  // recorded result including MCP ones) and not under `mcpServers.<name>` (passed through to the
+  // MCP adapter unvalidated).
+  // User docs: docs/configuration/output.md
+  toolResultCaptureMaxBytes: z
+    .number({
+      error:
+        'toolResultCaptureMaxBytes must be a positive integer (a whole number of UTF-8 bytes).',
+    })
+    .int(
+      'toolResultCaptureMaxBytes must be a positive integer (a whole number of UTF-8 bytes). A ' +
+        'fraction is not a byte budget.'
+    )
+    .positive(
+      'toolResultCaptureMaxBytes must be a positive integer (a whole number of UTF-8 bytes, at ' +
+        'least 1). 0 is not "unlimited" — toolOutputPreviewLines uses 0 to mean the minimum, so a ' +
+        '0 here would mean the opposite of its neighbour; set a large number instead.'
+    )
+    .optional()
+    .meta({
+      description:
+        'UTF-8 bytes of a tool result recorded into run stats and eval results (default ' +
+        `${TOOL_RESULT_CONTENT_CAP}). Caps what is RECORDED, not what the model receives ` +
+        '(builtInTools.<tool>.maxOutputBytes / maxBytes) and not what is drawn ' +
+        '(toolOutputPreviewLines). A longer result is cut on a character boundary. 0 is rejected: ' +
+        'it is not "unlimited" — set a large number instead.',
+    }),
   // CFG-37 — persistent surface preference for the `chat`/`code` sessions: `true` asks for the Ink
   // TUI, `false` for the plain readline session. MUST stay `.optional()` for the same reason as
   // `useColour`/`useMouse`: absence is what distinguishes "the user chose readline" from "nobody
