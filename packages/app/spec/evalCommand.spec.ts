@@ -1984,6 +1984,24 @@ cases:
       expect(systemUtilsMock.setExitCode).toHaveBeenCalledWith(1);
     });
 
+    it('names each floor when both breach, so a reader can tell them apart', async () => {
+      fileUtilsMock.readFileFromProjectDir.mockImplementation(() =>
+        suiteCovering('read_file', 'tool_coverage: { min: 100 }')
+      );
+      floor({ min: 90 });
+
+      await runEval(['suite.yaml']);
+
+      const gateLines = warned().filter((line) => line.includes('covered 1/3 (33.3%)'));
+      expect(gateLines).toHaveLength(2);
+      expect(gateLines).toContainEqual(expect.stringMatching(/(^|[^.])min 100%: covered 1\/3/));
+      expect(gateLines).toContain(
+        'TOOL COVERAGE GATE FAILED — evalToolCoverage.min 90% from the project config: ' +
+          'covered 1/3 (33.3%)'
+      );
+      expect(systemUtilsMock.setExitCode).toHaveBeenCalledWith(1);
+    });
+
     it('a suite run alone states the threshold it was graded against and where it came from', async () => {
       fileUtilsMock.readFileFromProjectDir.mockImplementation(() => suiteCovering('read_file'));
       floor({ min: 10 });
