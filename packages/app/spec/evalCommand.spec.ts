@@ -1853,6 +1853,35 @@ cases:
       );
     });
 
+    it('names the -c file, not the -i profile, when both are given — -c is what the loader reads', async () => {
+      fileUtilsMock.readFileFromProjectDir.mockImplementation(() => suiteCovering('read_file'));
+      floor({ min: 80 });
+
+      await runEval(['suite.yaml'], {
+        identityProfile: 'mcp-eval-root',
+        customConfigPath: '/p/cfg.json',
+      });
+
+      expect(displayed()).toContain(
+        'TOOL COVERAGE RUN: graded against evalToolCoverage.min 80% from config file /p/cfg.json'
+      );
+    });
+
+    it('names the global config when the base is the global layer', async () => {
+      fileUtilsMock.readFileFromProjectDir.mockImplementation(() => suiteCovering('read_file'));
+      configMock.loadConfiguredEvalToolCoverage.mockResolvedValue({
+        found: true,
+        layer: 'global',
+        value: { min: 80 },
+      });
+
+      await runEval(['suite.yaml']);
+
+      expect(displayed()).toContain(
+        'TOOL COVERAGE RUN: graded against evalToolCoverage.min 80% from the global config'
+      );
+    });
+
     it('names the project config as the source when there is no -i', async () => {
       fileUtilsMock.readFileFromProjectDir.mockImplementation(() => suiteCovering('read_file'));
       floor({ min: 80 });

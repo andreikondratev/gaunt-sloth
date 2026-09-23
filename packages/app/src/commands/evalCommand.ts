@@ -255,11 +255,13 @@ export function resolveRunToolCoverage(
   commandLineConfigOverrides: CommandLineConfigOverrides,
   loaded: ConfiguredEvalToolCoverage
 ): RunToolCoverageResolution {
+  // `-c` is checked first because it wins outright in the loader: with `-c` and `-i` both given,
+  // the value comes from the `-c` file, and naming the profile would name a config never read.
   const profile = commandLineConfigOverrides.identityProfile?.trim();
-  const source: RunToolCoverageSource = profile
-    ? { kind: 'profile', profile }
-    : commandLineConfigOverrides.customConfigPath
-      ? { kind: 'config-file', path: commandLineConfigOverrides.customConfigPath }
+  const source: RunToolCoverageSource = commandLineConfigOverrides.customConfigPath
+    ? { kind: 'config-file', path: commandLineConfigOverrides.customConfigPath }
+    : profile
+      ? { kind: 'profile', profile }
       : loaded.layer === 'global'
         ? { kind: 'global' }
         : { kind: 'project' };
