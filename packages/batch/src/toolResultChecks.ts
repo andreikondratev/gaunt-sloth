@@ -127,9 +127,9 @@ function evaluateResultAgainstCheck(
   // `content` is what is being graded.
   const gradingContent = result.errorPayload === undefined;
   const payload = result.errorPayload ?? result.content ?? '';
-  // Consult the flag before the parse. A cut between array elements leaves valid JSON that is
-  // not what the tool returned, and grading that prefix would pass a payload the server did not
-  // send. `errorPayload` is only recorded when it parsed whole, so a truncated observed payload
+  // Consult the flag before the parse. A cut prefix can still parse — a JSON document padded with
+  // trailing whitespace past the cap, or a long top-level number cut short — and grading it would
+  // judge a payload the server did not send. A cut inside an object or array never parses. `errorPayload` is only recorded when it parsed whole, so a truncated observed payload
   // must not turn that recovered body into a truncation failure.
   if (gradingContent && result.contentTruncated) {
     return truncatedPayloadReason(result.contentOriginalBytes);

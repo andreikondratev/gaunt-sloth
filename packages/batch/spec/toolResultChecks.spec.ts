@@ -168,8 +168,8 @@ describe('runToolResultChecks — tool_result_json_path', () => {
   });
 
   it('fails a truncated payload that still parses, naming the key rather than grading the prefix', async () => {
-    // A cut between array elements leaves valid JSON that is not what the tool returned. Grading
-    // that prefix would pass the check on a payload the server did not send.
+    // A cut prefix can still parse (trailing whitespace past the cap, a long number cut short).
+    // Grading it would pass the check on a payload the server did not send.
     const { runToolResultChecks } = await import('#src/toolResultChecks.js');
     const failures = runToolResultChecks(
       [
