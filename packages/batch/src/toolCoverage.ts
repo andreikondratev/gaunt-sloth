@@ -387,7 +387,13 @@ export function computeToolCoverage(input: ToolCoverageInput): ToolCoverageRepor
  * graded against that suite (the `metrics:` precedent), and the run's exit is the OR of those. If a
  * declared floor were re-applied to the aggregate, the same suite would pass when run alone and fail
  * when run as part of a directory, with nothing in either output saying the threshold had moved.
- * This is reporting only.
+ * This function stays reporting only.
+ *
+ * **A run-level floor is a different declaration, graded elsewhere.** BATCH-48 adds one —
+ * `evalToolCoverage` in gth config, resolved once per run from the base config and never from an
+ * identity's — and {@link gradeRunToolCoverage} is what grades it, against the report this function
+ * returns. Keeping the two apart is what preserves the argument above: a suite's `min:` is never
+ * promoted to the aggregate, and the run's floor is never read back as a suite's.
  */
 export function aggregateToolCoverage(
   reports: readonly ToolCoverageReport[]
@@ -449,5 +455,187 @@ export function aggregateToolCoverage(
     }),
     warnings: [],
     gateFailures: [],
+  };
+}
+
+/**
+ * BATCH-48 — the run-level coverage spec, as `gth eval` resolved it from the base config.
+ *
+ * A structural mirror of the config key rather than a dependency on core's config types: the batch
+ * package owns the grading, and the command owns where the value came from. `min` is the same
+ * percentage a suite's `tool_coverage.min` is; `waive` is the same glob vocabulary.
+ */
+export interface RunToolCoverageSpec {
+  /** Minimum percentage (0–100) of the run's post-waiver denominator. Absent means no floor. */
+  min?: number;
+  /** Tool-name globs removed from the run denominator, whatever any suite waived. */
+  waive: string[];
+}
+
+/**
+ * Where the run-level spec was read from, so the output can name it.
+ *
+ * Naming the source is what keeps a threshold from silently moving scope: a reader can see that the
+ * number was graded against the run's floor and where that floor was declared, rather than having to
+ * infer it from which suites happened to run.
+ */
+export interface RunToolCoverageSource {
+  /**
+   * `profile` — the base `-i` profile the run was started with. `project` — the plain project
+   * config found by discovery. `config-file` — an explicit `-c` file. `global` — the global config
+   * in `~/.gsloth`, when no project config exists or `-g` was given. The command decides which;
+   * this layer only prints what it is told.
+   */
+  kind: 'profile' | 'project' | 'config-file' | 'global';
+  /** The profile name, when {@link kind} is `profile`. */
+  profile?: string;
+  /** The file path, when {@link kind} is `config-file`. */
+  path?: string;
+}
+
+/** One run graded against its run-level spec. */
+export interface RunToolCoverageGrade {
+  /**
+   * The aggregate after the run-level `waive` has been applied — the figure the floor was graded
+   * against. `undefined` when no suite produced a report, which is a different outcome from an
+   * aggregate that exists and is below the floor: there is nothing to grade.
+   */
+  report: ToolCoverageReport | undefined;
+  /**
+   * Breached `min`, or a floor that could not be graded because no suite produced a report. Empty
+   * when the floor holds, and when no floor was declared — a spec with only `waive` still narrows
+   * the denominator and warns, but it gates nothing.
+   */
+  gateFailures: string[];
+  /**
+   * A run-level waiver that matched nothing advertised. The same stale-waiver warning a suite gets,
+   * because a renamed tool is back in the denominator under its new name while the author believes
+   * it is still waived — and at run scope that is the decay a duplicated per-suite list hides.
+   */
+  warnings: string[];
+  /** The line that says which threshold this run was graded against and where it came from. */
+  sourceLine: string;
+}
+
+/** The human name of a {@link RunToolCoverageSource}, shared by the source line and the gate text. */
+function describeRunCoverageSource(source: RunToolCoverageSource): string {
+  switch (source.kind) {
+    case 'profile':
+      return `profile ${source.profile ?? '(unnamed)'}`;
+    case 'config-file':
+      return `config file ${source.path ?? '(unnamed)'}`;
+    case 'global':
+      return 'the global config';
+    default:
+      return 'the project config';
+  }
+}
+
+/**
+ * Whether a run-level spec declares anything to grade or apply.
+ *
+ * An absent config key and an empty object are the same thing to a caller: no floor, no exemption.
+ * Distinguishing them would make "the run has no floor" depend on which spelling the config used.
+ */
+export function hasRunToolCoverageSpec(spec: RunToolCoverageSpec | undefined): boolean {
+  return spec !== undefined && (spec.min !== undefined || spec.waive.length > 0);
+}
+
+/**
+ * Grade a run-level coverage spec against the run's aggregate.
+ *
+ * **Separate from {@link aggregateToolCoverage} on purpose.** That function reports the union and
+ * carries no gate, because re-applying a SUITE's declared floor to a different denominator would
+ * make the same suite pass alone and fail inside a directory. This function grades a floor that was
+ * declared for the run, against the aggregate it names, so the two thresholds stay independent: a
+ * suite's `min:` is never promoted here, and this floor is never written back onto a suite.
+ *
+ * **The denominator is the aggregate's reconciled one, minus this spec's `waive`.** The aggregate
+ * has already applied the reconciliation — a tool waived in one suite but counted in another stays
+ * counted, and a tool waived in every suite is already out. A suite's own waiver therefore does not
+ * shrink the run denominator further; only the run-level list does. A tool the run-level list waives
+ * leaves the denominator even when it was covered, the same way a suite-level waiver does inside
+ * {@link computeToolCoverage}.
+ *
+ * **A floor with nothing to grade fails.** `min` set and no report at all — every suite targeted
+ * something that cannot supply a denominator — must not pass: a floor quietly skipped reports green
+ * forever over a run it never measured.
+ */
+export function gradeRunToolCoverage(
+  aggregate: ToolCoverageReport | undefined,
+  spec: RunToolCoverageSpec,
+  source: RunToolCoverageSource
+): RunToolCoverageGrade {
+  const sourceText = describeRunCoverageSource(source);
+  const sourceLine =
+    spec.min !== undefined
+      ? `graded against evalToolCoverage.min ${spec.min}% from ${sourceText}`
+      : `evalToolCoverage applied from ${sourceText}`;
+
+  if (!aggregate) {
+    // Nothing was measured. A waiver list has nothing to match against either, so it neither warns
+    // nor silently passes a floor: the floor is the thing that was declared, and it could not be
+    // graded.
+    const gateFailures =
+      spec.min !== undefined
+        ? [
+            `evalToolCoverage.min ${spec.min}% from ${sourceText} could not be graded: no suite ` +
+              'produced a coverage report',
+          ]
+        : [];
+    return { report: undefined, gateFailures, warnings: [], sourceLine };
+  }
+
+  const warnings: string[] = [];
+  const names = [...aggregate.covered, ...aggregate.uncovered, ...aggregate.waived];
+  const waivedByRun = new Set<string>();
+  for (const pattern of spec.waive) {
+    const matched = names.filter((name) => toolNameMatchesPattern(name, pattern));
+    if (matched.length === 0) {
+      warnings.push(
+        `evalToolCoverage.waive "${pattern}" matched no advertised tool — stale waiver, or a typo`
+      );
+    }
+    for (const name of matched) waivedByRun.add(name);
+  }
+
+  // A covered tool the run waives leaves the numerator, exactly as a suite-level waiver of a
+  // covered tool leaves it. Keeping it covered would let the run exempt a tool and still be
+  // credited for exercising it, which is the opposite of what a waiver means.
+  const covered = aggregate.covered.filter((name) => !waivedByRun.has(name));
+  const uncovered = aggregate.uncovered.filter((name) => !waivedByRun.has(name));
+  const waived = [...new Set([...aggregate.waived, ...waivedByRun])];
+
+  const gateFailures: string[] = [];
+  if (spec.min !== undefined) {
+    const total = covered.length + uncovered.length;
+    if (total === 0) {
+      gateFailures.push(
+        `evalToolCoverage.min ${spec.min}% from ${sourceText}: no tools remain in the ` +
+          `denominator — all ${names.length} advertised tool(s) are waived`
+      );
+    } else if (percent(covered.length, total) < spec.min) {
+      gateFailures.push(
+        `evalToolCoverage.min ${spec.min}% from ${sourceText}: covered ${covered.length}/${total} ` +
+          `(${percent(covered.length, total)}%)`
+      );
+    }
+  }
+
+  // The per-server buckets describe the same post-waiver population as the headline, so they sum
+  // to it; a run-waived tool leaves its bucket too, and a bucket left empty is dropped.
+  const byServer = aggregate.byServer
+    .map((bucket) => ({
+      ...bucket,
+      covered: bucket.covered.filter((name) => !waivedByRun.has(name)),
+      uncovered: bucket.uncovered.filter((name) => !waivedByRun.has(name)),
+    }))
+    .filter((bucket) => bucket.covered.length + bucket.uncovered.length > 0);
+
+  return {
+    report: { ...aggregate, covered, uncovered, waived, byServer, gateFailures: [], warnings: [] },
+    gateFailures,
+    warnings,
+    sourceLine,
   };
 }

@@ -312,3 +312,161 @@ describe('aggregateToolCoverage', () => {
     expect(aggregateToolCoverage([])).toBeUndefined();
   });
 });
+
+/**
+ * BATCH-48 — the run-level floor, graded by its own function against the aggregate rather than by
+ * re-applying a suite's `min:` inside {@link aggregateToolCoverage}.
+ *
+ * The fixture that decides the shape: two suites, each clearing its OWN floor, whose union does not
+ * clear the run's. A design that promoted a suite floor to the aggregate would grade each suite's
+ * 100% and could not fail this; only a separately declared run floor can.
+ */
+describe('gradeRunToolCoverage', () => {
+  const report = (fields: Partial<ToolCoverageReport>): ToolCoverageReport => ({
+    covered: [],
+    uncovered: [],
+    waived: [],
+    filteredOut: [],
+    unnamed: 0,
+    byServer: [],
+    warnings: [],
+    gateFailures: [],
+    ...fields,
+  });
+
+  it('fails a directory whose suites each clear their own floor but whose aggregate does not', async () => {
+    const { aggregateToolCoverage, gradeRunToolCoverage } = await import('#src/toolCoverage.js');
+    // Each suite covers the one tool it did not waive, so each is 1/1 against its own `min: 100`.
+    // The reconciled aggregate keeps every tool either suite counted, so it is 2/4.
+    const aggregate = aggregateToolCoverage([
+      report({ covered: ['a'], uncovered: ['b'], waived: ['c', 'd'] }),
+      report({ covered: ['c'], uncovered: ['d'], waived: ['a', 'b'] }),
+    ])!;
+
+    const grade = gradeRunToolCoverage(aggregate, { min: 75, waive: [] }, { kind: 'project' });
+
+    expect(aggregate.covered.sort()).toEqual(['a', 'c']);
+    expect(aggregate.uncovered.sort()).toEqual(['b', 'd']);
+    expect(grade.gateFailures).toEqual([
+      'evalToolCoverage.min 75% from the project config: covered 2/4 (50%)',
+    ]);
+    expect(grade.sourceLine).toBe(
+      'graded against evalToolCoverage.min 75% from the project config'
+    );
+  });
+
+  it('names the profile the floor was read from', async () => {
+    const { gradeRunToolCoverage } = await import('#src/toolCoverage.js');
+    const grade = gradeRunToolCoverage(
+      report({ covered: ['a'], uncovered: ['b', 'c', 'd'] }),
+      { min: 50, waive: [] },
+      { kind: 'profile', profile: 'mcp-eval-root' }
+    );
+
+    expect(grade.gateFailures[0]).toContain('profile mcp-eval-root');
+    expect(grade.sourceLine).toBe(
+      'graded against evalToolCoverage.min 50% from profile mcp-eval-root'
+    );
+  });
+
+  it('a run-level waive removes a tool no suite waived, and a suite-only waive does not', async () => {
+    const { aggregateToolCoverage, gradeRunToolCoverage } = await import('#src/toolCoverage.js');
+    // `b` is waived in one suite and counted in the other, so the reconciliation keeps it counted.
+    // `c` is counted in both. Only the run-level list may take either out of the run denominator.
+    const aggregate = aggregateToolCoverage([
+      report({ covered: ['a'], uncovered: ['c'], waived: ['b'] }),
+      report({ covered: ['a'], uncovered: ['b', 'c'] }),
+    ])!;
+    expect(aggregate.uncovered.sort()).toEqual(['b', 'c']);
+
+    const suiteOnly = gradeRunToolCoverage(aggregate, { min: 50, waive: [] }, { kind: 'project' });
+    expect(suiteOnly.report?.uncovered.sort()).toEqual(['b', 'c']);
+    expect(suiteOnly.gateFailures).toEqual([
+      'evalToolCoverage.min 50% from the project config: covered 1/3 (33.3%)',
+    ]);
+
+    const runWaived = gradeRunToolCoverage(
+      aggregate,
+      { min: 50, waive: ['c'] },
+      { kind: 'project' }
+    );
+    expect(runWaived.report?.uncovered).toEqual(['b']);
+    expect(runWaived.report?.waived).toContain('c');
+    expect(runWaived.gateFailures).toEqual([]);
+  });
+
+  it('a run-level waive of a covered tool leaves the numerator, as a suite waive does', async () => {
+    const { computeToolCoverage, gradeRunToolCoverage } = await import('#src/toolCoverage.js');
+    const suite = computeToolCoverage({
+      inventories: [inventory(['read_file', 'write_file'])],
+      exercised: ['read_file', 'write_file'],
+      spec: { waive: ['write_file'], require: [] },
+    })!;
+    expect(suite.covered).toEqual(['read_file']);
+    expect(suite.waived).toEqual(['write_file']);
+
+    const grade = gradeRunToolCoverage(
+      report({ covered: ['read_file', 'write_file'] }),
+      { waive: ['write_file'] },
+      { kind: 'project' }
+    );
+    expect(grade.report?.covered).toEqual(['read_file']);
+    expect(grade.report?.waived).toEqual(['write_file']);
+    expect(grade.gateFailures).toEqual([]);
+  });
+
+  it('warns when a run-level waive matches no advertised tool, naming the key', async () => {
+    const { gradeRunToolCoverage } = await import('#src/toolCoverage.js');
+    const grade = gradeRunToolCoverage(
+      report({ covered: ['a'], uncovered: ['b'] }),
+      { min: 50, waive: ['renamed_tool'] },
+      { kind: 'project' }
+    );
+
+    expect(grade.warnings).toEqual([
+      'evalToolCoverage.waive "renamed_tool" matched no advertised tool — stale waiver, or a typo',
+    ]);
+    expect(grade.gateFailures).toEqual([]);
+  });
+
+  it('a floor with nothing to grade fails rather than passing quietly', async () => {
+    const { gradeRunToolCoverage } = await import('#src/toolCoverage.js');
+    const grade = gradeRunToolCoverage(
+      undefined,
+      { min: 13, waive: ['read_file'] },
+      { kind: 'profile', profile: 'mcp-eval-root' }
+    );
+
+    expect(grade.report).toBeUndefined();
+    expect(grade.gateFailures).toEqual([
+      'evalToolCoverage.min 13% from profile mcp-eval-root could not be graded: no suite produced ' +
+        'a coverage report',
+    ]);
+  });
+
+  it('a floor over a denominator the run-level waive emptied fails', async () => {
+    const { gradeRunToolCoverage } = await import('#src/toolCoverage.js');
+    const grade = gradeRunToolCoverage(
+      report({ covered: ['a'] }),
+      { min: 13, waive: ['a'] },
+      { kind: 'project' }
+    );
+
+    expect(grade.gateFailures).toEqual([
+      'evalToolCoverage.min 13% from the project config: no tools remain in the denominator — ' +
+        'all 1 advertised tool(s) are waived',
+    ]);
+  });
+
+  it('holds when the aggregate clears the floor, and says so without a gate failure', async () => {
+    const { gradeRunToolCoverage } = await import('#src/toolCoverage.js');
+    const grade = gradeRunToolCoverage(
+      report({ covered: ['a', 'b'], uncovered: ['c'] }),
+      { min: 50, waive: [] },
+      { kind: 'project' }
+    );
+
+    expect(grade.gateFailures).toEqual([]);
+    expect(grade.report?.covered.sort()).toEqual(['a', 'b']);
+  });
+});

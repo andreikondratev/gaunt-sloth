@@ -192,6 +192,11 @@
       "arity": 0
     },
     {
+      "name": "ConfiguredEvalToolCoverage",
+      "file": "config/loader.d.ts",
+      "arity": 0
+    },
+    {
       "name": "ConsoleLevelInput",
       "file": "config/types.d.ts",
       "arity": 0
@@ -284,6 +289,11 @@
     {
       "name": "DiscoveryKind",
       "file": "providers/modelDiscovery.d.ts",
+      "arity": 0
+    },
+    {
+      "name": "EvalToolCoverageConfig",
+      "file": "config/types.d.ts",
       "arity": 0
     },
     {

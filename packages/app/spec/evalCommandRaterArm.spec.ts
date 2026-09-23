@@ -59,7 +59,13 @@ vi.mock('@gaunt-sloth/core/config.js', async () => {
   const actual = await vi.importActual<typeof import('@gaunt-sloth/core/config.js')>(
     '@gaunt-sloth/core/config.js'
   );
-  return { ...actual, initConfig: mocks.initConfig };
+  // BATCH-48 — the run-floor reader reads config files, so it is stubbed for the same reason
+  // `initConfig` is: no user config may reach this spec. No floor, a base config present.
+  return {
+    ...actual,
+    initConfig: mocks.initConfig,
+    loadConfiguredEvalToolCoverage: async () => ({ found: true, layer: 'project' as const }),
+  };
 });
 vi.mock('@gaunt-sloth/core/utils/systemUtils.js', async () => {
   const actual = await vi.importActual<typeof import('@gaunt-sloth/core/utils/systemUtils.js')>(

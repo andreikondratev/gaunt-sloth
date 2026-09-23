@@ -609,6 +609,31 @@ Three things the block reports rather than quietly folding into the number:
 
 Across a directory run the suites share one surface, so a run-level `TOOL COVERAGE TOTAL:` line follows `EVAL TOTAL:` — a union, not a sum. One suite covering 3 tools is fine when its sibling covers the other 38, and only the union says so. Each suite's own `min`/`require` is still graded against **that suite**, so a suite's threshold means the same thing run alone and run as part of a directory.
 
+#### A floor for the whole run: `evalToolCoverage`
+
+A suite's `min` cannot gate the union: each suite is graded against the whole surface, so a floor one suite can clear gates nothing. Put the run's floor in gth config instead, as the top-level [`evalToolCoverage`](configuration/profiles.md#run-level-tool-coverage-evaltoolcoverage) key. The profile that declares the MCP server under test is the natural home for it:
+
+```json
+{
+  "mcpServers": { "unimarket": { "command": "unimarket-mcp" } },
+  "evalToolCoverage": { "min": 13, "waive": ["read_file", "write_file"] }
+}
+```
+
+```bash
+gth -i mcp-eval-root eval evals/
+```
+
+```
+TOOL COVERAGE RUN: graded against evalToolCoverage.min 13% from profile mcp-eval-root
+TOOL COVERAGE GATE FAILED — evalToolCoverage.min 13% from profile mcp-eval-root: covered 5/44 (11.4%)
+```
+
+- **The denominator** is the union's own — a tool waived in one suite but counted in another stays counted, and a tool every suite waived is already out — **minus `evalToolCoverage.waive`**. A suite's waiver does not shrink the run's denominator; only the run-level list does, so one list covers the built-ins [`allowedTools`](configuration/tools.md) removed instead of a copy in every suite.
+- **The two floors are independent.** A suite's `min` is graded against that suite, the run's against the union, and both must hold. A breach names the floor it came from.
+- **One value per run, from the config the run was started with** — the `-i` profile if given, otherwise the project config. Never from an identity's config: with only [identity-matrix](#identity-matrix) suites and no base config, the run has no floor and prints that it has none.
+- **Every run that sets it is graded**, one suite or many, and prints the `TOOL COVERAGE RUN:` line naming the threshold and its source. A `min` over a run where no suite produced a coverage report (every target was `ag-ui`, `adk-agent` or `rater`) fails, for the reason below.
+
 `tool_coverage` needs the in-process `gth-agent` target and is a parse error on any other: `ag-ui` streams the tools that were *called* but never the list the agent loaded, `adk-agent` exposes neither over A2A, and `rater` runs no agent at all. That is a refusal rather than a silently-ignored block, because a `min: 80` that is quietly skipped reports green forever over a target it never measured.
 
 ### Classifier suites
@@ -1011,7 +1036,7 @@ gth eval eval/ -o eval/out --reporter junit           # every suite in a directo
 
 - **One suite** → output is written directly into the `-o` dir, exactly as before.
 - **Many suites** → each writes into its own `<output>/<suite-name>/` subdir (`results.json`, per-cell JSON, and `results.xml` if `--reporter junit`), so a CI glob like `eval/out/**/*.xml` collects them and suites never clobber each other. On a name clash the later suite gets a `-2`/`-3` suffix and a warning.
-- The **aggregate exit** is `0` only if every cell of every suite passed, `1` if any gradeable cell failed, and `2` if **any** suite hit a harness error (a bad suite doesn't stop the good ones — they still run and write output, but the run as a whole reports `2`). A final `EVAL TOTAL:` line summarizes the combined pass/fail count, followed by a `TOOL COVERAGE TOTAL:` line unioning every suite's [tool coverage](#tool-coverage).
+- The **aggregate exit** is `0` only if every cell of every suite passed, `1` if any gradeable cell failed, and `2` if **any** suite hit a harness error (a bad suite doesn't stop the good ones — they still run and write output, but the run as a whole reports `2`). A final `EVAL TOTAL:` line summarizes the combined pass/fail count, followed by a `TOOL COVERAGE TOTAL:` line unioning every suite's [tool coverage](#tool-coverage). A run-level [`evalToolCoverage`](configuration/profiles.md#run-level-tool-coverage-evaltoolcoverage) floor is graded against that union and forces the same exit `1` on breach, whether the run was one suite or many.
 
 ### Exit codes (eval)
 

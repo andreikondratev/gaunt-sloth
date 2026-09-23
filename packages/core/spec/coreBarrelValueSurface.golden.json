@@ -506,6 +506,10 @@
       "kind": "function"
     },
     {
+      "name": "loadConfiguredEvalToolCoverage",
+      "kind": "function"
+    },
+    {
       "name": "loadConfiguredTui",
       "kind": "function"
     },

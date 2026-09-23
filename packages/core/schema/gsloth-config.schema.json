@@ -597,6 +597,24 @@
       "exclusiveMinimum": 0,
       "maximum": 9007199254740991
     },
+    "evalToolCoverage": {
+      "description": "Run-level tool-coverage floor for gth eval, graded against the run aggregate rather than any suite's own tool_coverage.min. min is a percentage (0-100) of the post-waiver denominator; waive lists tool-name patterns removed from that denominator. Absent means the run has no floor.",
+      "type": "object",
+      "properties": {
+        "min": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "waive": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
     "tui": {
       "type": "boolean"
     },

@@ -28,6 +28,7 @@ import {
   findUndeliverableBinaryFormatIssues,
   findUnknownTopLevelKeys,
   formatConfigValidationError,
+  evalToolCoverageSchema,
   formatDeprecatedConfigIssues,
   isRecordConfig,
   rawGthConfigSchema,
@@ -58,6 +59,7 @@ import { DEFAULT_CONFIG } from '#src/config/defaults.js';
 import type {
   CommandLineConfigOverrides,
   ConsoleLevelInput,
+  EvalToolCoverageConfig,
   GthConfig,
   LLMConfig,
   RawGthConfig,
@@ -973,6 +975,124 @@ async function readProjectConfiguredConsoleLevel(
     raw = await resolveConfigExtends(raw, commandLineConfigOverrides.identityProfile);
   }
   return raw.consoleLevel;
+}
+
+/**
+ * BATCH-48 — what {@link loadConfiguredEvalToolCoverage} found.
+ *
+ * `found` is whether the run has a base config at all, which is a different answer from "the base
+ * config does not set the key": a run with no base config has no floor and must say so, while a
+ * base config without the key is the ordinary, silent case.
+ */
+export interface ConfiguredEvalToolCoverage {
+  /** Whether a base config exists for these overrides — a project/profile file, or a global one. */
+  found: boolean;
+  /** Which layer the run's base is: a discovered project/profile file, or the global config. */
+  layer?: 'project' | 'global';
+  /** The validated `evalToolCoverage` value, or `undefined` when the base config does not set it. */
+  value?: EvalToolCoverageConfig;
+}
+
+/**
+ * BATCH-48 — the `evalToolCoverage` value of the run's BASE config, read once, before `gth eval`
+ * runs any suite.
+ *
+ * ## Why a reader, and not a config the eval command already builds
+ *
+ * `gth eval` builds its configs per suite, and a suite that declares `identities:` builds one per
+ * identity and never builds a base config at all — it must not, because a matrix-only project may
+ * have none. So there is no run-level config object to read the run floor from, and reading it off
+ * whichever config a suite happened to build would let the floor move: a sweep cell's merged
+ * `config`, or an identity's profile, would supply the threshold. This reads the base the run was
+ * STARTED with (`-i`, `-c`, `-g`, or plain discovery) and nothing else, so the floor is one value
+ * per run by construction, and never an identity's.
+ *
+ * ## Why this cannot disagree with the value a run reaches
+ *
+ * It takes the path {@link initConfig} takes for the same overrides: the same refusals first (the
+ * `-g` + `-c` pair, a missing `-c` file, an explicitly named profile with no config of its own —
+ * {@link findProjectConfigPath} would otherwise fall back to the plain config and the output would
+ * name a profile the value did not come from), then the same discovery, the same `extends`
+ * composition, and the same global underlay with the same `deepMerge`. The key has no
+ * default and no CLI override, so the merge with `DEFAULT_CONFIG` cannot change it.
+ *
+ * ## Quiet about everything except its own key
+ *
+ * It does not validate the whole config: every suite's own `initConfig` does that and reports it,
+ * and warning twice about one file is worse than not warning here. The one key it reads it
+ * validates with `evalToolCoverageSchema` — the same rule the full parse applies — and a
+ * malformed value THROWS: a floor that failed to parse must not quietly become no floor, because a
+ * floor quietly skipped reports green forever over a run it never measured.
+ */
+export async function loadConfiguredEvalToolCoverage(
+  commandLineConfigOverrides: CommandLineConfigOverrides
+): Promise<ConfiguredEvalToolCoverage> {
+  if (commandLineConfigOverrides.global && commandLineConfigOverrides.customConfigPath) {
+    throw new ConfigDiscoveryError(CONFLICTING_CONFIG_SOURCES_MESSAGE);
+  }
+  if (
+    commandLineConfigOverrides.customConfigPath &&
+    !existsSync(commandLineConfigOverrides.customConfigPath)
+  ) {
+    throw new ConfigDiscoveryError(
+      `Provided manual config "${commandLineConfigOverrides.customConfigPath}" does not exist`,
+      { sourceLabel: commandLineConfigOverrides.customConfigPath }
+    );
+  }
+  const explicitProfile = findUnresolvedExplicitProfile(commandLineConfigOverrides);
+  if (explicitProfile) {
+    throw new ConfigDiscoveryError(
+      identityProfileNotFoundMessage(explicitProfile, commandLineConfigOverrides.global),
+      { identityProfile: explicitProfile }
+    );
+  }
+
+  const discovered = findProjectConfigPath(commandLineConfigOverrides);
+  let raw: Record<string, unknown>;
+  let layer: 'project' | 'global';
+  let sourceLabel: string;
+  if (discovered) {
+    let projectRaw = await readRawConfigAtPath(discovered.path);
+    if (typeof projectRaw.extends === 'string') {
+      projectRaw = await resolveConfigExtends(
+        projectRaw,
+        commandLineConfigOverrides.identityProfile
+      );
+    }
+    // The underlay a run applies with a project layer present (`applyGlobalConfigBase`): the plain
+    // global config, read with no profile and without walking its `extends`.
+    const globalRaw = await loadGlobalRawConfigUnvalidated();
+    raw = globalRaw ? deepMerge(globalRaw.raw, projectRaw) : projectRaw;
+    layer = 'project';
+    sourceLabel = discovered.path;
+  } else {
+    const globalRaw = await loadGlobalRawConfigUnvalidated(
+      globalLayerProfile(commandLineConfigOverrides)
+    );
+    if (!globalRaw) {
+      return { found: false };
+    }
+    raw = globalRaw.raw;
+    if (typeof raw.extends === 'string') {
+      raw = await resolveConfigExtends(raw, globalLayerProfile(commandLineConfigOverrides), {
+        globalOnly: commandLineConfigOverrides.global,
+      });
+    }
+    layer = 'global';
+    sourceLabel = globalRaw.label;
+  }
+
+  if (raw.evalToolCoverage === undefined) {
+    return { found: true, layer };
+  }
+  const parsed = evalToolCoverageSchema.safeParse(raw.evalToolCoverage);
+  if (!parsed.success) {
+    throw new ConfigDiscoveryError(
+      `Invalid evalToolCoverage in ${sourceLabel}:\n${formatConfigValidationError(parsed.error)}`,
+      { sourceLabel }
+    );
+  }
+  return { found: true, layer, value: parsed.data };
 }
 
 /**

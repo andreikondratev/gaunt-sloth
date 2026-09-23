@@ -1100,6 +1100,27 @@ const commandsSchema = z.object({
 const COMMAND_KEYS: readonly string[] = Object.keys(commandsSchema.shape);
 
 /**
+ * BATCH-48 — the `evalToolCoverage` value on its own, so the run-start reader
+ * (`loadConfiguredEvalToolCoverage` in the loader) can validate the one key it reads with exactly
+ * the rule the full config parse applies. Two copies of the rule would let the reader accept a
+ * floor the run's own parse refuses, or the reverse.
+ */
+export const evalToolCoverageSchema = z.object({
+  min: z
+    .number({
+      error: 'evalToolCoverage.min is a percentage between 0 and 100.',
+    })
+    .min(0, 'evalToolCoverage.min is a percentage between 0 and 100.')
+    .max(100, 'evalToolCoverage.min is a percentage between 0 and 100.')
+    .optional(),
+  waive: z
+    .array(
+      z.string().min(1, 'evalToolCoverage.waive entries must be non-empty tool-name patterns.')
+    )
+    .optional(),
+});
+
+/**
  * Zod schema for the raw, on-disk Gaunt Sloth config. Loose at the top level so
  * unknown keys are preserved (warn-only via {@link findUnknownTopLevelKeys}).
  */
@@ -1247,6 +1268,28 @@ export const rawGthConfigSchema = z.looseObject({
         '(toolOutputPreviewLines). A longer result is cut on a character boundary. 0 is rejected: ' +
         'it is not "unlimited" — set a large number instead.',
     }),
+  // BATCH-48 — the run-level tool-coverage floor `gth eval` grades against the run's aggregate.
+  //
+  // Top level on purpose, and not a suite key. A suite's `tool_coverage.min` is graded against
+  // that suite; promoting it to the aggregate would make the same suite pass alone and fail inside
+  // a directory. This key is a different threshold, declared at the scope it grades. `waive` sits
+  // beside `min` because the floor grades the post-waiver denominator, and tools an `allowedTools`
+  // filter removed stay in it — a percentage with no exemption at the same scope cannot be set
+  // honestly. `require` stays suite-level: it is a statement about the suite that owns the tool.
+  //
+  // MUST stay `.optional()` with NO `.default()`: a run that never set the key has no floor, and a
+  // default here would invent one — and land in the effective-config snapshot — for everyone who
+  // never asked. The messages name the key, because a bare "expected number" at the root does not
+  // say which setting refused the value. `min` is a percentage because that is how the figure is
+  // printed; a floor in different units from the number it grades is a misconfiguration waiting to
+  // happen. User docs: docs/configuration/profiles.md, docs/COMMANDS.md
+  evalToolCoverage: evalToolCoverageSchema.optional().meta({
+    description:
+      'Run-level tool-coverage floor for gth eval, graded against the run aggregate rather ' +
+      "than any suite's own tool_coverage.min. min is a percentage (0-100) of the post-waiver " +
+      'denominator; waive lists tool-name patterns removed from that denominator. Absent means ' +
+      'the run has no floor.',
+  }),
   // CFG-37 — persistent surface preference for the `chat`/`code` sessions: `true` asks for the Ink
   // TUI, `false` for the plain readline session. MUST stay `.optional()` for the same reason as
   // `useColour`/`useMouse`: absence is what distinguishes "the user chose readline" from "nobody

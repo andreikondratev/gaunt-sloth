@@ -74,11 +74,16 @@ export {
 export {
   computeToolCoverage,
   aggregateToolCoverage,
+  gradeRunToolCoverage,
+  hasRunToolCoverageSpec,
   WAIVER_SHARE_WARN_THRESHOLD,
 } from '#src/toolCoverage.js';
 export type {
   AdvertisedToolInventory,
   AdvertisedToolRecord,
+  RunToolCoverageGrade,
+  RunToolCoverageSource,
+  RunToolCoverageSpec,
   ToolCoverageInput,
   ToolCoverageReport,
   ToolCoverageServerReport,

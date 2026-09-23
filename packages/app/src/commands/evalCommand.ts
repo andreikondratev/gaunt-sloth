@@ -6,9 +6,10 @@ import { pathToFileURL } from 'node:url';
 import {
   CommandLineConfigOverrides,
   initConfig,
+  loadConfiguredEvalToolCoverage,
   resolveIdentityProfileConfigPath,
 } from '@gaunt-sloth/core/config.js';
-import type { GthConfig } from '@gaunt-sloth/core/config.js';
+import type { ConfiguredEvalToolCoverage, GthConfig } from '@gaunt-sloth/core/config.js';
 import { getAskSystemPrompt } from '#src/commands/commandIntrospection.js';
 import {
   buildProductionRunCell,
@@ -39,6 +40,8 @@ import type {
   RunCellFn,
   RunClassifyFn,
   RunConversationFn,
+  RunToolCoverageSource,
+  RunToolCoverageSpec,
   SweepCell,
   ToolCoverageReport,
 } from '@gaunt-sloth/batch';
@@ -222,6 +225,49 @@ async function initConfigForCell(
     config as unknown as Record<string, unknown>,
     cell.config
   ) as unknown as GthConfig;
+}
+
+/** BATCH-48 — the run floor as the eval command resolved it, once, before any suite ran. */
+export interface RunToolCoverageResolution {
+  /** The declared spec, or `undefined` when the base config does not set `evalToolCoverage`. */
+  spec?: RunToolCoverageSpec;
+  /** Where the value was read from, named in the output. */
+  source: RunToolCoverageSource;
+  /** Whether the run has a base config at all. `false` means no floor, and the output says so. */
+  hasBaseConfig: boolean;
+}
+
+/**
+ * BATCH-48 — turn the base config's `evalToolCoverage` into the run floor, and name its source.
+ *
+ * **Once per run, from the base config only.** `loaded` is read by `loadConfiguredEvalToolCoverage`
+ * before the suite loop, from the overrides the invocation was started with. It is never read off a
+ * config a suite builds: configs are built per suite, a sweep cell deep-merges its own `config` onto
+ * each, and a suite that declares `identities:` builds one config per identity. Reading the floor off
+ * any of those would let two suites — or two cells of one suite — be graded against two thresholds,
+ * or let the floor be whichever identity happened to be built first.
+ *
+ * **The source is the invocation's, named for the reader.** A `-i` profile, a `-c` file, the global
+ * config, or the discovered project config — so a reader can see which threshold the run was graded
+ * against and where it was declared, rather than inferring it from which suites happened to run.
+ */
+export function resolveRunToolCoverage(
+  commandLineConfigOverrides: CommandLineConfigOverrides,
+  loaded: ConfiguredEvalToolCoverage
+): RunToolCoverageResolution {
+  const profile = commandLineConfigOverrides.identityProfile?.trim();
+  const source: RunToolCoverageSource = profile
+    ? { kind: 'profile', profile }
+    : commandLineConfigOverrides.customConfigPath
+      ? { kind: 'config-file', path: commandLineConfigOverrides.customConfigPath }
+      : loaded.layer === 'global'
+        ? { kind: 'global' }
+        : { kind: 'project' };
+  const declared = loaded.value;
+  const spec: RunToolCoverageSpec | undefined = declared
+    ? { waive: declared.waive ?? [], ...(declared.min !== undefined ? { min: declared.min } : {}) }
+    : undefined;
+  return { source, hasBaseConfig: loaded.found, ...(spec ? { spec } : {}) };
 }
 
 /** One resolved suite to run: `readPath` is what {@link readFileFromProjectDir} reads (the CLI
@@ -615,7 +661,10 @@ export function evalCommand(
         const { expandSweep, renderComparison, parseJudgeDriftFilter } =
           await import('@gaunt-sloth/batch/evalCompare.js');
         // BATCH-32 — the run-level coverage union printed beside `EVAL TOTAL:`.
-        const { aggregateToolCoverage } = await import('@gaunt-sloth/batch/toolCoverage.js');
+        // BATCH-48 — the run floor is graded by `gradeRunToolCoverage`, never by that union: the
+        // union stays reporting-only so a suite's own `min:` is never re-applied to it.
+        const { aggregateToolCoverage, gradeRunToolCoverage, hasRunToolCoverageSpec } =
+          await import('@gaunt-sloth/batch/toolCoverage.js');
         const { renderToolCoverage } = await import('@gaunt-sloth/batch/toolCoverageRender.js');
 
         // BATCH-33 — reject a malformed `--drift` BEFORE anything runs. The filter is not consulted
@@ -623,6 +672,15 @@ export function evalCommand(
         // spend real model calls; validating it there would let a typo cost the whole run and then
         // report the flag.
         if (options.drift !== undefined) parseJudgeDriftFilter(options.drift);
+
+        // BATCH-48 — the run floor, resolved ONCE, from the base config the run was started with,
+        // before any suite runs. See `resolveRunToolCoverage` for why it is never read off a config
+        // a suite builds. A malformed floor, or a `-i` / `-c` that does not resolve, throws here →
+        // the outer catch → exit 2 with nothing run.
+        const runCoverage = resolveRunToolCoverage(
+          commandLineConfigOverrides,
+          await loadConfiguredEvalToolCoverage(commandLineConfigOverrides)
+        );
 
         // The reporter selection (`--reporter`, else the default `['text']`) and the output ROOT are
         // invocation-level — the same for every suite. REPLACES the default: the `--reporter` value
@@ -798,7 +856,6 @@ export function evalCommand(
               runCellOptions
             );
           }
-
           // BATCH-19 A2: resolve the reporter selection — BEFORE the suite runs and before any output
           // is written — so an unknown `--reporter` name (or a broken config-reporter module) fails
           // fast → this suite's harness error (exit 2) with NOTHING run and no misleading partial
@@ -893,6 +950,13 @@ export function evalCommand(
         // concatenation of cases and carries no per-suite coverage block.
         const coverageReports: ToolCoverageReport[] = [];
         let anyCoverageGateFailed = false;
+        // BATCH-48 — one grading of the one run floor resolved before the loop. Both call sites —
+        // the TOTAL block and the run line — go through it, so they cannot grade the run twice and
+        // disagree about which denominator the exit code honoured.
+        const runGrade = (aggregate: ToolCoverageReport | undefined) =>
+          runCoverage.spec && hasRunToolCoverageSpec(runCoverage.spec)
+            ? gradeRunToolCoverage(aggregate, runCoverage.spec, runCoverage.source)
+            : undefined;
         for (const suite of suites) {
           let suiteOutputDir = outputRoot;
           if (!single) {
@@ -1037,12 +1101,51 @@ export function evalCommand(
           // answers "is this surface tested", and each suite's own block above is the detail. Like
           // `EVAL TOTAL:` it is printed only for a multi-suite run — with one suite the reporter's
           // block already IS the aggregate, and repeating it would imply a second measurement.
+          //
+          // BATCH-48 — when a run floor is set, the TOTAL block prints the figure that floor graded
+          // (the aggregate minus the run-level `waive`), not the ungraded union. Printing the union
+          // and then a different number below it would put two denominators on screen with nothing
+          // saying which one the exit code honoured.
           const aggregate = aggregateToolCoverage(coverageReports);
-          if (aggregate) {
-            for (const line of renderToolCoverage(aggregate, { scope: 'TOTAL' })) {
+          const graded = runGrade(aggregate);
+          const printed = graded?.report ?? aggregate;
+          if (printed) {
+            for (const line of renderToolCoverage(printed, { scope: 'TOTAL' })) {
               display(line);
             }
           }
+        }
+
+        // BATCH-48 — the run floor, graded independently of every suite's own `min:` and printed for
+        // ANY run that declared one, including a run of one suite. The multi-suite-only rule above is
+        // about printing the TOTAL block; it must not stop a set floor from being graded, and a
+        // single-suite run still has to say which threshold it was graded against and where it came
+        // from. The source line is what makes the two floors distinguishable: it names the threshold
+        // and the config it was read from, which neither suite's own block states.
+        const grade = runGrade(aggregateToolCoverage(coverageReports));
+        if (grade) {
+          display(`TOOL COVERAGE RUN: ${grade.sourceLine}`);
+          // A single-suite run prints no TOTAL block, so the graded figure has to appear here or the
+          // source line names a threshold the reader never sees applied. A multi-suite run already
+          // printed it above; repeating it would look like a second measurement.
+          if (grade.report && suites.length === 1) {
+            for (const line of renderToolCoverage(grade.report)) {
+              display(line);
+            }
+          }
+          for (const warning of grade.warnings) displayWarning(`  ! ${warning}`);
+          for (const failure of grade.gateFailures) {
+            displayWarning(`TOOL COVERAGE GATE FAILED — ${failure}`);
+          }
+          if (grade.gateFailures.length > 0) anyCoverageGateFailed = true;
+        } else if (!runCoverage.hasBaseConfig) {
+          // BATCH-48 — no base config (a matrix-only project started with no `-i`), so no floor.
+          // Said rather than left silent: a reader who set the floor on an identity's profile would
+          // otherwise see a green run and conclude it held, when it was never read — the floor comes
+          // only from the base config, never from an identity's.
+          display(
+            'TOOL COVERAGE RUN: no evalToolCoverage floor — the run was started with no base config'
+          );
         }
 
         // BATCH-24: cases run one at a time unless the user asks for more, so say so once at the

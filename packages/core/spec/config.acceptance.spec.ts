@@ -100,4 +100,23 @@ describe('effective-merged acceptance (B2b)', () => {
     });
     expect(resolved.toolResultCaptureMaxBytes).toBe(65536);
   });
+
+  /**
+   * BATCH-48 — `evalToolCoverage` has no default. A default in `DEFAULT_CONFIG` would hand every
+   * run a floor nobody set, and the snapshot above would absorb the key on the next re-record, so
+   * the absence is asserted by name. A value the user did set must survive the merge unchanged.
+   */
+  it('adds no evalToolCoverage to the effective config of a config that never set it', () => {
+    const resolved = effective({ llm: { type: 'openai', model: 'gpt-5.4' } });
+    expect(resolved).not.toHaveProperty('evalToolCoverage');
+    expect(Object.keys(resolved)).not.toContain('evalToolCoverage');
+  });
+
+  it('still carries an evalToolCoverage the user DID set', () => {
+    const resolved = effective({
+      llm: { type: 'openai', model: 'gpt-5.4' },
+      evalToolCoverage: { min: 13, waive: ['read_file'] },
+    });
+    expect(resolved.evalToolCoverage).toEqual({ min: 13, waive: ['read_file'] });
+  });
 });

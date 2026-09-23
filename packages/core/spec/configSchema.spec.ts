@@ -489,6 +489,56 @@ describe('config schema (GS2-1 B1)', () => {
       expect(findUnknownTopLevelKeys({ llm: {}, toolResultCaptureMaxBytes: 65536 })).toEqual([]);
     });
 
+    // BATCH-48 — the run-level coverage floor. `min` is a percentage because that is the unit the
+    // figure is printed in; `waive` is a list of tool-name patterns. Both messages name the key.
+    it('accepts evalToolCoverage with a min and a waive list', () => {
+      expect(
+        rawGthConfigSchema.safeParse({
+          evalToolCoverage: { min: 13, waive: ['read_file', 'mcp__unimarket__*'] },
+        }).success
+      ).toBe(true);
+      expect(rawGthConfigSchema.safeParse({ evalToolCoverage: { min: 0 } }).success).toBe(true);
+      expect(rawGthConfigSchema.safeParse({ evalToolCoverage: { min: 100 } }).success).toBe(true);
+      expect(rawGthConfigSchema.safeParse({ evalToolCoverage: {} }).success).toBe(true);
+    });
+
+    it.each([
+      ['below 0', -1],
+      ['above 100', 101],
+    ])('rejects evalToolCoverage.min when it is %s, naming the key', (_label, value) => {
+      const bad = rawGthConfigSchema.safeParse({ evalToolCoverage: { min: value } });
+      expect(bad.success).toBe(false);
+      if (!bad.success) {
+        const message = formatConfigValidationError(bad.error);
+        expect(message).toContain('evalToolCoverage.min');
+        expect(message).toContain('evalToolCoverage.min is a percentage between 0 and 100');
+      }
+    });
+
+    it('rejects a non-numeric evalToolCoverage.min with a message naming the key', () => {
+      const bad = rawGthConfigSchema.safeParse({ evalToolCoverage: { min: '13' } });
+      expect(bad.success).toBe(false);
+      if (!bad.success) {
+        const message = formatConfigValidationError(bad.error);
+        expect(message).toContain('evalToolCoverage.min');
+        expect(message).toContain('evalToolCoverage.min is a percentage between 0 and 100');
+      }
+    });
+
+    it('rejects an empty evalToolCoverage.waive entry, naming the key', () => {
+      const bad = rawGthConfigSchema.safeParse({ evalToolCoverage: { waive: [''] } });
+      expect(bad.success).toBe(false);
+      if (!bad.success) {
+        const message = formatConfigValidationError(bad.error);
+        expect(message).toContain('evalToolCoverage.waive');
+        expect(message).toContain('evalToolCoverage.waive entries must be non-empty');
+      }
+    });
+
+    it('treats evalToolCoverage as a known top-level key (no unknown-key warning)', () => {
+      expect(findUnknownTopLevelKeys({ llm: {}, evalToolCoverage: { min: 13 } })).toEqual([]);
+    });
+
     // OPS-81 removed four cases here that schema-checked the on-disk `examples/` configs, along
     // with that directory — its content now lives inline in the configuration docs. The realistic
     // consumer configs below are declared in this file and cover the same shapes.

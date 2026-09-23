@@ -118,6 +118,9 @@ const configMock = {
   // GS2-62: the pure judge-profile pre-check. Defaulted truthy in beforeEach so existing judge
   // tests clear the pre-check; the missing-profile test overrides it to undefined.
   resolveIdentityProfileConfigPath: vi.fn(),
+  // BATCH-48: the run-start reader of the base config's `evalToolCoverage`. Defaulted in
+  // beforeEach to "a base config exists and sets no floor", which is every run before this key.
+  loadConfiguredEvalToolCoverage: vi.fn(),
 };
 vi.mock('@gaunt-sloth/core/config.js', () => configMock);
 
@@ -186,6 +189,7 @@ describe('evalCommand', () => {
     outputDir = mkdtempSync(join(tmpdir(), 'gth-eval-command-'));
 
     configMock.initConfig.mockResolvedValue({ ...mockConfig, llm: { ...mockConfig.llm } });
+    configMock.loadConfiguredEvalToolCoverage.mockResolvedValue({ found: true, layer: 'project' });
     // BATCH-12: default every identity to "resolves" so a suite reaches the run; the two
     // identities-precondition tests override this per name to make one identity unresolvable.
     // A --judge profile is NOT pre-checked here — CFG-36 deleted that workaround, and a bad judge
@@ -1726,6 +1730,306 @@ cases:
       expect(configMock.initConfig).toHaveBeenCalledWith(
         expect.not.objectContaining({ identityProfile: expect.anything() })
       );
+      expect(systemUtilsMock.setExitCode).toHaveBeenCalledWith(2);
+    });
+  });
+
+  /**
+   * BATCH-48 — the run-level coverage floor, `evalToolCoverage` in gth config.
+   *
+   * The floor is read ONCE, before any suite runs, by `loadConfiguredEvalToolCoverage` from the base
+   * config the run was started with — the reader whose file-level behaviour (the `-i` profile versus
+   * the project config) is pinned against real files in core's config.evalToolCoverage.spec. Here it
+   * is stubbed, and every config a suite builds carries a DIFFERENT floor, so a floor read off a
+   * suite's config, a sweep cell's or an identity's shows up as the wrong number.
+   */
+  describe('run-level tool coverage floor (BATCH-48)', () => {
+    const inventory = {
+      tools: [{ name: 'read_file' }, { name: 'write_file' }, { name: 'delete_file' }],
+      filteredOut: [],
+      unnamed: 0,
+    };
+
+    /** A suite with one case, whose id names the tool the stubbed agent calls for it. */
+    const suiteCovering = (tool: string, toolCoverage = '') => `
+target: { type: gth-agent }
+${toolCoverage}
+cases:
+  - id: uses-${tool}
+    prompt: "use ${tool}"
+    must_contain: ["hello"]
+`;
+
+    /** A suite-built config carrying a floor the run must NOT be graded against. */
+    const suiteConfigWithDecoyFloor = (min: number) => ({
+      ...mockConfig,
+      llm: { ...mockConfig.llm },
+      evalToolCoverage: { min, waive: [] },
+    });
+
+    const floor = (value: { min?: number; waive?: string[] } | undefined, found = true) => {
+      configMock.loadConfiguredEvalToolCoverage.mockResolvedValue(
+        found ? { found: true, layer: 'project', ...(value ? { value } : {}) } : { found: false }
+      );
+    };
+
+    const displayed = (): string[] =>
+      consoleUtilsMock.display.mock.calls.map((call) => String(call[0]));
+    const warned = (): string[] =>
+      consoleUtilsMock.displayWarning.mock.calls.map((call) => String(call[0]));
+
+    async function runEval(args: string[], overrides: Record<string, unknown> = {}) {
+      const { evalCommand } = await import('#src/commands/evalCommand.js');
+      const program = new Command();
+      evalCommand(program, overrides);
+      await program.parseAsync(['na', 'na', 'eval', ...args, '-o', outputDir]);
+    }
+
+    beforeEach(() => {
+      // The session id carries the case id, and the case id names the one tool that case calls.
+      runSingleShot.mockImplementation(async (sessionId: string) => ({
+        ok: true,
+        answer: 'hello there',
+        tools: inventory.tools
+          .map((tool) => tool.name)
+          .filter((name) => sessionId.includes(`uses-${name}`)),
+        advertisedTools: inventory,
+      }));
+      configMock.initConfig.mockResolvedValue(suiteConfigWithDecoyFloor(1));
+    });
+
+    it('fails a directory whose suites each clear their own min but whose aggregate does not', async () => {
+      // Each suite covers a different tool: 1/3 (33.3%) against its own min of 30, so each clears
+      // it. The aggregate is 2/3 (66.7%), under the run's 90. A design that promoted a suite floor
+      // to the aggregate could not fail this run, because every suite floor held.
+      fileUtilsMock.readFileFromProjectDir.mockImplementation((file: string) =>
+        file.endsWith('a.yaml')
+          ? suiteCovering('read_file', 'tool_coverage: { min: 30 }')
+          : suiteCovering('write_file', 'tool_coverage: { min: 30 }')
+      );
+      floor({ min: 90 });
+
+      await runEval(['a.yaml', 'b.yaml']);
+
+      expect(warned()).toContain(
+        'TOOL COVERAGE GATE FAILED — evalToolCoverage.min 90% from the project config: ' +
+          'covered 2/3 (66.7%)'
+      );
+      expect(warned()).not.toContainEqual(expect.stringContaining('min 30%'));
+      expect(displayed()).toContain(
+        'TOOL COVERAGE RUN: graded against evalToolCoverage.min 90% from the project config'
+      );
+      expect(systemUtilsMock.setExitCode).toHaveBeenCalledWith(1);
+    });
+
+    it('holds the same directory when its aggregate clears the run floor', async () => {
+      // The control for the test above: same suites, a floor the aggregate clears.
+      fileUtilsMock.readFileFromProjectDir.mockImplementation((file: string) =>
+        file.endsWith('a.yaml') ? suiteCovering('read_file') : suiteCovering('write_file')
+      );
+      floor({ min: 60 });
+
+      await runEval(['a.yaml', 'b.yaml']);
+
+      expect(warned()).not.toContainEqual(expect.stringContaining('evalToolCoverage.min'));
+      expect(systemUtilsMock.setExitCode).not.toHaveBeenCalledWith(1);
+    });
+
+    it('names the -i profile as the source when the run was started with one', async () => {
+      fileUtilsMock.readFileFromProjectDir.mockImplementation(() => suiteCovering('read_file'));
+      floor({ min: 80 });
+
+      await runEval(['suite.yaml'], { identityProfile: 'mcp-eval-root' });
+
+      expect(configMock.loadConfiguredEvalToolCoverage).toHaveBeenCalledWith(
+        expect.objectContaining({ identityProfile: 'mcp-eval-root' })
+      );
+      expect(displayed()).toContain(
+        'TOOL COVERAGE RUN: graded against evalToolCoverage.min 80% from profile mcp-eval-root'
+      );
+      expect(warned()).toContain(
+        'TOOL COVERAGE GATE FAILED — evalToolCoverage.min 80% from profile mcp-eval-root: ' +
+          'covered 1/3 (33.3%)'
+      );
+    });
+
+    it('names the project config as the source when there is no -i', async () => {
+      fileUtilsMock.readFileFromProjectDir.mockImplementation(() => suiteCovering('read_file'));
+      floor({ min: 80 });
+
+      await runEval(['suite.yaml']);
+
+      expect(displayed()).toContain(
+        'TOOL COVERAGE RUN: graded against evalToolCoverage.min 80% from the project config'
+      );
+    });
+
+    it('a run-level waive removes a tool no suite waived, and a suite-only waive does not', async () => {
+      // Suite a waives delete_file; suite b counts it. The aggregate keeps it counted (a suite-only
+      // waiver is one suite's statement about its own scope), so without a run-level waive the run
+      // is 2/3. The run-level list removes write_file — which NO suite waived — leaving 1/2.
+      fileUtilsMock.readFileFromProjectDir.mockImplementation((file: string) =>
+        file.endsWith('a.yaml')
+          ? suiteCovering('read_file', 'tool_coverage: { waive: [delete_file] }')
+          : suiteCovering('read_file')
+      );
+      floor({ min: 60, waive: ['write_file'] });
+
+      await runEval(['a.yaml', 'b.yaml']);
+
+      expect(warned()).toContain(
+        'TOOL COVERAGE GATE FAILED — evalToolCoverage.min 60% from the project config: ' +
+          'covered 1/2 (50%)'
+      );
+    });
+
+    it('resolves the floor once per run, never from a config a suite or sweep cell builds', async () => {
+      // Two suites, one of them a sweep whose cells merge their OWN evalToolCoverage onto the
+      // config, and every initConfig carrying yet another. Only the run-start value may grade.
+      const SWEPT = `
+target: { type: gth-agent }
+sweep:
+  axes:
+    - name: floor
+      values:
+        - { name: low, config: { evalToolCoverage: { min: 1 } } }
+        - { name: high, config: { evalToolCoverage: { min: 100 } } }
+cases:
+  - id: uses-read_file
+    prompt: "use read_file"
+    must_contain: ["hello"]
+`;
+      fileUtilsMock.readFileFromProjectDir.mockImplementation((file: string) =>
+        file.endsWith('a.yaml') ? SWEPT : suiteCovering('write_file')
+      );
+      let builds = 0;
+      configMock.initConfig.mockImplementation(async () =>
+        suiteConfigWithDecoyFloor((builds += 1) % 2 === 0 ? 5 : 95)
+      );
+      floor({ min: 50 });
+
+      await runEval(['a.yaml', 'b.yaml']);
+
+      expect(configMock.loadConfiguredEvalToolCoverage).toHaveBeenCalledTimes(1);
+      expect(builds).toBeGreaterThan(1);
+      expect(displayed().filter((line) => line.startsWith('TOOL COVERAGE RUN'))).toEqual([
+        'TOOL COVERAGE RUN: graded against evalToolCoverage.min 50% from the project config',
+      ]);
+      expect(warned()).not.toContainEqual(expect.stringContaining('evalToolCoverage.min'));
+    });
+
+    describe('identity-matrix suites', () => {
+      const MATRIX = `
+target: { type: gth-agent }
+identities: [admin, limited]
+cases:
+  - id: uses-read_file
+    prompt: "use read_file"
+    expect:
+      - identities: [admin, limited]
+        must_contain: ["hello"]
+`;
+
+      beforeEach(() => {
+        fileUtilsMock.readFileFromProjectDir.mockImplementation(() => MATRIX);
+        // Both identities declare a floor. Taking either would be the defect: the run floor would
+        // be whichever identity happened to be built first.
+        configMock.initConfig.mockImplementation(async (overrides?: { identityProfile?: string }) =>
+          suiteConfigWithDecoyFloor(overrides?.identityProfile === 'admin' ? 100 : 1)
+        );
+      });
+
+      it('with no base config, grades no floor and says why', async () => {
+        floor(undefined, false);
+
+        await runEval(['matrix.yaml']);
+
+        expect(displayed().filter((line) => line.startsWith('TOOL COVERAGE RUN'))).toEqual([
+          'TOOL COVERAGE RUN: no evalToolCoverage floor — the run was started with no base config',
+        ]);
+        expect(warned()).not.toContainEqual(expect.stringContaining('evalToolCoverage.min'));
+        expect(systemUtilsMock.setExitCode).not.toHaveBeenCalledWith(1);
+      });
+
+      it('with a base config, grades the base floor and never an identity one', async () => {
+        floor({ min: 50 });
+
+        await runEval(['matrix.yaml']);
+
+        expect(displayed()).toContain(
+          'TOOL COVERAGE RUN: graded against evalToolCoverage.min 50% from the project config'
+        );
+        expect(warned()).toContain(
+          'TOOL COVERAGE GATE FAILED — evalToolCoverage.min 50% from the project config: ' +
+            'covered 1/3 (33.3%)'
+        );
+        // Every config build carried an identity: the floor was never read from a matrix build.
+        for (const call of configMock.initConfig.mock.calls) {
+          expect(call[0]).toEqual(expect.objectContaining({ identityProfile: expect.any(String) }));
+        }
+      });
+    });
+
+    it('grades a suite min and the run floor independently, and names the one that breached', async () => {
+      // The suite's own 100% floor fails; the run's 10% floor holds.
+      fileUtilsMock.readFileFromProjectDir.mockImplementation(() =>
+        suiteCovering('read_file', 'tool_coverage: { min: 100 }')
+      );
+      floor({ min: 10 });
+
+      await runEval(['suite.yaml']);
+
+      expect(warned()).toContainEqual(expect.stringContaining('min 100%: covered 1/3 (33.3%)'));
+      expect(warned()).not.toContainEqual(expect.stringContaining('evalToolCoverage.min 10%'));
+      expect(systemUtilsMock.setExitCode).toHaveBeenCalledWith(1);
+    });
+
+    it('a suite run alone states the threshold it was graded against and where it came from', async () => {
+      fileUtilsMock.readFileFromProjectDir.mockImplementation(() => suiteCovering('read_file'));
+      floor({ min: 10 });
+
+      await runEval(['suite.yaml']);
+
+      // A single-suite run prints no TOTAL block, so the run line and the graded figure carry it.
+      expect(displayed()).toContain(
+        'TOOL COVERAGE RUN: graded against evalToolCoverage.min 10% from the project config'
+      );
+      expect(displayed()).not.toContainEqual(expect.stringContaining('TOOL COVERAGE TOTAL'));
+      expect(systemUtilsMock.setExitCode).not.toHaveBeenCalledWith(1);
+    });
+
+    it('a floor with nothing to grade fails rather than passing quietly', async () => {
+      // An ag-ui target reports no inventory, so no suite produces a coverage report.
+      fileUtilsMock.readFileFromProjectDir.mockImplementation(
+        () => `
+target: { type: ag-ui, url: "http://agent.example/agent", agent_id: gth }
+cases:
+  - id: greets
+    prompt: "greet the user"
+    must_contain: ["hello"]
+`
+      );
+      floor({ min: 13 });
+
+      await runEval(['suite.yaml']);
+
+      expect(warned()).toContainEqual(
+        expect.stringContaining('could not be graded: no suite produced a coverage report')
+      );
+      expect(systemUtilsMock.setExitCode).toHaveBeenCalledWith(1);
+    });
+
+    it('a floor that fails to load is a harness error, and no suite runs', async () => {
+      fileUtilsMock.readFileFromProjectDir.mockImplementation(() => suiteCovering('read_file'));
+      configMock.loadConfiguredEvalToolCoverage.mockRejectedValue(
+        new Error(
+          'Invalid evalToolCoverage: evalToolCoverage.min is a percentage between 0 and 100.'
+        )
+      );
+
+      await runEval(['suite.yaml']);
+
+      expect(runSingleShot).not.toHaveBeenCalled();
       expect(systemUtilsMock.setExitCode).toHaveBeenCalledWith(2);
     });
   });

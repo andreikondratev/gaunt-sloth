@@ -103,6 +103,24 @@ export type PromptsConfig = Partial<Record<PromptSegmentName, PromptSegmentSetti
 };
 
 /**
+ * BATCH-48 — the run-level tool-coverage floor, as authored in gth config.
+ *
+ * `min` is a percentage of the post-waiver denominator, the same unit a suite's `tool_coverage.min`
+ * uses and the same unit the figure is printed in. `waive` is the exemption list at the same scope:
+ * a floor graded against a denominator the run has no way to correct cannot be set honestly, because
+ * tools an `allowedTools` filter removed stay in the denominator and can only ever read as uncovered.
+ */
+export interface EvalToolCoverageConfig {
+  /** Minimum percentage (0–100) of the run's post-waiver denominator that must have been exercised. */
+  min?: number;
+  /**
+   * Tool-name globs (the `must_call` matcher) whose matching advertised tools leave the run's
+   * denominator. A suite's own waiver does not do this — only this list does.
+   */
+  waive?: string[];
+}
+
+/**
  * Shared per-command tooling configuration (the knobs every actionable command carries).
  * Reused across the per-command types in {@link GthConfig.commands} and by
  * {@link PrCommandConfig}. Type-level dedupe only — no runtime/behaviour change.
@@ -390,6 +408,19 @@ export interface GthConfig {
    * grow a key nobody set.
    */
   toolResultCaptureMaxBytes?: number;
+  /**
+   * BATCH-48 — the run-level tool-coverage floor for `gth eval`.
+   *
+   * Distinct from a suite's own `tool_coverage.min`. That one is graded against the suite that
+   * declared it; this one is graded against the run's aggregate, and the two are independent —
+   * neither is promoted into the other. A profile is the intended home: one profile declares the
+   * MCP server under test and the floor over that server's surface.
+   *
+   * Optional, with no default and deliberately absent from `DEFAULT_CONFIG`. A run that never set
+   * the key has no run floor, and a default written here would invent one for every config that
+   * never asked.
+   */
+  evalToolCoverage?: EvalToolCoverageConfig;
   /**
    * Stream session log instead of writing it when inference streaming is complete.
    * (only works when {@link streamOutput} is true)

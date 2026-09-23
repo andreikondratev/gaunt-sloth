@@ -127,6 +127,51 @@ Two ways to create a profile, depending on how you want it seeded:
 Either way you end up with an ordinary config file at `.gsloth/.gsloth-settings/<name>/.gsloth.config.json`
 (or its global counterpart) that you can go on to edit — adjust its tools, prompts, or provider as needed.
 
+## Run-level tool coverage (evalToolCoverage)
+
+A directory of eval suites over one MCP server shares one tool surface, and the coverage figure that
+describes it is the union across the run, not any suite's own fraction — each suite is graded against
+the whole surface, so a `min` it could clear gates nothing. `evalToolCoverage` is the floor over that
+union. It is a top-level key, and a profile is the intended place for it: the same profile that
+declares the server under test in `mcpServers` declares the floor over that server's surface, and one
+CI step per profile grades one server.
+
+```json
+{
+  "mcpServers": { "unimarket": { "command": "unimarket-mcp" } },
+  "evalToolCoverage": { "min": 13, "waive": ["read_file", "write_file"] }
+}
+```
+
+```bash
+gth -i mcp-eval-root eval evals/
+```
+
+| Field | Meaning |
+|---|---|
+| `min` | Minimum percentage (0–100) of the run's denominator that must have been exercised. Graded against the run's aggregate, independently of any suite's own `tool_coverage.min` — neither is promoted into the other, and a failure names the floor that breached. |
+| `waive` | Tool-name patterns (the same globs `must_call` uses) removed from the run's denominator, even when no suite waives them. A suite's own waiver does not shrink the run denominator. |
+
+The denominator the floor grades is the aggregate's reconciled one — a tool waived in one suite but
+counted in another stays counted, and a tool waived in every suite is already out — minus this key's
+`waive`. A tool the run waives leaves the denominator even if some suite covered it. A `waive` entry
+that matches nothing advertised warns, naming the pattern: a renamed tool is back in the denominator
+under its new name while the config still claims it is waived.
+
+The floor is resolved once, before any suite runs, from the config the run was started with. With
+`-i` that is the named profile; with `-c`, that file; otherwise the project config, or the global
+config when there is no project config. A value set in both the project and the global config merges
+the way any other key does. It is never taken from an identity's config or from a sweep cell's
+`config` — a suite that declares `identities:` builds one config per identity, and the floor must not
+depend on which of them ran first. With no base config the run has no floor, and the output says so.
+The output names the source either way, for a run of one suite as well as for a directory. A
+malformed value stops the run before anything runs (exit `2`). A `min` set over a run where no
+suite produced a coverage report fails rather than passing: a floor quietly skipped reports green
+forever over a run it never measured.
+
+Absent, the run has no floor. There is no default, and the key does not appear in a config that never
+set it. See [Tool coverage](../COMMANDS.md#tool-coverage) for what the figure counts.
+
 ## Named-profile subagents (subagents)
 
 `subagents` lets the agent delegate a sub-task to a subagent that runs under a **different
