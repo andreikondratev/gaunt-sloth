@@ -515,8 +515,8 @@ export class Terminal {
   /**
    * The screen as last read, held until the event loop next turns (see "Screen frames" in the
    * module docblock), or null when the next read must go to the engine.
-   * Held: `getViewableBuffer()`, and so every locator. Not held: `serialize()`, `getCursor()`, and
-   * the scrollback half of `getBuffer()`.
+   * Held: `getViewableBuffer()`, and so every locator. Not held: `serialize()`, `getCursor()` and
+   * `getBuffer()`, which always read the engine afresh.
    */
   #frame = null;
 
@@ -543,6 +543,14 @@ export class Terminal {
    * read, and a count that cannot be right — more visible lines than the screen has rows, or than
    * the full text holds — is re-read, and after five reads fails rather than return rows a case's
    * row arithmetic would then misplace.
+   *
+   * It does not use the held frame, so it can see a LATER screen than the locator that ran just
+   * before it, where in 0.0.4 the two shared one screen. That trade was taken on purpose. The rows
+   * have to come from the full text, and the full text cannot be read together with the held cells.
+   * The only way to stitch the held frame into the scrollback was the split read that threw 32
+   * times on the Windows cell and 18 on ubuntu. A case that needs what a locator saw should assert
+   * it through the locator, and a case that needs rows should read them from `getBuffer()` once and
+   * do all its row arithmetic on that one buffer.
    */
   async getBuffer() {
     await this.#settled();
@@ -560,8 +568,9 @@ export class Terminal {
       }
       if (attempt >= 4) {
         throw new Error(
-          'getBuffer(): the scrollback and the visible screen did not agree on 5 reads ' +
-            `${POLL_MS} ms apart, so their rows cannot be lined up (last read: the full text has ` +
+          'getBuffer(): the visible line count was impossible on 5 reads ' +
+            `${POLL_MS} ms apart (more than the screen's rows or the full text's lines), so the ` +
+            'trailing blank rows cannot be counted (last read: the full text has ' +
             `${fullLines.length} lines, the visible text ${visibleLines}, the screen ${rows} rows).`
         );
       }

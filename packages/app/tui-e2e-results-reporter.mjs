@@ -44,6 +44,10 @@ export function recordedMessage(error) {
     : message;
 }
 
+/** Recorded as the error of a case vitest returned no result for. */
+export const NO_RESULT_MESSAGE =
+  'vitest reported no result for this case (the run ended before it finished), so it counts as failed.';
+
 const messages = (errors) => (errors ?? []).map(recordedMessage);
 
 /** `describe › describe › case`, the title form 0.0.4's reporter printed. */
@@ -65,7 +69,12 @@ export default class TuiE2eResultsReporter {
       const file = relativeFile(testModule.moduleId);
       modules.push({ file, state: testModule.state(), errors: messages(testModule.errors()) });
       for (const testCase of testModule.children.allTests()) {
-        const result = testCase.result();
+        // An aborted run can leave a case with no result at all. That is recorded as a failure,
+        // never dropped and never a pass: a case nobody saw finish proved nothing.
+        const result = testCase.result() ?? {
+          state: 'failed',
+          errors: [new Error(NO_RESULT_MESSAGE)],
+        };
         const diagnostic = testCase.diagnostic();
         cases.push({
           file,

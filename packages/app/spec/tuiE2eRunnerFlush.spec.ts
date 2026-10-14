@@ -86,3 +86,54 @@ describe('QA-13 the tui-e2e runner lets stdout drain', () => {
     ).toBe(false);
   });
 });
+
+/**
+ * OPS-153 — the runner must carry out what `decideVerdict` decided, through the channels it was
+ * built for. Every verdict branch is unit-tested in `tuiE2eReport.spec.ts`, but those tests prove
+ * nothing if the runner then exits with vitest's own code, never tells the workers where the leak
+ * report goes, or drops the step summary: the leak, blind-analysis and failed-while-vitest-passed
+ * branches would all stop reaching the process, and a run with a leaked HOME would exit 0. Running
+ * the real runner here would mean booting a vitest child per assertion, so these are read from the
+ * source like the checks above — comments dropped, so an explanation that names a line cannot stand
+ * in for the line itself.
+ */
+describe('OPS-153 the tui-e2e runner carries out the verdict', () => {
+  const codeOnly = (text: string): string =>
+    text
+      .split('\n')
+      .filter((line) => {
+        const trimmed = line.trimStart();
+        return !trimmed.startsWith('//') && !trimmed.startsWith('*') && !trimmed.startsWith('/*');
+      })
+      .join('\n')
+      .replace(/\s+/g, ' ');
+
+  const code = codeOnly(source());
+  const spawnAt = code.indexOf('spawn(');
+  const closeAt = code.indexOf("child.on('close'");
+
+  it('reads the source it means to (control)', () => {
+    expect(spawnAt).toBeGreaterThan(0);
+    expect(closeAt).toBeGreaterThan(spawnAt);
+    expect(codeOnly('// process.exitCode = verdict.exitCode;\nx = 1;')).toBe('x = 1;');
+  });
+
+  it('exits with the verdict’s code, and sets the exit code nowhere else', () => {
+    const handler = code.slice(closeAt);
+    expect(handler).toContain('process.exitCode = verdict.exitCode;');
+    expect(code.match(/process\.exitCode\s*=/g)).toHaveLength(1);
+  });
+
+  it('hands the workers the leak-report path before it spawns them, and reads that same file', () => {
+    const setAt = code.indexOf('env.GTH_E2E_LEAK_REPORT = leakReportPath;');
+    expect(setAt).toBeGreaterThan(-1);
+    expect(setAt).toBeLessThan(spawnAt);
+    expect(code.slice(closeAt)).toContain('readFileSync(leakReportPath');
+  });
+
+  it('appends the verdict’s step summary to the GitHub step summary', () => {
+    expect(code.slice(closeAt)).toMatch(
+      /appendFileSync\( ?process\.env\.GITHUB_STEP_SUMMARY, verdict\.stepSummary/
+    );
+  });
+});

@@ -20,6 +20,9 @@
 /** The result schema this module reads. Must equal `RESULTS_SCHEMA` in tui-e2e-results-reporter.mjs. */
 export const KNOWN_RESULTS_SCHEMA = 2;
 
+/** The states vitest leaves a case in once its run is over; anything else is counted as failed. */
+const FINISHED_STATES = new Set(['passed', 'failed', 'skipped', 'pending']);
+
 /**
  * Turn the structured result into the run's verdict.
  *
@@ -84,7 +87,21 @@ export function analyseRun(raw) {
       title: `(file failed: ${String(m.errors[0]).split('\n')[0]})`,
       errors: m.errors.map(String),
     }));
-  const failed = [...cases.filter((c) => c.state === 'failed').map(entry), ...brokenModules];
+  // A case in any state other than the four vitest finishes with (including none at all) is a case
+  // nobody saw pass, so it is a failure. Ignoring it would let it vanish from every count.
+  const unknownState = (c) => !FINISHED_STATES.has(c.state);
+  const failed = [
+    ...cases.filter((c) => c.state === 'failed').map(entry),
+    ...cases.filter(unknownState).map((c) => ({
+      ...entry(c),
+      errors: [
+        `the result records this case in state ${JSON.stringify(c.state ?? null)}, which is not ` +
+          'one a finished case can have, so it counts as failed.',
+        ...entry(c).errors,
+      ],
+    })),
+    ...brokenModules,
+  ];
   summary.failed = failed.length;
 
   if (summary.passed + summary.failed === 0) {

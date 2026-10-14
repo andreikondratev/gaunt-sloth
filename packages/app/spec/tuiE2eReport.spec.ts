@@ -178,6 +178,25 @@ describe('QA-13 tui-e2e flake reporter', () => {
         },
       ]);
     });
+
+    it('counts a case with no state, or one it does not know, as a failure, never a pass', () => {
+      // An aborted run can leave a case with no result; the reporter writes it as failed, and this
+      // is the second line of defence if a record ever arrives without that.
+      const unfinished = derive(ALL_PASS, (r) => {
+        r.cases.push({ ...r.cases[0], title: 'no state', state: undefined, errors: [] });
+        r.cases.push({ ...r.cases[0], title: 'odd state', state: 'running', errors: [] });
+      });
+      const result = analyseRun(unfinished);
+      expect(result.problem).toBeNull();
+      expect(result.summary?.failed).toBe(2);
+      // Neither of the two may be counted as a pass as well.
+      expect(result.summary?.passed).toBe(analyseRun(ALL_PASS).summary?.passed);
+      expect(result.summary?.total).toBe((analyseRun(ALL_PASS).summary?.total ?? 0) + 2);
+      expect(result.failed.map((f) => f.title)).toEqual(['no state', 'odd state']);
+      expect(result.failed[0].errors[0]).toMatch(/state null, which is not one a finished case/);
+      expect(result.failed[1].errors[0]).toMatch(/state "running"/);
+      expect(decideVerdict({ childCode: 0, leak: null, results: unfinished }).exitCode).toBe(1);
+    });
   });
 
   describe('it goes loud rather than quiet when it cannot tell what ran', () => {

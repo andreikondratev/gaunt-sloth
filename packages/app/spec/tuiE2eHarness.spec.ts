@@ -181,7 +181,9 @@ describe('OPS-153 the harness input and buffer guarantees', () => {
 
   it('getBuffer() fails rather than return rows it could not line up', async () => {
     const terminal = terminalOn(['two', 'three'], { fullText: 'three' });
-    await expect(terminal.getBuffer()).rejects.toThrow(/did not agree on 5 reads/);
+    await expect(terminal.getBuffer()).rejects.toThrow(
+      /visible line count was impossible on 5 reads/
+    );
   });
 });
 

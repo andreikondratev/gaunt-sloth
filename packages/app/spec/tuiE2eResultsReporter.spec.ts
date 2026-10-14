@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import TuiE2eResultsReporter, {
   MAX_MESSAGE_CHARS,
+  NO_RESULT_MESSAGE,
   RESULTS_SCHEMA,
   recordedMessage,
 } from '../tui-e2e-results-reporter.mjs';
@@ -139,6 +140,29 @@ describe('QA-13 the results reporter maps vitest’s record faithfully', () => {
     expect(record.modules).toEqual([
       { file: 'sub/broken.tui.test.ts', state: 'failed', errors: ['SyntaxError: nope'] },
     ]);
+  });
+
+  it('records a case vitest gave no result for as failed, and the gate fails on it', () => {
+    // An aborted run can leave `TestCase.result()` undefined. It must count as a failure, never
+    // as a pass and never vanish: a case nobody saw finish proved nothing.
+    const module = fakeModule('zz.tui.test.ts', [
+      { name: 'finished', state: 'passed' },
+      { name: 'never finished', state: 'passed' },
+    ]);
+    const tests = [...module.children.allTests()];
+    tests[1].result = () => undefined;
+    tests[1].diagnostic = () => undefined;
+    module.children = { allTests: () => tests[Symbol.iterator]() };
+
+    const record = run([module], 'failed');
+    expect(record.cases[1]).toMatchObject({
+      title: 'zzsuite › never finished',
+      state: 'failed',
+      errors: [NO_RESULT_MESSAGE],
+    });
+    const analysis = analyseRun(JSON.stringify(record));
+    expect(analysis.summary).toMatchObject({ passed: 1, failed: 1 });
+    expect(analysis.failed.map((f: any) => f.title)).toEqual(['zzsuite › never finished']);
   });
 
   it('records unhandled errors and the run’s reason', () => {
