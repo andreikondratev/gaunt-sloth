@@ -58,6 +58,26 @@
  * writes and then asserts sees its write delivered, exactly as before. A write after the program
  * has exited is ignored, as 0.0.4 ignored it.
  *
+ * **Two writes stay two reads.** Under 0.0.4 each write was its own `write(2)` on the pty, and a
+ * program that was waiting for input read them separately: measured, 0 of 100 back-to-back
+ * `write('abc'); submit()` pairs reached a raw-mode probe as one chunk. The engine resolves a write
+ * before the program has read it, and with nothing between them about half of those pairs arrived
+ * as ONE chunk — which the TUI reads as a paste, so the return becomes a newline and the message is
+ * never sent (the `/compact` "after three turns" case failed exactly so). Each write is therefore
+ * followed by a short pause, {@link WRITE_GAP_MS}, before the next one goes out.
+ *
+ * **Screen frames.** 0.0.4's emulator was JavaScript on the test's own event loop: it parsed the
+ * program's output in its own callbacks, so the screen could only change when the event loop
+ * turned, and reads were synchronous. Two assertions in a row, with no wait between them, therefore
+ * saw the SAME screen — and cases rely on it (measured: TUI-C17's "folds streamed tool output" case
+ * checks two strings back to back while a second copy of both is about to paint; on 0.0.4 it passes
+ * under full CPU load, and with a fresh read per assertion it failed every attempt on the ubuntu CI
+ * cell and on every loaded local run). The engine here parses on its own thread, so the screen moves
+ * between any two reads. To keep the old meaning, a read of the visible screen is held until the
+ * event loop next turns (`setImmediate`), and any input drops it at once. A poll still re-reads every
+ * 50 ms, exactly as before; only reads with nothing but promise continuations between them share a
+ * frame, which is what 0.0.4 gave them.
+ *
  * **The 5 s before every case body is kept.** 0.0.4 raced the program's exit against a fixed 5 s
  * after spawning, before running the body (`lib/runner/worker.js`). Cases were written under that
  * wait, and a case whose first assertion is a `not.toBeVisible()` or a buffer read meant something
@@ -79,6 +99,15 @@ import { TuiTest } from '@microsoft/tui-test';
  * `spec/tuiE2eExpectTimeoutWired.spec.ts` keeps every case file going through this module.
  */
 export const EXPECT_TIMEOUT_MS = 15_000;
+
+/**
+ * The pause after each write before the next queued write goes out. See "Input ordering" in the
+ * module docblock: without it the engine hands back-to-back writes to the program as one read.
+ * Measured with a raw-mode probe, 50 `write('abc'); submit()` pairs per run: no pause coalesced
+ * 22-26 of 50 on every idle run; 1 ms and 5 ms coalesced 0 of 50 on every run, idle and under full
+ * CPU load, as did 0.0.4. 5 ms rather than 1 for margin on slower hosts.
+ */
+const WRITE_GAP_MS = 5;
 
 /** The poll interval 0.0.4's locator used (`lib/utils/poll.js`). */
 const POLL_MS = 50;
@@ -382,6 +411,8 @@ export class Terminal {
   }
 
   #enqueue(action) {
+    // Input moves the screen on, so nothing read before it may answer a read after it.
+    this.#frame = null;
     const next = this.#io.then(async () => {
       if (this.#disposed || this.#exit !== null) return;
       try {
@@ -396,7 +427,11 @@ export class Terminal {
 
   /** Write raw data to the program, in call order with every other write. */
   write(data) {
-    return this.#enqueue(() => this.#tt.write(data));
+    return this.#enqueue(async () => {
+      await this.#tt.write(data);
+      // Keep two writes two reads (see "Input ordering" in the module docblock).
+      await sleep(WRITE_GAP_MS);
+    });
   }
 
   /** Write `data` followed by a carriage return, in ONE write — as 0.0.4 did. */
@@ -453,12 +488,28 @@ export class Terminal {
    */
   async getViewableBuffer() {
     await this.#settled();
+    if (this.#frame !== null) return this.#frame;
     const { cols, rows } = await this.#tt.getSize();
     const grid = Array.from({ length: rows }, () => Array(cols).fill(' '));
     for (const cell of await this.#tt.cells(0, 0, cols, rows)) {
       if (cell.y < rows && cell.x < cols) grid[cell.y][cell.x] = cell.char;
     }
-    return grid.map((row) => row.filter((char) => char !== ''));
+    const frame = grid.map((row) => row.filter((char) => char !== ''));
+    this.#holdFrame(frame);
+    return frame;
+  }
+
+  /**
+   * The screen as last read, held until the event loop next turns (see "Screen frames" in the
+   * module docblock), or null when the next read must go to the engine.
+   */
+  #frame = null;
+
+  #holdFrame(frame) {
+    this.#frame = frame;
+    setImmediate(() => {
+      if (this.#frame === frame) this.#frame = null;
+    });
   }
 
   /**
