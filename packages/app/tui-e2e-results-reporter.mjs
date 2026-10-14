@@ -14,17 +14,37 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
-/** Bumped whenever the shape below changes; `analyseRun` refuses a schema it does not know. */
-export const RESULTS_SCHEMA = 1;
+/** Bumped whenever the shape or the meaning of a field below changes; `analyseRun` refuses a schema it does not know. */
+export const RESULTS_SCHEMA = 2;
 
 const e2eDir = fileURLToPath(new URL('./tui-e2e/', import.meta.url));
 
 /** A module path relative to the suite folder, with forward slashes on every OS. */
 const relativeFile = (moduleId) => path.relative(e2eDir, moduleId).split(path.sep).join('/');
 
-/** The first line of each error, which is what a summary can usefully carry. */
-const messages = (errors) =>
-  (errors ?? []).map((error) => String(error?.message ?? error).split('\n')[0]);
+/** The longest message recorded for one error; anything past it is cut and marked. */
+export const MAX_MESSAGE_CHARS = 2_000;
+
+/**
+ * What is recorded of one error: its message, without the screen dump the harness appends to a
+ * failed `toBeVisible` (everything from the "Terminal content:" heading on) and without the stack.
+ * The message is the signature a flake is matched on in `docs/known-flakes.md`, so it is kept
+ * whole — every line of it — up to {@link MAX_MESSAGE_CHARS}; the dump and the stack are what can
+ * run to pages, and they are what is dropped.
+ *
+ * @param {unknown} error a vitest `TestError`, or anything thrown
+ * @returns {string}
+ */
+export function recordedMessage(error) {
+  const raw = String(error?.message ?? error);
+  const dump = raw.indexOf('\n\nTerminal content:');
+  const message = (dump === -1 ? raw : raw.slice(0, dump)).trimEnd();
+  return message.length > MAX_MESSAGE_CHARS
+    ? `${message.slice(0, MAX_MESSAGE_CHARS)}… [cut at ${MAX_MESSAGE_CHARS} characters]`
+    : message;
+}
+
+const messages = (errors) => (errors ?? []).map(recordedMessage);
 
 /** `describe › describe › case`, the title form 0.0.4's reporter printed. */
 function titleOf(testCase) {

@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   KNOWN_RESULTS_SCHEMA,
+  SIGNATURE_CHARS,
   analyseRun,
+  attemptErrors,
+  decideVerdict,
   describeLeakReport,
+  errorSignature,
   githubAnnotations,
   leakedDirs,
   repoPath,
@@ -15,7 +19,7 @@ import { RESULTS_SCHEMA } from '../tui-e2e-results-reporter.mjs';
  * QA-13 — the PTY e2e flake reporter.
  *
  * `tui-e2e-report.mjs` reads the run's STRUCTURED result — the JSON `tui-e2e-results-reporter.mjs`
- * writes from vitest's reporter API, carrying each case's final state and retry count — so a
+ * writes from vitest's reporter API, carrying each case's final state, retry count and errors — so a
  * *flaky* outcome escapes a green job. Nothing here parses terminal output.
  *
  * Every fixture is a REAL capture: the results file of a run of a deliberately-flaky /
@@ -90,14 +94,20 @@ describe('QA-13 tui-e2e flake reporter', () => {
           row: 21,
           column: 5,
           title: 'zzprobe › passes on the retry',
+          errors: [
+            'locator timeout: getByText(OPS153-NEVER-ON-SCREEN) resolved to 0 elements after 300 ms',
+          ],
         },
       ]);
       expect(result.failed).toEqual([
         {
           file: 'zzprobe.tui.test.ts',
-          row: 29,
+          row: 30,
           column: 5,
           title: 'zzprobe › is genuinely failing',
+          errors: Array(3).fill(
+            "expected 'this never holds' to be 'on any attempt' // Object.is equality"
+          ),
         },
       ]);
     });
@@ -164,6 +174,7 @@ describe('QA-13 tui-e2e flake reporter', () => {
           row: null,
           column: null,
           title: '(file failed: SyntaxError: Unexpected token)',
+          errors: ['SyntaxError: Unexpected token'],
         },
       ]);
     });
@@ -244,6 +255,158 @@ describe('QA-13 tui-e2e flake reporter', () => {
     it('pluralises the job summary heading', () => {
       const two = [...flaky, ...flaky];
       expect(stepSummaryMarkdown(two, { os: 'linux' })).toContain('2 flaky TUI e2e tests on linux');
+    });
+  });
+
+  /**
+   * QA-13, I1 — a flake is matched on its message in docs/known-flakes.md, so the error each failed
+   * attempt recorded has to reach the place a reader looks: the FLAKY block, the annotation and
+   * the step summary. Taken from the capture, where the flaky case's first attempt failed on a real
+   * harness locator timeout.
+   */
+  describe('the failed attempts errors reach the reader', () => {
+    const flaky = analyseRun(FLAKY_ONLY).flaky;
+    const LOCATOR_TIMEOUT =
+      'locator timeout: getByText(OPS153-NEVER-ON-SCREEN) resolved to 0 elements after 300 ms';
+
+    it('analyseRun carries the recorded errors on each flaky entry', () => {
+      expect(flaky[0].errors).toEqual([LOCATOR_TIMEOUT]);
+    });
+
+    it('puts the error in the annotation, escaped so it stays one workflow command', () => {
+      const [annotation] = githubAnnotations(flaky);
+      expect(annotation).toContain(LOCATOR_TIMEOUT);
+      // A raw newline would end the command; GitHub decodes %0A back into one.
+      expect(annotation).not.toContain('\n');
+      expect(annotation).toContain('%0AFailed attempt(s):%0A');
+      const percent = githubAnnotations([{ ...flaky[0], errors: ['100% wrong'] }])[0];
+      expect(percent).toContain('100%25 wrong');
+    });
+
+    it('puts the error in the step summary, in its own column', () => {
+      const markdown = stepSummaryMarkdown(flaky, { os: 'win32' });
+      expect(markdown).toContain('Error on the failed attempt(s)');
+      expect(markdown).toContain(LOCATOR_TIMEOUT);
+      const piped = stepSummaryMarkdown([{ ...flaky[0], errors: ['a | b'] }], { os: 'win32' });
+      expect(piped).toContain('a \\| b');
+    });
+
+    it('keeps the first line of a message whole, however long, and cuts only what follows', () => {
+      const long = `expected ${'x'.repeat(SIGNATURE_CHARS * 2)} to be y`;
+      expect(errorSignature(long)).toBe(long);
+      const withTail = `${long}\n${'second line '.repeat(10)}`;
+      expect(errorSignature(withTail)).toBe(`${long} ⏎ …`);
+    });
+
+    it('joins a multi-line message onto one line, which is what a strict violation needs', () => {
+      expect(
+        errorSignature(
+          'expect(terminal).toBeVisible(marker)\n\nstrict mode violation: getByText(marker) resolved to 2 elements'
+        )
+      ).toBe(
+        'expect(terminal).toBeVisible(marker) ⏎ strict mode violation: getByText(marker) resolved to 2 elements'
+      );
+    });
+
+    it('counts repeats and caps the number shown, so one case cannot flood an annotation', () => {
+      expect(attemptErrors({ errors: ['same', 'same'] })).toEqual(['same (2 attempts)']);
+      expect(attemptErrors({ errors: ['a', 'b', 'c', 'd', 'e'] })).toEqual([
+        'a',
+        'b',
+        'c',
+        '… and 2 more',
+      ]);
+      expect(attemptErrors({ errors: [] })).toEqual([
+        '(no error was recorded for the failed attempt)',
+      ]);
+    });
+  });
+
+  /**
+   * QA-13 / GS2-20, I3 — every decision `run-tui-e2e.js` makes after vitest exits, one branch per
+   * case. The runner only performs what `decideVerdict` returns, so these are the runner's verdicts.
+   */
+  describe('decideVerdict', () => {
+    const LEAK = '1 throwaway HOME directory could not be removed: /tmp/x — EPERM';
+
+    it('a leak fails the run even when vitest exited 0, and says why', () => {
+      const verdict = decideVerdict({ childCode: 0, leak: LEAK, results: ALL_PASS });
+      expect(verdict.exitCode).toBe(1);
+      expect(verdict.stderr).toContain(LEAK);
+    });
+
+    it('a leak never masks a red run', () => {
+      expect(decideVerdict({ childCode: 3, leak: LEAK, results: ALL_PASS }).exitCode).toBe(3);
+    });
+
+    it('a leak is decided before the flake analysis', () => {
+      // Results that would otherwise be green with a flake: the leak still decides, and nothing
+      // about the flake is printed over it.
+      const verdict = decideVerdict({ childCode: 0, leak: LEAK, results: FLAKY_ONLY });
+      expect(verdict.exitCode).toBe(1);
+      expect(verdict.stdout).toBe('');
+    });
+
+    it('a missing results file fails the run even when vitest exited 0', () => {
+      const verdict = decideVerdict({ childCode: 0, leak: null, results: null });
+      expect(verdict.exitCode).toBe(1);
+      expect(verdict.stderr).toContain('wrote no results file');
+    });
+
+    it('a results file it cannot read fails the run even when vitest exited 0', () => {
+      const verdict = decideVerdict({ childCode: 0, leak: null, results: '{not json' });
+      expect(verdict.exitCode).toBe(1);
+      expect(verdict.stderr).toContain('could not read the run report');
+    });
+
+    it('an empty run fails even when vitest exited 0', () => {
+      const verdict = decideVerdict({ childCode: 0, leak: null, results: NO_TESTS });
+      expect(verdict.exitCode).toBe(1);
+      expect(verdict.stderr).toContain('ran none of them');
+    });
+
+    it('a failure the result records fails the run even when vitest exited 0', () => {
+      const verdict = decideVerdict({ childCode: 0, leak: null, results: FAILED_AND_FLAKY });
+      expect(verdict.exitCode).toBe(1);
+      expect(verdict.stderr).toContain('vitest exited 0 but the result records 1 failed case(s)');
+    });
+
+    it('a failed case with vitest also red keeps vitest’s code', () => {
+      expect(decideVerdict({ childCode: 1, leak: null, results: FAILED_AND_FLAKY }).exitCode).toBe(
+        1
+      );
+    });
+
+    it('a flake stays green, and is printed with its error', () => {
+      const verdict = decideVerdict({ childCode: 0, leak: null, results: FLAKY_ONLY });
+      expect(verdict.exitCode).toBe(0);
+      expect(verdict.stderr).toBe('');
+      expect(verdict.stdout).toContain('1 passed (1 flaky)');
+      expect(verdict.stdout).toContain('FLAKY');
+      expect(verdict.stdout).toContain(
+        'failed attempt: locator timeout: getByText(OPS153-NEVER-ON-SCREEN)'
+      );
+      expect(verdict.stepSummary).toContain('1 flaky TUI e2e test');
+    });
+
+    it('annotates a flake on GitHub Actions, and only there', () => {
+      const onActions = decideVerdict({
+        childCode: 0,
+        leak: null,
+        results: FLAKY_ONLY,
+        githubActions: true,
+      });
+      expect(onActions.stdout).toContain('::warning file=packages/app/tui-e2e/zzprobe.tui.test.ts');
+      const local = decideVerdict({ childCode: 0, leak: null, results: FLAKY_ONLY });
+      expect(local.stdout).not.toContain('::warning');
+    });
+
+    it('a clean run is green, with no flake block and no summary', () => {
+      const verdict = decideVerdict({ childCode: 0, leak: null, results: ALL_PASS });
+      expect(verdict.exitCode).toBe(0);
+      expect(verdict.stdout).toContain('1 passed (0 flaky)');
+      expect(verdict.stdout).not.toContain('FLAKY');
+      expect(verdict.stepSummary).toBeNull();
     });
   });
 

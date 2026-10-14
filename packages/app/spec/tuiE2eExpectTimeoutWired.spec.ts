@@ -1,11 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import {
-  EXPECT_TIMEOUT_MS,
-  Locator,
-  effectiveExpectTimeout,
-} from '../tui-e2e/fixtures/harness.mjs';
+import { EXPECT_TIMEOUT_MS, Locator } from '../tui-e2e/fixtures/harness.mjs';
 
 /**
  * QA-15 — every PTY e2e case asserts through `fixtures/harness.mjs`, and the harness's
@@ -136,9 +132,8 @@ describe('QA-15 the harness matcher waits the declared bound', () => {
     vi.useRealTimers();
   });
 
-  it('declares a bound above the 5000 ms fallback, and the matcher reads that bound', () => {
+  it('declares a bound above the 5000 ms fallback', () => {
     expect(EXPECT_TIMEOUT_MS).toBeGreaterThan(5_000);
-    expect(effectiveExpectTimeout()).toBe(EXPECT_TIMEOUT_MS);
   });
 
   it('a toBeVisible() with no timeout polls until the declared bound, not 5 s', async () => {

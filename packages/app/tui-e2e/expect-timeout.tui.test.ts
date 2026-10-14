@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { readFileSync } from 'node:fs';
-import { test, expect, EXPECT_TIMEOUT_MS, effectiveExpectTimeout } from './fixtures/harness.mjs';
+import { test, expect, EXPECT_TIMEOUT_MS } from './fixtures/harness.mjs';
 import { settleSessionsAfterEach } from './fixtures/tmpHome.mjs';
 
 settleSessionsAfterEach(test);
@@ -53,9 +53,8 @@ const DECLARED_EXPECT_TIMEOUT = EXPECT_TIMEOUT_MS;
  * which is why this case deliberately costs about twelve seconds. Nothing else here is allowed to be
  * that slow.
  *
- * The three assertions cover different things and none of them is redundant:
+ * The assertions cover different things and none of them is redundant:
  *
- * - the *value* the matcher will use is the declared one;
  * - the marker becomes visible at all — proves the matcher really waited past 5 s, which is the
  *   one thing a reading of the sources cannot establish;
  * - the wait really exceeded 5000 ms, and the fixture's own delay does too — without those,
@@ -73,8 +72,6 @@ test.describe('gth chat TUI — the configured expect timeout binds in the worke
   test('a matcher waits the configured bound, not the 5 s library fallback', async ({
     terminal,
   }) => {
-    expect(effectiveExpectTimeout()).toBe(DECLARED_EXPECT_TIMEOUT);
-
     await expect(terminal.getByText('ready to chat')).toBeVisible();
     // Type, confirm the echo, then send Enter separately — Ink coalesces a "text\r" single write
     // into one input event, so the return must be its own keystroke.

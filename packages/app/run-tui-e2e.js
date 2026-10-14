@@ -30,6 +30,9 @@
  *    missing or unreadable, or a run that ran no cases, fails the run even if vitest exited 0: a gate
  *    that measured nothing must not report green.
  *
+ * Every one of those decisions is `decideVerdict` in `tui-e2e-report.mjs`, a pure function with a
+ * unit spec per branch; this file only reads the two files the run leaves and prints what it is told.
+ *
  * The suite has to run with `packages/app/tui-e2e` as its working directory — the cases resolve the
  * cli and their fixtures from `process.cwd()`, and the programs they spawn inherit it — so vitest is
  * spawned here with an explicit cwd rather than relying on a shell `cd`.
@@ -47,14 +50,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import {
-  analyseRun,
-  describeLeakReport,
-  githubAnnotations,
-  leakedDirs,
-  repoPath,
-  stepSummaryMarkdown,
-} from './tui-e2e-report.mjs';
+import { decideVerdict, describeLeakReport, leakedDirs } from './tui-e2e-report.mjs';
+import { BASE_ENV_VAR, encodeBaseEnv } from './tui-e2e/fixtures/baseEnv.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const e2eDir = path.join(here, 'tui-e2e');
@@ -64,7 +61,8 @@ const vitestBin = path.join(
   'vitest.mjs'
 );
 
-// Every scratch file this run hands down lives in one directory, removed at the end.
+// The two files this run hands down live in one directory, removed at the end. Neither holds any
+// part of the environment: the leak report holds directory paths, the results hold test outcomes.
 const scratchDir = mkdtempSync(path.join(os.tmpdir(), 'gth-e2e-run-'));
 
 // The environment the cases see is this process's, plus `FORCE_COLOR=1` when our own stdout is a
@@ -82,12 +80,10 @@ env.GTH_E2E_LEAK_REPORT = leakReportPath;
 const resultsPath = path.join(scratchDir, 'results.json');
 env.GTH_E2E_RESULTS = resultsPath;
 
-// The environment a test worker restores before any case loads (fixtures/vitest.setup.mjs), because
-// vitest adds keys of its own — NODE_ENV=test among them — that would otherwise reach `gth`. Written
-// last, so it carries the two paths above.
-const baseEnvPath = path.join(scratchDir, 'base-env.json');
-env.GTH_E2E_BASE_ENV_FILE = baseEnvPath;
-writeFileSync(baseEnvPath, JSON.stringify(env), 'utf8');
+// What a test worker needs to undo the keys vitest adds (fixtures/vitest.setup.mjs): the names this
+// environment has and this process's values for the few keys vitest sets — never any other value.
+// Encoded last, so it names the two paths above. See fixtures/baseEnv.mjs.
+env[BASE_ENV_VAR] = encodeBaseEnv(env);
 
 const child = spawn(
   process.execPath,
@@ -98,12 +94,9 @@ const child = spawn(
 // `close` rather than `exit`: it fires once the child's stdio is done, so the run's own output is
 // complete before the verdict below is printed under it.
 child.on('close', (code) => {
-  const childCode = code ?? 1;
-
-  // GS2-20 — checked BEFORE the flake analysis, because a leak is a cause and "the flake check went
-  // blind" is at most a symptom of one. Read first, and only the read is allowed to mean "nothing
-  // happened". Folding the analysis into the same try would let a throw inside it be mistaken for an
-  // absent file, which is a green run.
+  // GS2-20 — read first, and only the read is allowed to mean "nothing happened". Folding anything
+  // else into the same try would let a throw inside it be mistaken for an absent file, which is a
+  // green run.
   let raw = null;
   try {
     raw = readFileSync(leakReportPath, 'utf8');
@@ -140,83 +133,30 @@ child.on('close', (code) => {
     // fixtures under spec/fixtures/tui-e2e-output/. Never on by default.
     if (process.env.GTH_E2E_RESULTS_COPY) writeFileSync(process.env.GTH_E2E_RESULTS_COPY, results);
   } catch {
-    // Handled below: no result is a blind gate, never a clean one.
+    // decideVerdict treats no result as a blind gate, never a clean one.
   }
   rmSync(scratchDir, { recursive: true, force: true });
 
-  if (leak) {
-    process.stderr.write(`\n✗ tui-e2e ${leak}\n`);
-    // Never mask the child's own verdict: a red run that also leaked stays red for its own reason.
-    process.exitCode = childCode === 0 ? 1 : childCode;
-    return;
+  // Every decision is in decideVerdict (tui-e2e-report.mjs), where each branch is unit-tested; this
+  // handler only performs what it returns.
+  const verdict = decideVerdict({
+    childCode: code ?? 1,
+    leak,
+    results,
+    githubActions: Boolean(process.env.GITHUB_ACTIONS),
+    os: process.platform,
+  });
+  if (verdict.stdout) process.stdout.write(verdict.stdout);
+  if (verdict.stderr) process.stderr.write(verdict.stderr);
+  if (verdict.stepSummary && process.env.GITHUB_STEP_SUMMARY) {
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, verdict.stepSummary, 'utf8');
   }
 
-  const analysis =
-    results === null
-      ? { problem: 'the run wrote no results file, so nothing is known about what ran.' }
-      : analyseRun(results);
-
-  if (analysis.problem) {
-    // The flake check has gone blind. Reporting "no flakes" here would be a green light from a
-    // gate that measured nothing, so say so and fail even if vitest itself was happy.
-    process.stderr.write(
-      `\n✗ tui-e2e flake check could not read the run report: ${analysis.problem}\n`
-    );
-    process.exitCode = childCode === 0 ? 1 : childCode;
-    return;
-  }
-
-  const { summary } = analysis;
-  process.stdout.write(
-    `\ntui-e2e: ${summary.passed} passed (${summary.flaky} flaky), ${summary.failed} failed, ` +
-      `${summary.skipped} skipped, ${summary.didNotRun} did not run, ${summary.total} total\n`
-  );
-
-  if (analysis.flaky.length > 0) {
-    const lines = analysis.flaky.map(
-      (entry) => `    ${repoPath(entry)}:${entry.row} › ${entry.title}`
-    );
-    process.stdout.write(
-      `\n⚠ ${analysis.flaky.length} FLAKY test(s) — passed only on a retry, so this run is green ` +
-        `but the defect is real:\n${lines.join('\n')}\n` +
-        `  Record it in docs/known-flakes.md (takahe) so the next person mid-merge does not have ` +
-        `to re-derive it.\n`
-    );
-
-    if (process.env.GITHUB_ACTIONS) {
-      for (const annotation of githubAnnotations(analysis.flaky)) {
-        process.stdout.write(`${annotation}\n`);
-      }
-    }
-    if (process.env.GITHUB_STEP_SUMMARY) {
-      appendFileSync(
-        process.env.GITHUB_STEP_SUMMARY,
-        stepSummaryMarkdown(analysis.flaky, { os: process.platform }),
-        'utf8'
-      );
-    }
-  }
-
-  // A case that failed every attempt is already a non-zero vitest exit; the structured result is
-  // checked too, so a red case can never be waved through by an exit code that disagrees with it.
-  if (summary.failed > 0 && childCode === 0) {
-    process.stderr.write(
-      `\n✗ tui-e2e: vitest exited 0 but the result records ${summary.failed} failed case(s).\n`
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  // A flake stays green: vitest's own exit code is the authority on pass/fail, and the node's
-  // acceptance asks for a flake to be *reported as flaky rather than as a pass*, not to be turned
-  // into a failure. Promoting a flake to a hard failure is the promote-after-soak rule, which
-  // belongs to OPS-14.
-  //
   // Set the code and let the process end on its own — do NOT force the exit here. On macOS
   // `process.stdout` is ASYNCHRONOUS when it is a pipe, which is exactly what a GitHub Actions step
   // gives it, and forcing an exit does not drain what is still queued. The flake block and the
   // `::warning` annotations are written immediately above, so they are what would be lost.
   // Nothing holds the loop open once the child has closed, so the process still exits promptly.
   // `packages/app/spec/tuiE2eRunnerFlush.spec.ts` keeps it this way.
-  process.exitCode = childCode;
+  process.exitCode = verdict.exitCode;
 });

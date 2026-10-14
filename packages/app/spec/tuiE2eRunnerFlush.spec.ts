@@ -69,8 +69,9 @@ describe('QA-13 the tui-e2e runner lets stdout drain', () => {
 
     expect(text.length).toBeGreaterThan(1000);
     expect(closeHandler, "the runner no longer has a 'close' handler").not.toBe('');
-    expect(closeHandler).toContain('process.stdout.write');
-    expect(closeHandler).toContain('githubAnnotations(');
+    // The flake block and the ::warning annotations are in verdict.stdout, written here.
+    expect(closeHandler).toContain('decideVerdict(');
+    expect(closeHandler).toContain('process.stdout.write(verdict.stdout)');
   });
 
   it('sets process.exitCode instead of calling process.exit', () => {

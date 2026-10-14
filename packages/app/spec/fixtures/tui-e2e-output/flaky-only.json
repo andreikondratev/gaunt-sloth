@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "reason": "passed",
   "unhandledErrors": [],
   "modules": [
@@ -19,7 +19,7 @@
       "retryCount": 1,
       "flaky": true,
       "errors": [
-        "expected 1 to be greater than 1"
+        "locator timeout: getByText(OPS153-NEVER-ON-SCREEN) resolved to 0 elements after 300 ms"
       ]
     }
   ]

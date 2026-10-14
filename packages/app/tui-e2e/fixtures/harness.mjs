@@ -59,12 +59,11 @@
  * has exited is ignored, as 0.0.4 ignored it.
  *
  * **Two writes stay two reads.** Under 0.0.4 each write was its own `write(2)` on the pty, and a
- * program that was waiting for input read them separately: measured, 0 of 100 back-to-back
- * `write('abc'); submit()` pairs reached a raw-mode probe as one chunk. The engine resolves a write
- * before the program has read it, and with nothing between them about half of those pairs arrived
- * as ONE chunk — which the TUI reads as a paste, so the return becomes a newline and the message is
- * never sent (the `/compact` "after three turns" case failed exactly so). Each write is therefore
- * followed by a short pause, {@link WRITE_GAP_MS}, before the next one goes out.
+ * program that was waiting for input read them separately. The engine resolves a write before the
+ * program has read it, and with nothing between two writes they often reach the program as ONE
+ * chunk — which the TUI reads as a paste, so the return becomes a newline and the message is never
+ * sent (the `/compact` "after three turns" case failed exactly so). Each write is therefore followed
+ * by a short pause, {@link WRITE_GAP_MS}, before the next one goes out; the measurements are there.
  *
  * **Screen frames.** 0.0.4's emulator was JavaScript on the test's own event loop: it parsed the
  * program's output in its own callbacks, so the screen could only change when the event loop
@@ -101,11 +100,20 @@ import { TuiTest } from '@microsoft/tui-test';
 export const EXPECT_TIMEOUT_MS = 15_000;
 
 /**
- * The pause after each write before the next queued write goes out. See "Input ordering" in the
- * module docblock: without it the engine hands back-to-back writes to the program as one read.
- * Measured with a raw-mode probe, 50 `write('abc'); submit()` pairs per run: no pause coalesced
- * 22-26 of 50 on every idle run; 1 ms and 5 ms coalesced 0 of 50 on every run, idle and under full
- * CPU load, as did 0.0.4. 5 ms rather than 1 for margin on slower hosts.
+ * The pause after each write before the next queued write goes out. See "Two writes stay two
+ * reads" in the module docblock.
+ *
+ * Measured on Linux only, with a raw-mode probe that records each chunk it reads, driving 50
+ * `write('abc'); submit()` pairs per run (a 3-byte payload), counting pairs that arrived as one chunk:
+ *
+ * | writes             | idle runs           | runs under full CPU load |
+ * | ------------------ | ------------------- | ------------------------ |
+ * | 0.0.4 (node-pty)   | 0 of 50 (1 run)     | 0 of 50 (1 run)          |
+ * | this engine, no pause | 13, 26, 23, 22 of 50 | 1, 1 of 50          |
+ * | 1 ms pause         | 0 of 50 (4 runs)    | 0 of 50 (2 runs)         |
+ * | 5 ms pause         | 0 of 50 (2 runs)    | 0 of 50 (2 runs)         |
+ *
+ * 5 ms rather than 1 for margin on slower hosts; Windows was not measured.
  */
 const WRITE_GAP_MS = 5;
 
@@ -139,14 +147,6 @@ const KEYS = {
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/**
- * The effective expect timeout, as the matchers below read it. Exported for
- * `expect-timeout.tui.test.ts`, which asserts this is the configured value rather than 5000.
- */
-export function effectiveExpectTimeout() {
-  return EXPECT_TIMEOUT_MS;
-}
 
 /**
  * The string 0.0.4's locator scanned: every row of the grid joined with NO separator.
@@ -274,7 +274,7 @@ expect.extend({
     if (!(received instanceof Locator)) {
       throw new TypeError('toBeVisible() expects a locator from terminal.getByText()');
     }
-    const timeout = options?.timeout ?? effectiveExpectTimeout();
+    const timeout = options?.timeout ?? EXPECT_TIMEOUT_MS;
     const term = received.searchTerm().toString();
     let visible;
     try {
@@ -414,11 +414,16 @@ export class Terminal {
     // Input moves the screen on, so nothing read before it may answer a read after it.
     this.#frame = null;
     const next = this.#io.then(async () => {
-      if (this.#disposed || this.#exit !== null) return;
+      if (this.#disposed || this.#exit !== null || this.#inputError) return;
       try {
         await action();
-      } catch {
-        // 0.0.4 ignored a write the pty refused after the program exited.
+      } catch (err) {
+        // 0.0.4 ignored a write the pty refused after the program exited, and only that. A write
+        // lost on a live session is kept and thrown from the next read, so an assertion that
+        // follows it cannot pass on a screen the input never reached.
+        if ((await this.readExit().catch(() => null)) === null && !this.#disposed) {
+          this.#inputError = err instanceof Error ? err : new Error(String(err));
+        }
       }
     });
     this.#io = next;
@@ -477,9 +482,17 @@ export class Terminal {
     return new Locator(this, text, options?.full, options?.strict ?? true);
   }
 
+  /** A write the engine refused while the program was still running; thrown from every read. */
+  #inputError = null;
+
   /** Wait for every queued write, then read. */
   async #settled() {
     await this.#io;
+    if (this.#inputError) {
+      throw new Error(`a write to the running program failed: ${this.#inputError.message}`, {
+        cause: this.#inputError,
+      });
+    }
   }
 
   /**
@@ -502,6 +515,8 @@ export class Terminal {
   /**
    * The screen as last read, held until the event loop next turns (see "Screen frames" in the
    * module docblock), or null when the next read must go to the engine.
+   * Held: `getViewableBuffer()`, and so every locator. Not held: `serialize()`, `getCursor()`, and
+   * the scrollback half of `getBuffer()`.
    */
   #frame = null;
 
@@ -529,15 +544,26 @@ export class Terminal {
       const fullLines = fullText.split('\n');
       const viewLines = viewText === '' ? [] : viewText.split('\n');
       const scrollbackCount = fullLines.length - viewLines.length;
+      // Consistent means: the full text ends with the visible text, AND the visible rows read as
+      // cells say the same as the visible text — so scrollback and viewport are one screen.
       const consistent =
         scrollbackCount >= 0 &&
-        viewLines.every((line, i) => fullLines[scrollbackCount + i] === line);
-      if (consistent || attempt >= 4) {
+        viewLines.every((line, i) => fullLines[scrollbackCount + i] === line) &&
+        visible.every((row, i) => row.join('').trimEnd() === (viewLines[i] ?? '').trimEnd());
+      if (consistent) {
         const cols = visible[0]?.length ?? 0;
         const scrollback = fullLines
-          .slice(0, Math.max(scrollbackCount, 0))
+          .slice(0, scrollbackCount)
           .map((line) => Array.from(line.padEnd(cols, ' ')));
         return [...scrollback, ...visible];
+      }
+      if (attempt >= 4) {
+        // A buffer whose rows cannot be lined up would put a case's row arithmetic on the wrong
+        // rows, so this fails rather than returning a guess.
+        throw new Error(
+          'getBuffer(): the scrollback and the visible screen did not agree on 5 reads ' +
+            `${POLL_MS} ms apart, so their rows cannot be lined up.`
+        );
       }
       await sleep(POLL_MS);
     }
@@ -547,6 +573,8 @@ export class Terminal {
    * 0.0.4's `serialize()`: the visible rows framed in a box (`view`), and `shifts` — the attribute
    * transitions between consecutive cells in reading order, keyed `"x,y"`. `y` is the visible row.
    * Only the attributes 0.0.4 tracked are compared; colours are compared by value.
+   * Unlike `getViewableBuffer()`, this keeps the `""` half of a wide character, so `x` here counts
+   * cells.
    */
   async serialize() {
     await this.#settled();
@@ -610,8 +638,9 @@ export class Terminal {
   }
 
   /**
-   * Call `callback` once the program has exited — immediately when it already has, as 0.0.4's
-   * `onExit` did. Read from `state()`, not from the engine's exit-code helpers (trap 3).
+   * Call `callback` once the program has exited. Polled from `state()` every 10 ms — not from the
+   * engine's exit-code helpers (trap 3) — so it is never synchronous: an exit already seen settles
+   * on the first poll, where 0.0.4's `onExit` called back at once.
    */
   onExit(callback) {
     void (async () => {
@@ -661,7 +690,7 @@ export class Terminal {
 
 /** A describe scope: the options `test.use` set and the hooks that receive `{ terminal }`. */
 const newScope = (parent) => ({
-  options: { ...(parent?.options ?? {}) },
+  options: {},
   beforeEach: [],
   afterEach: [],
   parent,
@@ -676,6 +705,11 @@ function chainOf(scope) {
   return chain;
 }
 
+/** The options in force for a case: every enclosing scope's `test.use`, innermost last. */
+function optionsOf(scope) {
+  return Object.assign({}, ...chainOf(scope).map((s) => s.options));
+}
+
 /**
  * Run one case the way 0.0.4's worker did: spawn the describe's program, wait as it waited, run the
  * `beforeEach` hooks, the body and the `afterEach` hooks with `{ terminal }`, then kill the program.
@@ -683,7 +717,7 @@ function chainOf(scope) {
  * signal disposes the terminal so the abandoned body stops polling a live session.
  */
 async function runCase(scope, body, signal) {
-  const terminal = await Terminal.spawn(scope.options);
+  const terminal = await Terminal.spawn(optionsOf(scope));
   const onAbort = () => void terminal.dispose();
   signal?.addEventListener('abort', onAbort, { once: true });
   try {
@@ -712,15 +746,23 @@ export function test(title, body) {
   vitestTest(title, (context) => runCase(scope, body, context?.signal));
 }
 
-/** A group of cases; `test.use` inside it applies to the group and the groups nested in it. */
+/**
+ * A group of cases; `test.use` inside it applies to the group and the groups nested in it.
+ *
+ * The parent is taken when `test.describe` is CALLED, not when vitest runs the callback: vitest
+ * collects a nested describe after the outer callback has returned, by which point the current
+ * scope is the root again. Options are merged along the chain when a case runs (`optionsOf`), so a
+ * `test.use` placed after a nested group still reaches it.
+ */
 test.describe = (title, callback) => {
+  const parent = currentScope;
   describe(title, () => {
-    const parent = currentScope;
+    const outer = currentScope;
     currentScope = newScope(parent);
     try {
       callback();
     } finally {
-      currentScope = parent;
+      currentScope = outer;
     }
   });
 };

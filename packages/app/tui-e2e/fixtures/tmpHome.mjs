@@ -125,7 +125,7 @@ async function settleSession(terminal) {
   try {
     terminal.kill();
   } catch {
-    // Already gone — `onExit` below will settle immediately.
+    // Already gone — `onExit` below will settle on its first poll.
   }
   const exited = await new Promise((resolve) => {
     let settled = false;
@@ -134,7 +134,8 @@ async function settleSession(terminal) {
       settled = true;
       resolve(value);
     };
-    // Fires synchronously when the process has already exited, so the ordinary case never waits.
+    // The harness polls the program state every 10 ms, so an exit already seen settles within one
+    // poll; the ordinary case waits a few milliseconds at most.
     try {
       terminal.onExit(() => finish(true));
     } catch {

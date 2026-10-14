@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "reason": "passed",
   "unhandledErrors": [],
   "modules": [
@@ -12,7 +12,7 @@
   "cases": [
     {
       "file": "zzprobe.tui.test.ts",
-      "line": 36,
+      "line": 37,
       "column": 5,
       "title": "zzprobe › passes first time",
       "state": "passed",

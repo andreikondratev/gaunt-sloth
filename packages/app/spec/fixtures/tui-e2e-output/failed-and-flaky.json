@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "reason": "failed",
   "unhandledErrors": [],
   "modules": [
@@ -19,12 +19,12 @@
       "retryCount": 1,
       "flaky": true,
       "errors": [
-        "expected 1 to be greater than 1"
+        "locator timeout: getByText(OPS153-NEVER-ON-SCREEN) resolved to 0 elements after 300 ms"
       ]
     },
     {
       "file": "zzprobe.tui.test.ts",
-      "line": 29,
+      "line": 30,
       "column": 5,
       "title": "zzprobe › is genuinely failing",
       "state": "failed",
