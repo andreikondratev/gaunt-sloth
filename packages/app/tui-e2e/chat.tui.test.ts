@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { test, expect } from '@microsoft/tui-test';
-import type { Terminal } from '@microsoft/tui-test';
+import { test, expect } from './fixtures/harness.mjs';
+import type { Terminal } from './fixtures/harness.mjs';
 import { settleSessionsAfterEach } from './fixtures/tmpHome.mjs';
 import { expectPromptTypedInto, typeAtPrompt } from './fixtures/readlinePrompt.mjs';
 
@@ -12,7 +12,7 @@ import { expectPromptTypedInto, typeAtPrompt } from './fixtures/readlinePrompt.m
 // Settling the session first removes the race rather than relying on it being lost harmlessly.
 settleSessionsAfterEach(test);
 
-// tui-test keeps process.cwd() at the invocation dir (this folder); the cli lives one level up.
+// The runner runs the suite with this folder as process.cwd(); the cli lives one level up.
 const e2eDir = process.cwd();
 const cli = path.resolve(e2eDir, '..', 'cli.js');
 const fixture = (name: string): string => path.resolve(e2eDir, 'fixtures', name);
@@ -53,18 +53,19 @@ const SIGNALS_REACH_THE_PROGRAM = os.platform() !== 'win32';
 const PTY_PASSES_RAW_BYTES = os.platform() !== 'win32';
 
 /**
- * The pid of the program tui-test spawned in the pty.
+ * The pid of the program the harness spawned in the pty.
  *
  * The harness spawns the program directly (no shell in between), so this is the `gth` process
- * itself and a signal sent to it is the signal a user's Ctrl+C or `kill` would deliver. The pty
- * handle is private to the harness and there is no public accessor, so this reaches for it and
- * throws rather than degrading quietly if a harness upgrade moves it — a silently-undeliverable
- * signal would leave the tests below passing while proving nothing.
+ * itself and a signal sent to it is the signal a user's Ctrl+C or `kill` would deliver. It is sent
+ * with `process.kill`, not through the terminal engine, whose `signal('TERM')` delivers SIGHUP and
+ * then kills (measured on OPS-11's probe). This throws rather than degrading quietly if the pid is
+ * missing — a silently-undeliverable signal would leave the tests below passing while proving
+ * nothing.
  */
 const programPid = (terminal: Terminal): number => {
-  const pid = (terminal as unknown as { _pty?: { pid?: number } })._pty?.pid;
+  const pid = terminal.pid;
   if (typeof pid !== 'number') {
-    throw new Error('tui-test no longer exposes the pty pid; the signal tests cannot send one');
+    throw new Error('the harness exposes no program pid; the signal tests cannot send one');
   }
   return pid;
 };
@@ -75,7 +76,8 @@ async function waitForExit(
 ): Promise<{ exitCode: number; signal?: number } | null> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    if (terminal.exitResult != null) return terminal.exitResult;
+    const exit = await terminal.readExit();
+    if (exit != null) return exit;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   return null;
@@ -87,10 +89,9 @@ async function waitForExit(
  * `serialize().view` wraps the viewport in a box, so row 0 and the last row are border art and each
  * real row arrives as `│<cells>│`. Index 0 of what this returns is screen row 0.
  */
-const screenRows = (terminal: Terminal): string[] =>
-  terminal
-    .serialize()
-    .view.split('\n')
+const screenRows = async (terminal: Terminal): Promise<string[]> =>
+  (await terminal.serialize()).view
+    .split('\n')
     .slice(1, -1)
     .map((line) => line.replace(/^│/, '').replace(/│$/, ''));
 
@@ -108,7 +109,7 @@ async function screenAfterResize(terminal: Terminal, rows: number): Promise<stri
   const deadline = Date.now() + 15_000;
   let current: string[] = [];
   while (Date.now() < deadline) {
-    current = screenRows(terminal);
+    current = await screenRows(terminal);
     if (current.length === rows && /^─+$/.test((current[rows - 1] ?? '').trim())) return current;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
@@ -150,9 +151,8 @@ test.describe('gth chat TUI — greeting fixture', () => {
     // and one column of left margin on the art. A real terminal is the only place this is
     // observable end-to-end (the Ink component can render a padding row that measures zero-high).
     // `serialize()` frames the viewport in a box, so each row arrives as `│<cells>│`.
-    const lines = terminal
-      .serialize()
-      .view.split('\n')
+    const lines = (await terminal.serialize()).view
+      .split('\n')
       .map((line) => line.replace(/^│/, '').replace(/│$/, ''));
     const top = lines.findIndex((line) => line.includes('▄█▀▀▀▀▀▀▀▀█▄'));
     const bottom = lines.findIndex((line) => line.includes('▀██████████▀'));
@@ -268,7 +268,7 @@ test.describe('gth chat TUI — greeting fixture', () => {
     terminal,
   }) => {
     await expect(terminal.getByText('ready to chat')).toBeVisible();
-    expect(screenRows(terminal)).toHaveLength(30);
+    expect(await screenRows(terminal)).toHaveLength(30);
 
     terminal.resize(60, 20);
     await expect(terminal.getByText('chat  ·  turns: 0  ·  ready')).toBeVisible();
@@ -291,7 +291,7 @@ test.describe('gth chat TUI — greeting fixture', () => {
     // …and streaming at the new size still lands at the bottom of the conversation, not somewhere
     // above it: the region stays stuck to its own floor, just under the dock's leading blank row.
     await expect(terminal.getByText('chat  ·  turns: 1  ·  ready')).toBeVisible();
-    const streamed = screenRows(terminal);
+    const streamed = await screenRows(terminal);
     expect(streamed[33].trim()).toMatch(/^─+$/);
     expect(streamed[26].trim()).toBe('');
     expect(streamed[25]).toContain('Hello from the fixture agent.');
@@ -305,7 +305,7 @@ test.describe('gth chat TUI — greeting fixture', () => {
   }) => {
     await expect(terminal.getByText('ready to chat')).toBeVisible();
 
-    const rows = screenRows(terminal);
+    const rows = await screenRows(terminal);
     // The frame fills the 30-row terminal this describe configures.
     expect(rows).toHaveLength(30);
     // The dock's closing rule is the LAST row of the screen, and the seven dock rows above it are
@@ -333,7 +333,7 @@ test.describe('gth chat TUI — greeting fixture', () => {
     terminal.submit();
     await expect(terminal.getByText('chat  ·  turns: 1  ·  ready')).toBeVisible();
 
-    const after = screenRows(terminal);
+    const after = await screenRows(terminal);
     expect(after).toHaveLength(30);
     expect(after[29].trim()).toMatch(/^─+$/);
     expect(after[24]).toContain('chat  ·  turns: 1  ·  ready');
@@ -370,7 +370,7 @@ test.describe('gth chat TUI — greeting fixture', () => {
     terminal.submit();
     await expect(terminal.getByText('chat  ·  turns: 2  ·  ready')).toBeVisible();
 
-    const rows = screenRows(terminal);
+    const rows = await screenRows(terminal);
     const rowOf = (needle: string): number => {
       const at = rows.findIndex((row) => row.includes(needle));
       if (at === -1) {
@@ -650,7 +650,7 @@ test.describe('gth chat TUI — TUI-C52 a turn keeps its own order (interleaved 
     await expect(terminal.getByText('third-explanation-run')).toBeVisible();
     await expect(terminal.getByText('chat  ·  turns: 1  ·  ready')).toBeVisible();
 
-    const rows = screenRows(terminal);
+    const rows = await screenRows(terminal);
     const rowOf = (needle: string): number => {
       const at = rows.findIndex((row) => row.includes(needle));
       if (at === -1) {
@@ -690,7 +690,7 @@ test.describe('gth chat TUI — TUI-C52 a turn keeps its own order (interleaved 
     await expect(terminal.getByText('third-explanation-run')).toBeVisible();
     await expect(terminal.getByText('chat  ·  turns: 1  ·  ready')).toBeVisible();
 
-    const rows = screenRows(terminal);
+    const rows = await screenRows(terminal);
     const rowOf = (needle: string): number => {
       const at = rows.findIndex((row) => row.includes(needle));
       if (at === -1) {
@@ -749,7 +749,7 @@ test.describe('gth chat TUI — TUI-C81 a turn keeps its THINKING in order (thin
     await expect(terminal.getByText('second-explanation-run')).toBeVisible();
     await expect(terminal.getByText('chat  ·  turns: 1  ·  ready')).toBeVisible();
 
-    const rows = screenRows(terminal);
+    const rows = await screenRows(terminal);
     const rowOf = (needle: string): number => {
       const at = rows.findIndex((row) => row.includes(needle));
       if (at === -1) {
@@ -818,7 +818,7 @@ test.describe('gth chat TUI — slow fixture (interrupt)', () => {
 
     terminal.write('still here');
     await expect(terminal.getByText('> still here')).toBeVisible();
-    expect(terminal.exitResult ?? null).toBeNull();
+    expect(await terminal.readExit()).toBeNull();
   });
 
   /**
@@ -848,7 +848,7 @@ test.describe('gth chat TUI — slow fixture (interrupt)', () => {
       await expect(terminal.getByText('chat  ·  turns: 1  ·  ready')).toBeVisible();
       await expect(terminal.getByText('Interrupted')).not.toBeVisible();
       // Neither half was typed into the prompt on its way through.
-      expect(terminal.serialize().view).not.toContain('[A');
+      expect((await terminal.serialize()).view).not.toContain('[A');
     }
   );
 });
@@ -939,9 +939,8 @@ test.describe('gth chat TUI — debug pane `/` search (search fixture, TUI-C21)'
     // One row at the 100 columns this suite runs at: the whole legend, open bracket to close, on a
     // single serialized line. A row that outgrew the width would wrap its tail onto the next line
     // and this fails as a width problem rather than as a puzzling missing string.
-    const typingRow = terminal
-      .serialize()
-      .view.split('\n')
+    const typingRow = (await terminal.serialize()).view
+      .split('\n')
       .find((l) => l.includes('Enter: confirm'));
     expect(typingRow).toBeDefined();
     expect(typingRow).toContain('[Enter: confirm · Backspace: delete · Esc: cancel search]');
@@ -962,9 +961,8 @@ test.describe('gth chat TUI — debug pane `/` search (search fixture, TUI-C21)'
     await expect(terminal.getByText('m: maximise')).toBeVisible();
     await expect(terminal.getByText('Enter: confirm')).not.toBeVisible();
 
-    const navRow = terminal
-      .serialize()
-      .view.split('\n')
+    const navRow = (await terminal.serialize()).view
+      .split('\n')
       .find((l) => l.includes('Tab: section'));
     expect(navRow).toBeDefined();
     expect(navRow).toContain('m: maximise · Esc: clear search]');
@@ -992,7 +990,7 @@ test.describe('gth chat TUI — /debug-dump default: redacted (GS2-46/GS2-47, gr
     program: { file: 'node', args: [cli, 'chat', '--tui'] },
     env: { ...envFor('greeting.json'), ...homeEnv(tmpHome) },
     // Wide enough that "Archive: <tmpHome>/.gsloth/debug-dumps/<timestamp>" never line-wraps.
-    // The archive path is one unbroken token (no spaces) and tui-test's getByText joins buffer
+    // The archive path is one unbroken token (no spaces) and the harness's getByText joins buffer
     // rows with no separator, so a mid-token wrap would otherwise split the match across rows.
     columns: 240,
     rows: 30,
@@ -1189,7 +1187,7 @@ test.describe('gth chat — a config file that turns the TUI off (CFG-37 seam)',
     // The line above just typed into the only prompt row this session has drawn, so the row now
     // reads `  > exit` and the locator must stop matching. The unit half of this control is
     // `packages/app/spec/tuiE2eReadlinePromptLocator.spec.ts`, which scans buffers built the way
-    // tui-test builds them; this half proves it against the one xterm actually renders.
+    // the harness builds them; this half proves it against the one xterm actually renders.
     await expectPromptTypedInto(terminal);
     terminal.submit();
     expect(await waitForExit(terminal)).not.toBeNull();

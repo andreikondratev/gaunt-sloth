@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "reason": "passed",
+  "unhandledErrors": [],
+  "modules": [
+    {
+      "file": "zzprobe.tui.test.ts",
+      "state": "passed",
+      "errors": []
+    }
+  ],
+  "cases": [
+    {
+      "file": "zzprobe.tui.test.ts",
+      "line": 21,
+      "column": 5,
+      "title": "zzprobe › passes on the retry",
+      "state": "passed",
+      "retryCount": 1,
+      "flaky": true,
+      "errors": [
+        "expected 1 to be greater than 1"
+      ]
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { test, expect } from '@microsoft/tui-test';
-import type { Terminal } from '@microsoft/tui-test';
+import { test, expect } from './fixtures/harness.mjs';
+import type { Terminal } from './fixtures/harness.mjs';
 import {
   FORGED_MENU,
   FORGED_VERDICT,
@@ -70,10 +70,9 @@ const realAgentEnv = (tmpHome: string): Record<string, string | undefined> => {
  * only way to state the framing guarantee: forged chrome is not absent from the screen — the model
  * is allowed to write whatever it likes — it is prevented from reaching column 0.
  */
-const screenRows = (terminal: Terminal): string[] =>
-  terminal
-    .serialize()
-    .view.split('\n')
+const screenRows = async (terminal: Terminal): Promise<string[]> =>
+  (await terminal.serialize()).view
+    .split('\n')
     .slice(1, -1)
     .map((line) => line.replace(/^│/, '').replace(/│$/, ''));
 
@@ -112,7 +111,7 @@ async function expectAnswerBelowLabel(
   timeoutMs = 10_000
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
-  let rows = screenRows(terminal);
+  let rows = await screenRows(terminal);
   while (!answerIsBelowLabel(rows, typed)) {
     if (Date.now() >= deadline) {
       throw new Error(
@@ -123,7 +122,7 @@ async function expectAnswerBelowLabel(
       );
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
-    rows = screenRows(terminal);
+    rows = await screenRows(terminal);
   }
 }
 
@@ -137,8 +136,8 @@ async function expectAnswerBelowLabel(
  * underneath it was still raw, which is exactly the defect this node exists to close. Anchoring on
  * the stop's own first line is what makes each assertion below about the rows this node changed.
  */
-const rowsFromStop = (terminal: Terminal, anchor: string): string[] => {
-  const rows = screenRows(terminal);
+const rowsFromStop = async (terminal: Terminal, anchor: string): Promise<string[]> => {
+  const rows = await screenRows(terminal);
   const index = rows.findIndex((row) => row.includes(anchor));
   // The stop message has to be on the screen for anything below to be ruling on it.
   expect(index).toBeGreaterThan(-1);
@@ -242,7 +241,8 @@ async function waitForExit(
 ): Promise<{ exitCode: number; signal?: number } | null> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    if (terminal.exitResult != null) return terminal.exitResult;
+    const exit = await terminal.readExit();
+    if (exit != null) return exit;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   return null;
@@ -281,7 +281,7 @@ test.describe('gth code TUI — [[TUI-C71]] the halt message is framed in the tr
     // The message's LAST part, so the screen is read once the whole of it has arrived.
     await expect(terminal.getByText(HALT_LAST_PART, { strict: false })).toBeVisible();
 
-    const rows = rowsFromStop(terminal, HALT_ANCHOR);
+    const rows = await rowsFromStop(terminal, HALT_ANCHOR);
     expectControlsRenderedInert(rows);
     expectGutter(rows);
     expectForgeryPresentButGuttered(rows);
@@ -348,7 +348,7 @@ test.describe('gth code readline — [[TUI-C71]] the halt message is framed on t
     // screen, or the slice below is taken mid-flight.
     await expect(terminal.getByText(HALT_LAST_PART, { strict: false })).toBeVisible();
 
-    const rows = rowsFromStop(terminal, HALT_ANCHOR);
+    const rows = await rowsFromStop(terminal, HALT_ANCHOR);
     expectControlsRenderedInert(rows);
     expectGutter(rows);
     expectForgeryPresentButGuttered(rows);
@@ -395,7 +395,7 @@ test.describe('gth exec — [[TUI-C71]] §6.2, the message that is all anyone se
     // has landed — a string wait would be satisfied by a message still being written.
     expect(await waitForExit(terminal)).not.toBeNull();
 
-    const rows = rowsFromStop(terminal, ESCALATION_ANCHOR);
+    const rows = await rowsFromStop(terminal, ESCALATION_ANCHOR);
     const joined = rows.join('\n');
 
     // The command, the rating and the rater's reason.

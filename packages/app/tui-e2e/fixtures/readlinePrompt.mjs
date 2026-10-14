@@ -1,10 +1,6 @@
-// [[QA-15]] — **this module deliberately does NOT import `./expectTimeout.mjs`**, unlike most of
-// the suite. That module's top-level await THROWS unless it is loaded under tui-test's own working
-// directory and cache layout, which would make this file unimportable from the vitest spec that
-// controls its locator. Nothing is lost: the matcher below runs in the test file's process, every
-// `*.tui.test.ts` reaches `expectTimeout.mjs` directly or through `tmpHome.mjs`, and
-// `spec/tuiE2eExpectTimeoutWired.spec.ts` is the gate that keeps that true.
-import { expect } from '@microsoft/tui-test';
+// The harness's `expect`, whose `toBeVisible` resolves a locator the way this module's regex is
+// written against: rows joined with no separator, scanned with `matchAll` (see harness.mjs).
+import { expect } from './harness.mjs';
 
 /**
  * [[QA-49]] — **typing on the plain readline surface only once it is ARMED for input.**
@@ -58,12 +54,12 @@ import { expect } from '@microsoft/tui-test';
 /**
  * **The readline input prompt, empty and accepting input.**
  *
- * A regex because tui-test resolves a locator against the buffer's rows — each padded out to the
+ * A regex because the harness resolves a locator against the buffer's rows — each padded out to the
  * full terminal width — joined into one string: `  >` followed by a run of spaces is an empty
  * prompt row, and cannot be the `  > something` row of a prompt that has already been typed into.
  * Twenty spaces is comfortably inside the narrowest terminal any cell in this suite opens.
  *
- * **The `g` flag is load-bearing, not stylistic.** tui-test resolves a regex locator through
+ * **The `g` flag is load-bearing, not stylistic.** The harness resolves a regex locator through
  * `block.matchAll(pattern)`, and `String.prototype.matchAll` **throws a TypeError on a non-global
  * pattern** — so dropping it fails from inside the matcher's poll as a type error rather than as a
  * missing element, which reads like a broken harness rather than a broken locator.
@@ -78,7 +74,7 @@ import { expect } from '@microsoft/tui-test';
  * and never writes back to `lastIndex`, so repeated polls cannot make it drift. (A `.test()` call
  * on a global regex would, which is why the control in
  * `packages/app/spec/tuiE2eReadlinePromptLocator.spec.ts` scans with `matchAll` exactly as
- * tui-test does.)
+ * the harness does.)
  */
 export const EMPTY_PROMPT = / {2}> {20}/gu;
 

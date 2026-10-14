@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { test, expect } from '@microsoft/tui-test';
-import type { Terminal } from '@microsoft/tui-test';
+import { test, expect } from './fixtures/harness.mjs';
+import type { Terminal } from './fixtures/harness.mjs';
 import { removeTmpHome, settleSessionsAfterEach } from './fixtures/tmpHome.mjs';
 import { typeAtPrompt } from './fixtures/readlinePrompt.mjs';
 
@@ -57,7 +57,8 @@ async function waitForExit(
 ): Promise<{ exitCode: number; signal?: number } | null> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    if (terminal.exitResult != null) return terminal.exitResult;
+    const exit = await terminal.readExit();
+    if (exit != null) return exit;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   return null;
@@ -86,10 +87,9 @@ const buffer = (typed: string): string => `Your answer: ${typed}`;
  * only way to state the framing guarantee: forged chrome is not absent from the screen — the rater
  * is allowed to write whatever it likes — it is prevented from reaching column 0.
  */
-const screenRows = (terminal: Terminal): string[] =>
-  terminal
-    .serialize()
-    .view.split('\n')
+const screenRows = async (terminal: Terminal): Promise<string[]> =>
+  (await terminal.serialize()).view
+    .split('\n')
     .slice(1, -1)
     .map((line) => line.replace(/^│/, '').replace(/│$/, ''));
 
@@ -136,7 +136,7 @@ async function expectAnswerBelowLabel(
   timeoutMs = 10_000
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
-  let rows = screenRows(terminal);
+  let rows = await screenRows(terminal);
   while (!answerIsBelowLabel(rows, typed)) {
     if (Date.now() >= deadline) {
       throw new Error(
@@ -147,7 +147,7 @@ async function expectAnswerBelowLabel(
       );
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
-    rows = screenRows(terminal);
+    rows = await screenRows(terminal);
   }
 }
 
@@ -212,7 +212,7 @@ test.describe('gth code TUI — [[TUI-C68]] §6.1 the banner appears and says wh
     await expect(
       terminal.getByText('attack-reason-overwrite-marker', { strict: false })
     ).toBeVisible();
-    for (const row of screenRows(terminal)) {
+    for (const row of await screenRows(terminal)) {
       expect(row.trimEnd()).not.toMatch(/^Approve\?/);
     }
 

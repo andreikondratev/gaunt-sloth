@@ -1,13 +1,11 @@
 import path from 'node:path';
 import { readFileSync } from 'node:fs';
-import { test, expect } from '@microsoft/tui-test';
+import { test, expect, EXPECT_TIMEOUT_MS, effectiveExpectTimeout } from './fixtures/harness.mjs';
 import { settleSessionsAfterEach } from './fixtures/tmpHome.mjs';
-import { configuredExpectTimeout } from './fixtures/expectTimeout.mjs';
-import tuiTestConfig from './tui-test.config.js';
 
 settleSessionsAfterEach(test);
 
-// tui-test keeps process.cwd() at the invocation dir (this folder); the cli lives one level up.
+// The runner runs the suite with this folder as process.cwd(); the cli lives one level up.
 const e2eDir = process.cwd();
 const cli = path.resolve(e2eDir, '..', 'cli.js');
 const fixture = (name: string): string => path.resolve(e2eDir, 'fixtures', name);
@@ -37,29 +35,29 @@ const LATE_MARKER = 'QA15-LATE-MARKER';
 const FIXTURE_DELAY_MS: number = JSON.parse(readFileSync(fixture('expect-timeout.json'), 'utf8'))
   .turns[0].delayMs;
 
-/** The bound the config asks for, read from the config rather than restated, so retuning it here is one edit. */
-const DECLARED_EXPECT_TIMEOUT = tuiTestConfig.expect?.timeout;
+/** The bound the harness declares, read from it rather than restated, so retuning it is one edit. */
+const DECLARED_EXPECT_TIMEOUT = EXPECT_TIMEOUT_MS;
 
 /**
  * [[QA-15]] — the suite's own expect timeout, pinned by an assertion that needs it.
  *
- * `tui-test` reads `expect.timeout` into module state in the **main runner process**, and every
- * matcher runs in a **worker process** that never loaded it — so the whole suite polled for the
- * library's 5000 ms fallback while the config asked for more. `fixtures/expectTimeout.mjs` closes
- * that by loading the config in the worker; this file is what proves it, and the proof has to be an
- * assertion that genuinely needs longer than the old bound.
+ * 5000 ms is the bound a matcher falls back to when the suite's own value does not reach it: it was
+ * 0.0.4's fallback, and it is the default of the terminal engine's own `getByText().expect()`. Every
+ * case here asserts through `fixtures/harness.mjs`, whose `toBeVisible` reads `EXPECT_TIMEOUT_MS`;
+ * this file is what proves that bound actually binds, and the proof has to be an assertion that
+ * genuinely needs longer than 5 s.
  *
  * **A green suite is not evidence for this.** A matcher that resolves in 200 ms resolves
- * identically under 5 s and under 15 s, so every other case in this suite would pass unchanged with
- * the fix reverted. Only a wait that exceeds 5000 ms can tell the two apart, which is why this case
- * deliberately costs about twelve seconds. Nothing else here is allowed to be that slow.
+ * identically under 5 s and under 15 s, so every other case in this suite would pass unchanged if
+ * the bound stopped reaching the matcher. Only a wait that exceeds 5000 ms can tell the two apart,
+ * which is why this case deliberately costs about twelve seconds. Nothing else here is allowed to be
+ * that slow.
  *
  * The three assertions cover different things and none of them is redundant:
  *
- * - the *value* the matchers will use matches the config — proves `expectTimeout.mjs` loaded it;
- * - the marker becomes visible at all — proves the matchers resolve to the **same** physical config
- *   module the fixture populated, which is the actual defect and the one thing a reading of the
- *   sources cannot establish;
+ * - the *value* the matcher will use is the declared one;
+ * - the marker becomes visible at all — proves the matcher really waited past 5 s, which is the
+ *   one thing a reading of the sources cannot establish;
  * - the wait really exceeded 5000 ms, and the fixture's own delay does too — without those,
  *   shortening the fixture's `delayMs` (or a fixture agent that stopped honouring it) would leave a
  *   case that passes under both bounds and quietly stops testing anything.
@@ -75,7 +73,7 @@ test.describe('gth chat TUI — the configured expect timeout binds in the worke
   test('a matcher waits the configured bound, not the 5 s library fallback', async ({
     terminal,
   }) => {
-    expect(configuredExpectTimeout()).toBe(DECLARED_EXPECT_TIMEOUT);
+    expect(effectiveExpectTimeout()).toBe(DECLARED_EXPECT_TIMEOUT);
 
     await expect(terminal.getByText('ready to chat')).toBeVisible();
     // Type, confirm the echo, then send Enter separately — Ink coalesces a "text\r" single write

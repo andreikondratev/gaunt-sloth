@@ -1,28 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
+  KNOWN_RESULTS_SCHEMA,
   analyseRun,
   describeLeakReport,
   githubAnnotations,
   leakedDirs,
   repoPath,
   stepSummaryMarkdown,
-  stripAnsi,
 } from '../tui-e2e-report.mjs';
+import { RESULTS_SCHEMA } from '../tui-e2e-results-reporter.mjs';
 
 /**
  * QA-13 — the PTY e2e flake reporter.
  *
- * `tui-e2e-report.mjs` reads @microsoft/tui-test's own report so a *flaky* outcome escapes a green
- * job. It does that by parsing stdout, because tui-test hardcodes its reporter and encodes the
- * per-test outcome as an ANSI colour and nothing else. Parsing is the risk, so every fixture here
- * is REAL captured output from a run of a deliberately-flaky / deliberately-failing probe against
- * the actual pinned tui-test (0.0.4) — not prose written to match the parser.
+ * `tui-e2e-report.mjs` reads the run's STRUCTURED result — the JSON `tui-e2e-results-reporter.mjs`
+ * writes from vitest's reporter API, carrying each case's final state and retry count — so a
+ * *flaky* outcome escapes a green job. Nothing here parses terminal output.
  *
- * The one exception is `no-tests-discovered.log`, which is the real header of a zero-match run
- * with the summary line removed. That is exactly the byte sequence tui-test emits when it finds no
- * tests at all (`_printSummary` returns early when the total is 0), and it cannot be captured
- * directly without deleting the suite.
+ * Every fixture is a REAL capture: the results file of a run of a deliberately-flaky /
+ * deliberately-failing probe case through `run-tui-e2e.js` (kept with `GTH_E2E_RESULTS_COPY`), not
+ * JSON written to match the reader. `no-tests-discovered.json` is the capture of a run whose filter
+ * matched no file. Variations the runner cannot be made to produce on demand — a schema from the
+ * future, an interrupted run, a file that failed to load — are derived from a capture by changing
+ * one field, so each asserts on exactly that field.
  *
  * Fixtures are resolved as URLs throughout — a `D:\…` string is not a valid URL, and re-wrapping a
  * native path is what broke [[OPS-39]]'s guard on the Windows cells.
@@ -30,54 +31,75 @@ import {
 const fixture = (name: string): string =>
   readFileSync(new URL(`./fixtures/tui-e2e-output/${name}`, import.meta.url), 'utf8');
 
-const FAILED_AND_FLAKY = fixture('failed-and-flaky.log');
-const FLAKY_ONLY = fixture('flaky-only.log');
-const ALL_PASS = fixture('all-pass.log');
-const NO_TESTS = fixture('no-tests-discovered.log');
+const FAILED_AND_FLAKY = fixture('failed-and-flaky.json');
+const FLAKY_ONLY = fixture('flaky-only.json');
+const ALL_PASS = fixture('all-pass.json');
+const NO_TESTS = fixture('no-tests-discovered.json');
+
+/** A capture with one change applied, for the shapes a real run cannot be made to produce. */
+const derive = (raw: string, change: (record: any) => void): string => {
+  const record = JSON.parse(raw);
+  change(record);
+  return JSON.stringify(record);
+};
 
 describe('QA-13 tui-e2e flake reporter', () => {
-  describe('the fixtures are real reports', () => {
-    // Anti-vacuity. A truncated or missing fixture would otherwise make the assertions below pass
-    // by parsing nothing into "no flakes" — the exact silence this whole module exists to prevent.
+  describe('the fixtures are real results', () => {
+    // Anti-vacuity. A truncated or empty fixture would otherwise make the assertions below pass by
+    // reading nothing into "no flakes" — the exact silence this whole module exists to prevent.
     it.each([
-      ['failed-and-flaky', FAILED_AND_FLAKY],
-      ['flaky-only', FLAKY_ONLY],
-      ['all-pass', ALL_PASS],
-    ])('%s carries a real summary line', (_name, text) => {
-      expect(text.length).toBeGreaterThan(100);
-      expect(text).toContain('  tests: ');
-      expect(text).toContain(' total');
+      ['failed-and-flaky', FAILED_AND_FLAKY, 2],
+      ['flaky-only', FLAKY_ONLY, 1],
+      ['all-pass', ALL_PASS, 1],
+    ])('%s carries the schema and its cases', (_name, text, count) => {
+      const record = JSON.parse(text);
+      expect(record.schema).toBe(KNOWN_RESULTS_SCHEMA);
+      expect(record.cases).toHaveLength(count);
+      expect(record.modules.length).toBeGreaterThan(0);
     });
 
-    it('no-tests-discovered has output but deliberately no summary line', () => {
-      expect(NO_TESTS.length).toBeGreaterThan(0);
-      expect(NO_TESTS).toContain('Running 0 test');
-      expect(NO_TESTS).not.toContain('  tests: ');
+    it('no-tests-discovered is a well-formed result with no cases at all', () => {
+      const record = JSON.parse(NO_TESTS);
+      expect(record.schema).toBe(KNOWN_RESULTS_SCHEMA);
+      expect(record.cases).toEqual([]);
+    });
+
+    it('the reader and the writer agree on the schema', () => {
+      // Two constants in two files. A bump to one alone must red here, not turn every CI run into
+      // "the flake check could not read the run report".
+      expect(KNOWN_RESULTS_SCHEMA).toBe(RESULTS_SCHEMA);
     });
   });
 
   describe('analyseRun', () => {
     it('separates a genuine failure from a flake in the same run', () => {
-      // The discriminating case: both appear as numbered headers, distinguished ONLY by the
-      // summary counts and their order. If the parser lumped them together, or mapped them the
-      // wrong way round, this is where it shows.
       const result = analyseRun(FAILED_AND_FLAKY);
 
       expect(result.problem).toBeNull();
       expect(result.summary).toEqual({
         failed: 1,
         flaky: 1,
-        didNotRun: 34,
+        didNotRun: 0,
         skipped: 0,
         passed: 1,
-        total: 37,
+        total: 2,
       });
-      expect(result.failed).toHaveLength(1);
-      expect(result.failed[0].title).toContain('genuinely failing');
-      expect(result.flaky).toHaveLength(1);
-      expect(result.flaky[0].title).toContain('passes on the retry');
-      expect(result.flaky[0].file).toBe('zzprobe.tui.test.ts');
-      expect(result.flaky[0].row).toBe(11);
+      expect(result.flaky).toEqual([
+        {
+          file: 'zzprobe.tui.test.ts',
+          row: 21,
+          column: 5,
+          title: 'zzprobe › passes on the retry',
+        },
+      ]);
+      expect(result.failed).toEqual([
+        {
+          file: 'zzprobe.tui.test.ts',
+          row: 29,
+          column: 5,
+          title: 'zzprobe › is genuinely failing',
+        },
+      ]);
     });
 
     it('reports a flake in an otherwise-green run', () => {
@@ -86,9 +108,8 @@ describe('QA-13 tui-e2e flake reporter', () => {
       expect(result.problem).toBeNull();
       expect(result.summary?.flaky).toBe(1);
       expect(result.summary?.failed).toBe(0);
+      expect(result.flaky.map((entry) => entry.title)).toEqual(['zzprobe › passes on the retry']);
       expect(result.failed).toEqual([]);
-      expect(result.flaky).toHaveLength(1);
-      expect(result.flaky[0].title).toContain('passes on the retry');
     });
 
     it('finds nothing to report in a clean run', () => {
@@ -96,103 +117,108 @@ describe('QA-13 tui-e2e flake reporter', () => {
 
       expect(result.problem).toBeNull();
       expect(result.summary?.passed).toBe(1);
-      expect(result.summary?.flaky).toBe(0);
       expect(result.flaky).toEqual([]);
       expect(result.failed).toEqual([]);
     });
 
-    it('refuses to call a run clean when no tests were discovered', () => {
-      // A suite whose testMatch stopped matching prints no summary and exits 0. Treating that as
-      // "no flakes, all good" is the blind-denominator failure: a gate reporting on nothing.
-      const result = analyseRun(NO_TESTS);
-
-      expect(result.problem).toBeTruthy();
-      expect(result.problem).toContain('no tests');
-      expect(result.summary).toBeNull();
+    it('takes a flake from the retry count, not only from the flaky flag', () => {
+      // Either field alone is enough. vitest sets both today; reading only one would let a change
+      // in how it fills the other turn a flake into a quiet pass.
+      const countOnly = derive(FLAKY_ONLY, (r) => {
+        r.cases[0].flaky = false;
+      });
+      expect(analyseRun(countOnly).flaky).toHaveLength(1);
+      const flagOnly = derive(FLAKY_ONLY, (r) => {
+        r.cases[0].retryCount = 0;
+      });
+      expect(analyseRun(flagOnly).flaky).toHaveLength(1);
+      // The control: a pass with neither is no flake.
+      const neither = derive(FLAKY_ONLY, (r) => {
+        r.cases[0].flaky = false;
+        r.cases[0].retryCount = 0;
+      });
+      expect(analyseRun(neither).flaky).toEqual([]);
     });
 
-    it('takes the failed/flaky split from the counts, not from a fixed position', () => {
-      // Synthesised from the real fixture's own header lines: 2 failed + 1 flaky. Guards against
-      // a parser that happens to work only because every real fixture here has exactly one of
-      // each — `slice(0, 1)` and `slice(0, summary.failed)` are indistinguishable otherwise.
-      const text = [
-        '  1) a.tui.test.ts:10:1 › first genuine failure',
-        '  2) b.tui.test.ts:20:2 › second genuine failure',
-        '  3) c.tui.test.ts:30:3 › the flake',
-        '',
-        '  tests: 2 failed, 1 flaky, 5 passed, 8 total',
-      ].join('\n');
+    it('never reports a case that failed every attempt as a flake, however many retries it took', () => {
+      const result = analyseRun(FAILED_AND_FLAKY);
+      expect(result.flaky.map((entry) => entry.title)).not.toContain(
+        'zzprobe › is genuinely failing'
+      );
+    });
 
-      const result = analyseRun(text);
-
+    it('counts a file that failed to load as a failure, since it contributes no cases', () => {
+      const broken = derive(ALL_PASS, (r) => {
+        r.modules.push({
+          file: 'broken.tui.test.ts',
+          state: 'failed',
+          errors: ['SyntaxError: Unexpected token'],
+        });
+      });
+      const result = analyseRun(broken);
       expect(result.problem).toBeNull();
-      expect(result.failed.map((entry) => entry.file)).toEqual(['a.tui.test.ts', 'b.tui.test.ts']);
-      expect(result.flaky.map((entry) => entry.file)).toEqual(['c.tui.test.ts']);
+      expect(result.summary?.failed).toBe(1);
+      expect(result.failed).toEqual([
+        {
+          file: 'broken.tui.test.ts',
+          row: null,
+          column: null,
+          title: '(file failed: SyntaxError: Unexpected token)',
+        },
+      ]);
     });
   });
 
-  describe('it goes loud rather than quiet when the format stops matching', () => {
-    it('rejects a report whose counts and headers disagree', () => {
-      // Mutation of the REAL fixture: claim one more flake than there are headers. A parser that
-      // silently trusted whichever side it read first would pass this.
-      const mutated = FAILED_AND_FLAKY.replace('1 flaky', '2 flaky');
-      expect(mutated).not.toBe(FAILED_AND_FLAKY);
-
-      const result = analyseRun(mutated);
-
-      expect(result.problem).toContain('numbered header');
+  describe('it goes loud rather than quiet when it cannot tell what ran', () => {
+    it('refuses to call a run clean when no tests were discovered', () => {
+      const result = analyseRun(NO_TESTS);
+      expect(result.problem).toMatch(/ran none of them/);
       expect(result.flaky).toEqual([]);
     });
 
-    it('rejects a report whose summary line has been lost', () => {
-      const mutated = ALL_PASS.replace(/^\s*tests: .*$/m, '');
-      expect(mutated).not.toBe(ALL_PASS);
-
-      expect(analyseRun(mutated).problem).toBeTruthy();
+    it('refuses a run in which every case was skipped', () => {
+      const allSkipped = derive(ALL_PASS, (r) => {
+        r.cases[0].state = 'skipped';
+      });
+      expect(analyseRun(allSkipped).problem).toMatch(/ran none of them/);
     });
 
-    it('rejects a report whose summary wording changed', () => {
-      const mutated = FLAKY_ONLY.replace('1 flaky', '1 unreliable');
-
-      const result = analyseRun(mutated);
-
-      // The token no longer parses, so the counts say zero reported tests while one header is
-      // present. Silence would be the dangerous answer here; a problem is the safe one.
-      expect(result.problem).toBeTruthy();
-      expect(result.flaky).toEqual([]);
-    });
-  });
-
-  describe('stripAnsi', () => {
-    it('is load-bearing: a coloured report parses the same as a plain one', () => {
-      // Locally the runner's stdout is a pipe and chalk emits nothing, but in CI chalk keys off
-      // the CI vendor and colours anyway — so the CI-shaped input is the coloured one, and it is
-      // the one that has to work. Colours are injected exactly where the reporter puts them: the
-      // numbered header (yellow for flaky, red for failed) and the summary tokens.
-      const coloured = FAILED_AND_FLAKY.replace(
-        /^ {2}(\d+)\) (.*)$/gm,
-        '  \u001b[31m$1) $2\u001b[39m'
-      )
-        .replace('1 failed', '\u001b[31m1 failed\u001b[39m')
-        .replace('1 flaky', '\u001b[33m1 flaky\u001b[39m');
-      expect(coloured).toContain('\u001b[');
-
-      expect(analyseRun(coloured)).toEqual(analyseRun(FAILED_AND_FLAKY));
+    it('refuses a result that is not JSON', () => {
+      expect(analyseRun('')).toMatchObject({ problem: expect.stringMatching(/not JSON/) });
+      expect(analyseRun('{"schema": 1, "cases": [')).toMatchObject({
+        problem: expect.stringMatching(/not JSON/),
+      });
     });
 
-    it('removes CSI sequences and leaves the text', () => {
-      expect(stripAnsi('\u001b[33mflaky\u001b[39m')).toBe('flaky');
-      expect(stripAnsi('\u001b[2K\u001b[Gredrawn')).toBe('redrawn');
-      expect(stripAnsi('plain')).toBe('plain');
+    it('refuses a schema it does not know', () => {
+      const future = derive(ALL_PASS, (r) => {
+        r.schema = KNOWN_RESULTS_SCHEMA + 1;
+      });
+      expect(analyseRun(future).problem).toMatch(/drifted apart/);
+      expect(analyseRun('null').problem).toMatch(/drifted apart/);
+    });
+
+    it('refuses a result with no case list', () => {
+      const noCases = derive(ALL_PASS, (r) => {
+        delete r.cases;
+      });
+      expect(analyseRun(noCases).problem).toMatch(/no case list/);
+    });
+
+    it('refuses an interrupted run, whose result is incomplete', () => {
+      const interrupted = derive(ALL_PASS, (r) => {
+        r.reason = 'interrupted';
+      });
+      expect(analyseRun(interrupted).problem).toMatch(/interrupted/);
     });
   });
 
   describe('what CI is told', () => {
     const flaky = analyseRun(FLAKY_ONLY).flaky;
 
-    it('maps a header path to a repo-relative one', () => {
-      // The header is relative to the tui-e2e dir the runner ran in; an annotation only attaches
-      // to a file if the path is relative to the repo root.
+    it('maps a suite-relative path to a repo-relative one', () => {
+      // The results file is relative to the tui-e2e dir the runner ran in; an annotation only
+      // attaches to a file if the path is relative to the repo root.
       expect(repoPath(flaky[0])).toBe('packages/app/tui-e2e/zzprobe.tui.test.ts');
     });
 
@@ -200,7 +226,8 @@ describe('QA-13 tui-e2e flake reporter', () => {
       const [annotation] = githubAnnotations(flaky);
 
       expect(annotation).toContain('::warning file=packages/app/tui-e2e/zzprobe.tui.test.ts');
-      expect(annotation).toContain('line=11');
+      expect(annotation).toContain('line=21');
+      expect(annotation).toContain('col=5');
       expect(annotation).toContain('passes on the retry');
       expect(annotation).toContain('docs/known-flakes.md');
     });
@@ -209,7 +236,7 @@ describe('QA-13 tui-e2e flake reporter', () => {
       const markdown = stepSummaryMarkdown(flaky, { os: 'darwin' });
 
       expect(markdown).toContain('1 flaky TUI e2e test on darwin');
-      expect(markdown).toContain('packages/app/tui-e2e/zzprobe.tui.test.ts:11');
+      expect(markdown).toContain('packages/app/tui-e2e/zzprobe.tui.test.ts:21');
       expect(markdown).toContain('passes on the retry');
       expect(markdown).toContain('docs/known-flakes.md');
     });
@@ -227,9 +254,9 @@ describe('QA-13 tui-e2e flake reporter', () => {
    * hook that merely warned would be no detector at all. The report is written to a file and the
    * runner fails the run on it.
    *
-   * The report cannot travel on a stream: those hooks run in a workerpool child whose captured
-   * output the reporter prints only for a test it is already reporting, and never for
-   * `afterAllWorker`. Measured with a filesystem control — zero hits on either stream.
+   * The report travels by file because the hooks that write it run in a test worker process,
+   * while the runner that has to act on it is the parent; the parent owns the worker's
+   * environment, so a path handed down is the one channel that always arrives.
    *
    * **The two findings must stay distinguishable.** A session that outlived its kill and a
    * directory that will not delete have different causes and different fixes, and a message that

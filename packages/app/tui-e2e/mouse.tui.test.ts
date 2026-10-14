@@ -1,10 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { test, expect } from '@microsoft/tui-test';
-// [[QA-15]] — side-effect import, and it is load-bearing: without it every matcher in this file
-// polls for tui-test's 5000 ms fallback rather than the `expect.timeout` in `tui-test.config.ts`.
-// Files that use the throwaway-HOME fixture get it through `tmpHome.mjs`; this one does not.
-import './fixtures/expectTimeout.mjs';
+import { test, expect } from './fixtures/harness.mjs';
 
 /**
  * Windows ConPTY parses and re-encodes input escape sequences rather than passing raw bytes to the
@@ -20,7 +16,7 @@ import './fixtures/expectTimeout.mjs';
  */
 const PTY_PASSES_RAW_BYTES = os.platform() !== 'win32';
 
-// tui-test keeps process.cwd() at the invocation dir (this folder); the cli lives one level up.
+// The runner runs the suite with this folder as process.cwd(); the cli lives one level up.
 const e2eDir = process.cwd();
 const cli = path.resolve(e2eDir, '..', 'cli.js');
 const fixture = (name: string): string => path.resolve(e2eDir, 'fixtures', name);
@@ -74,8 +70,8 @@ type Cell = { x: number; y: number };
  * colour variables away from the app for that reason, and the throw below names the cause so that a
  * run which loses colour some other way is diagnosed in one read rather than read as a broken prompt.
  */
-const promptCursorCell = (terminal: Term): Cell => {
-  const { shifts } = terminal.serialize();
+const promptCursorCell = async (terminal: Term): Promise<Cell> => {
+  const { shifts } = await terminal.serialize();
   for (const [key, shift] of shifts.entries()) {
     if (shift.inverse) {
       const [x, y] = key.split(',').map(Number);
@@ -108,7 +104,7 @@ const awaitPromptCursorMovedLeftFrom = async (terminal: Term, from: Cell): Promi
   for (;;) {
     let seen: Cell | undefined;
     try {
-      seen = promptCursorCell(terminal);
+      seen = await promptCursorCell(terminal);
     } catch {
       seen = undefined;
     }
@@ -150,7 +146,7 @@ test.describe('gth chat TUI — mouse input (greeting fixture)', () => {
     terminal.write('hello');
 
     await expect(terminal.getByText('> hello')).toBeVisible();
-    const view = terminal.serialize().view;
+    const view = (await terminal.serialize()).view;
     expect(view).not.toContain('0;20;10');
     expect(view).not.toContain('[<');
   });
@@ -167,7 +163,7 @@ test.describe('gth chat TUI — mouse input (greeting fixture)', () => {
     terminal.write('typed');
 
     await expect(terminal.getByText('> typed')).toBeVisible();
-    expect(terminal.serialize().view).not.toContain('[<');
+    expect((await terminal.serialize()).view).not.toContain('[<');
   });
 
   test('a wheel scroll does not corrupt the prompt', async ({ terminal }) => {
@@ -178,7 +174,7 @@ test.describe('gth chat TUI — mouse input (greeting fixture)', () => {
     terminal.write('wheel');
 
     await expect(terminal.getByText('> wheel')).toBeVisible();
-    expect(terminal.serialize().view).not.toContain('[<');
+    expect((await terminal.serialize()).view).not.toContain('[<');
   });
 
   test.when(
@@ -193,7 +189,7 @@ test.describe('gth chat TUI — mouse input (greeting fixture)', () => {
       terminal.write('split');
 
       await expect(terminal.getByText('> split')).toBeVisible();
-      const view = terminal.serialize().view;
+      const view = (await terminal.serialize()).view;
       expect(view).not.toContain('0;12');
       expect(view).not.toContain('[<');
     }
@@ -212,7 +208,7 @@ test.describe('gth chat TUI — mouse input (greeting fixture)', () => {
       terminal.write('csi');
 
       await expect(terminal.getByText('> csi')).toBeVisible();
-      const view = terminal.serialize().view;
+      const view = (await terminal.serialize()).view;
       expect(view).not.toContain('0;14');
       expect(view).not.toContain('<0;');
     }
@@ -227,13 +223,13 @@ test.describe('gth chat TUI — mouse input (greeting fixture)', () => {
 
     terminal.write('abc');
     await expect(terminal.getByText('> abc')).toBeVisible();
-    const cursorBeforeArrow = promptCursorCell(terminal);
+    const cursorBeforeArrow = await promptCursorCell(terminal);
     terminal.keyLeft();
     await awaitPromptCursorMovedLeftFrom(terminal, cursorBeforeArrow);
     terminal.write('d');
 
     await expect(terminal.getByText('> abdc')).toBeVisible();
-    expect(terminal.serialize().view).not.toContain('[D');
+    expect((await terminal.serialize()).view).not.toContain('[D');
   });
 
   test('typing and Enter still work normally with mouse on', async ({ terminal }) => {

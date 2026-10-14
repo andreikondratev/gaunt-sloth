@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { test, expect } from '@microsoft/tui-test';
+import { test, expect } from './fixtures/harness.mjs';
+import type { Terminal } from './fixtures/harness.mjs';
 import { SHELL_ALLOWLIST_FILE, SHELL_DENYLIST_FILE } from '@gaunt-sloth/core/constants.js';
 import { removeTmpHome, settleSessionsAfterEach } from './fixtures/tmpHome.mjs';
 
@@ -49,22 +50,24 @@ const realAgentEnv = (tmpHome: string): Record<string, string | undefined> => {
 };
 
 /** The terminal's own cell rows, as strings. This is the screen, not the string Ink emitted. */
-const screenRows = (terminal: { getBuffer(): string[][] }): string[] =>
-  terminal.getBuffer().map((row) => row.join('').replace(/\s+$/u, ''));
+const screenRows = async (terminal: Terminal): Promise<string[]> =>
+  (await terminal.getBuffer()).map((row) => row.join('').replace(/\s+$/u, ''));
 
 /** Assert that some row on the terminal BEGINS with `text` — where the dialog's own chrome lives. */
-const atColumnZero = (terminal: { getBuffer(): string[][] }, text: string): void => {
-  expect(screenRows(terminal).filter((row) => row.startsWith(text)).length).toBeGreaterThan(0);
+const atColumnZero = async (terminal: Terminal, text: string): Promise<void> => {
+  expect((await screenRows(terminal)).filter((row) => row.startsWith(text)).length).toBeGreaterThan(
+    0
+  );
 };
 
 /** Assert that no row on the terminal begins with `text`. */
-const notAtColumnZero = (terminal: { getBuffer(): string[][] }, text: string): void => {
-  expect(screenRows(terminal).filter((row) => row.startsWith(text))).toEqual([]);
+const notAtColumnZero = async (terminal: Terminal, text: string): Promise<void> => {
+  expect((await screenRows(terminal)).filter((row) => row.startsWith(text))).toEqual([]);
 };
 
 /** The menu line the dialog actually offered, or undefined. */
-const menuLine = (terminal: { getBuffer(): string[][] }): string | undefined =>
-  screenRows(terminal).find((row) => row.startsWith('Approve?'));
+const menuLine = async (terminal: Terminal): Promise<string | undefined> =>
+  (await screenRows(terminal)).find((row) => row.startsWith('Approve?'));
 
 /**
  * The project files a sticky answer writes, named by the CONSTANTS the product resolves them
@@ -122,7 +125,7 @@ test.describe('approval menu — a negotiated destructive escalation', () => {
     await expect(
       terminal.getByText('argued with the auto-rater 3 times', { strict: false })
     ).toBeVisible();
-    const rows = screenRows(terminal);
+    const rows = await screenRows(terminal);
     const at = (text: string): number => rows.findIndex((row) => row.includes(text));
     for (const round of [1, 2, 3]) {
       expect(at(`Round ${round}`)).toBeGreaterThan(-1);
@@ -155,7 +158,7 @@ test.describe('approval menu — a negotiated destructive escalation', () => {
     );
 
     // §2 — the severity is said in WORDS, and they are the destructive ones.
-    atColumnZero(terminal, '⚠ Auto-rater (destructive):');
+    await atColumnZero(terminal, '⚠ Auto-rater (destructive):');
     await expect(
       terminal.getByText('undoing it is possible from inside this session', {
         strict: false,
@@ -165,17 +168,17 @@ test.describe('approval menu — a negotiated destructive escalation', () => {
     expect(rows.join('\n')).not.toContain('OUTSIDE this session');
 
     // §1 — the whole menu, in one row, exactly as a human reads it.
-    expect(menuLine(terminal)).toBe(
+    expect(await menuLine(terminal)).toBe(
       'Approve?  [o]nce   [s]ession   [a]lways   [N]o   [d]eny always'
     );
     // §6 — and it says what the refusal would record, framed inside the gutter like everything else
     // model-authored, with the label as the dialog's own flush-left line.
-    atColumnZero(terminal, '[d] will refuse this exact call, and save it to this project:');
+    await atColumnZero(terminal, '[d] will refuse this exact call, and save it to this project:');
     await expect(
       terminal.getByText('1 │ echo menu-negotiate-marker', { strict: false })
     ).toBeVisible();
-    atColumnZero(terminal, '    recorded as:');
-    notAtColumnZero(terminal, 'echo menu-negotiate-marker');
+    await atColumnZero(terminal, '    recorded as:');
+    await notAtColumnZero(terminal, 'echo menu-negotiate-marker');
 
     // [[EXT-107]] — answering it says exactly what happened, which is now a project file, and names
     // the way back out of it. A saved refusal the user cannot find is the one failure mode
@@ -191,7 +194,7 @@ test.describe('approval menu — a negotiated destructive escalation', () => {
     // command is still quoted on the screen — inside the gutter, indented, as the record of what
     // was asked. What the command's own OUTPUT would look like is the bare marker beginning a row,
     // and nothing in the record can produce that.
-    notAtColumnZero(terminal, 'menu-negotiate-marker');
+    await notAtColumnZero(terminal, 'menu-negotiate-marker');
   });
 });
 
@@ -221,24 +224,24 @@ test.describe('approval menu — a catastrophic escalation', () => {
     ).toBeVisible();
 
     // §2.1 — a different glyph and a different SENTENCE, so a reader with no colour is still told.
-    atColumnZero(terminal, '⛔ Auto-rater (catastrophic):');
+    await atColumnZero(terminal, '⛔ Auto-rater (catastrophic):');
     await expect(terminal.getByText('OUTSIDE this session', { strict: false })).toBeVisible();
-    const rows = screenRows(terminal);
+    const rows = await screenRows(terminal);
     expect(rows.join('\n')).not.toContain('undoing it is possible from inside this session');
     // The reason is still the RATER's, said so and framed.
-    atColumnZero(terminal, "    the rater's own words:");
+    await atColumnZero(terminal, "    the rater's own words:");
     await expect(
       terminal.getByText('1 │ this cannot be undone from inside the session', { strict: false })
     ).toBeVisible();
 
     // §1.3 — the reduced menu, as one row.
-    expect(menuLine(terminal)).toBe('Approve?  [o]nce   [N]o   [d]eny always');
+    expect(await menuLine(terminal)).toBe('Approve?  [o]nce   [N]o   [d]eny always');
     // The withdrawn controls are ABSENT, not disabled — and so is the line describing what they
     // would have stored.
     await expect(terminal.getByText('[s]ession', { strict: false })).not.toBeVisible();
     await expect(terminal.getByText('will remember', { strict: false })).not.toBeVisible();
     // ...while the refusal is offered and named.
-    atColumnZero(terminal, '[d] will refuse this exact call, and save it to this project:');
+    await atColumnZero(terminal, '[d] will refuse this exact call, and save it to this project:');
 
     // A catastrophic verdict is escalated with no rounds at all (§4.2), so nothing draws a heading
     // over an argument that never happened.

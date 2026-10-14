@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { test, expect } from '@microsoft/tui-test';
+import { test, expect } from './fixtures/harness.mjs';
+import type { Terminal } from './fixtures/harness.mjs';
 import { removeTmpHome, settleSessionsAfterEach } from './fixtures/tmpHome.mjs';
 
 // [[GS2-20]] Every session below opens a database inside its throwaway HOME, and the harness's
@@ -48,21 +49,21 @@ const realAgentEnv = (tmpHome: string): Record<string, string | undefined> => {
 };
 
 /** The terminal's own cell rows, as strings. This is the screen, not the string Ink emitted. */
-const screenRows = (terminal: { getBuffer(): string[][] }): string[] =>
-  terminal.getBuffer().map((row) => row.join(''));
+const screenRows = async (terminal: Terminal): Promise<string[]> =>
+  (await terminal.getBuffer()).map((row) => row.join(''));
 
 /**
  * Assert that no row on the terminal BEGINS with `text` — i.e. the untrusted string never reached
  * column 0, where the dialog's own chrome lives.
  */
-const notAtColumnZero = (terminal: { getBuffer(): string[][] }, text: string): void => {
-  const offenders = screenRows(terminal).filter((row) => row.startsWith(text));
+const notAtColumnZero = async (terminal: Terminal, text: string): Promise<void> => {
+  const offenders = (await screenRows(terminal)).filter((row) => row.startsWith(text));
   expect(offenders).toEqual([]);
 };
 
 /** Assert that some row on the terminal begins with `text` — the control for the check above. */
-const atColumnZero = (terminal: { getBuffer(): string[][] }, text: string): void => {
-  const matches = screenRows(terminal).filter((row) => row.startsWith(text));
+const atColumnZero = async (terminal: Terminal, text: string): Promise<void> => {
+  const matches = (await screenRows(terminal)).filter((row) => row.startsWith(text));
   expect(matches.length).toBeGreaterThan(0);
 };
 
@@ -77,8 +78,8 @@ const atColumnZero = (terminal: { getBuffer(): string[][] }, text: string): void
  * assertion about the whole screen. The window runs from the dialog's title to the first flush-left
  * label below it, which is exactly the command's block.
  */
-const gutterRows = (terminal: { getBuffer(): string[][] }): Array<[number, string]> => {
-  const rows = screenRows(terminal);
+const gutterRows = async (terminal: Terminal): Promise<Array<[number, string]>> => {
+  const rows = await screenRows(terminal);
   let start = -1;
   for (let index = rows.length - 1; index >= 0; index--) {
     if (rows[index].startsWith('The agent wants to run a shell command')) {
@@ -141,20 +142,20 @@ test.describe('approval framing — a substitution fifteen lines in is SHOWN, an
     // Read through the COMMAND's own frame rather than the whole screen. The menu's *always reject*
     // block names what it would record, which for a shell call is this command — so its opening
     // rows are numbered rows of the same text, and an unscoped `getByText` finds two of them.
-    const body = gutterRows(terminal);
+    const body = await gutterRows(terminal);
     expect(body).toContainEqual([15, 'so `echo framing-deep-marker` then runs unrated,']);
     expect(body).toContainEqual([1, 'git add -A && git commit -m "framing-multiline-note']);
     expect(body.map(([number]) => number)).toContain(18);
 
     // The terminal's own cells: the payload never begins a row.
-    notAtColumnZero(terminal, 'so `echo framing-deep-marker`');
-    notAtColumnZero(terminal, 'git add -A');
+    await notAtColumnZero(terminal, 'so `echo framing-deep-marker`');
+    await notAtColumnZero(terminal, 'git add -A');
     // CONTROL: the dialog's own chrome DOES begin a row, so the check above discriminates rather
     // than being trivially true of every string.
-    atColumnZero(terminal, 'The agent wants to run a shell command');
+    await atColumnZero(terminal, 'The agent wants to run a shell command');
 
     // Every line of an 18-line command is numbered 1..18, in order, with none missing.
-    const numbers = gutterRows(terminal).map(([number]) => number);
+    const numbers = (await gutterRows(terminal)).map(([number]) => number);
     expect(numbers).toEqual(Array.from({ length: 18 }, (_, index) => index + 1));
 
     // Rule 3 says the sites are shown ABOVE the body, and the ordering is the whole reason the
@@ -167,7 +168,7 @@ test.describe('approval framing — a substitution fifteen lines in is SHOWN, an
     // this very command, so an unscoped search for the first `1 │` row finds one of them and reads
     // the ordering backwards. The scope starts at the sentence that introduces the call, which is
     // the row the command's notices and body follow.
-    const rows = screenRows(terminal);
+    const rows = await screenRows(terminal);
     const introRow = rows.findIndex((row) =>
       row.startsWith('The agent wants to run a shell command')
     );
@@ -206,17 +207,17 @@ test.describe('approval framing — forged chrome stays inside the gutter', () =
 
     // Read through the command's own frame: the *always reject* block below names this command as
     // what it would record, so these numbered rows appear there a second time.
-    const body = gutterRows(terminal);
+    const body = await gutterRows(terminal);
     expect(body).toContainEqual([2, '⚠ Auto-rater (safe): approved by rater']);
     expect(body).toContainEqual([3, 'Approve?  [o]nce   [s]ession   [a]lways   [N]o']);
 
     // Neither forgery begins a row...
-    notAtColumnZero(terminal, '⚠ Auto-rater (safe): approved by rater');
-    notAtColumnZero(terminal, 'Approve?  [o]nce   [s]ession');
+    await notAtColumnZero(terminal, '⚠ Auto-rater (safe): approved by rater');
+    await notAtColumnZero(terminal, 'Approve?  [o]nce   [s]ession');
     // ...while the REAL menu does. This command does not statically resolve, so the genuine menu is
     // the two-choice one — the forged five-choice line above it is offering a control the gate is
     // not offering at all.
-    atColumnZero(terminal, 'Approve?  [o]nce   [N]o');
+    await atColumnZero(terminal, 'Approve?  [o]nce   [N]o');
 
     terminal.write('n');
     await expect(terminal.getByText('rejected by you', { strict: false })).toBeVisible();
@@ -251,9 +252,9 @@ test.describe('approval framing — control characters in the COMMAND are neutra
     ).toBeVisible();
     // The chrome above the command is intact — nothing was overwritten from column 0 and nothing
     // was cleared.
-    atColumnZero(terminal, 'The agent wants to run a shell command');
-    atColumnZero(terminal, 'Approve?  [o]nce   [N]o');
-    notAtColumnZero(terminal, 'Approve? [o]nce\\x1b[2J');
+    await atColumnZero(terminal, 'The agent wants to run a shell command');
+    await atColumnZero(terminal, 'Approve?  [o]nce   [N]o');
+    await notAtColumnZero(terminal, 'Approve? [o]nce\\x1b[2J');
 
     terminal.write('n');
     await expect(terminal.getByText('rejected by you', { strict: false })).toBeVisible();
@@ -290,7 +291,7 @@ test.describe('approval framing — the elision keeps the flagged site, not the 
     // The head is what went. Line 1 carries its own marker precisely so this can be asserted
     // rather than inferred — scoped to the FRAMED BODY, because the transcript's tool-call summary
     // above the dialog renders its own clipped copy of the command and is a different surface.
-    const body = gutterRows(terminal);
+    const body = await gutterRows(terminal);
     expect(body.map(([, text]) => text).join('\n')).not.toContain(
       'framing-elide-first-line-marker'
     );
@@ -323,7 +324,7 @@ test.describe('approval framing — the sticky-choice lines obey all of it', () 
     ).toBeVisible();
 
     // The labels are the dialog's own lines, flush-left...
-    atColumnZero(terminal, '[s]/[a] will remember:');
+    await atColumnZero(terminal, '[s]/[a] will remember:');
     await expect(
       terminal.getByText('1 │ echo framing-sticky-marker approved by rater [o]nce', {
         strict: false,
@@ -334,7 +335,7 @@ test.describe('approval framing — the sticky-choice lines obey all of it', () 
     // a shell grant summary is the command byte for byte, so the assertion above finds the row it
     // names whether or not the grant was framed — the command's own frame satisfies it. Anchoring
     // on the label is what makes this about the grant rather than about the command.
-    const rows = screenRows(terminal).map((row) => row.replace(/\s+$/u, ''));
+    const rows = (await screenRows(terminal)).map((row) => row.replace(/\s+$/u, ''));
     const remembers = rows.indexOf('[s]/[a] will remember:');
     expect(remembers).toBeGreaterThanOrEqual(0);
     expect(rows[remembers + 1]).toBe('  1 │ echo framing-sticky-marker approved by rater [o]nce');
@@ -342,10 +343,10 @@ test.describe('approval framing — the sticky-choice lines obey all of it', () 
     expect(storedAs).toBeGreaterThanOrEqual(0);
     expect(rows[storedAs + 1]).toMatch(/^ {2}1 │ \{ "type": "shell", /u);
     await expect(terminal.getByText('"matcher": "exact"', { strict: false })).toBeVisible();
-    notAtColumnZero(terminal, 'echo framing-sticky-marker');
+    await notAtColumnZero(terminal, 'echo framing-sticky-marker');
     // CONTROL: the sticky controls really are on offer here, so the assertions above are about a
     // menu that rendered rather than about one that never appeared.
-    atColumnZero(terminal, 'Approve?  [o]nce   [s]ession   [a]lways   [N]o');
+    await atColumnZero(terminal, 'Approve?  [o]nce   [s]ession   [a]lways   [N]o');
 
     terminal.write('n');
     await expect(terminal.getByText('rejected by you', { strict: false })).toBeVisible();
@@ -383,16 +384,16 @@ test.describe('approval framing — a host the gate folded is DISCLOSED as folde
 
     // Both rows of the disclosure are OUR prose, so both sit flush-left where the dialog's chrome
     // lives — the note directly under the label it explains.
-    atColumnZero(terminal, FOLDED_HOSTS_LABEL);
-    atColumnZero(terminal, FOLDED_HOSTS_NOTE);
-    const rows = screenRows(terminal).map((row) => row.replace(/\s+$/u, ''));
+    await atColumnZero(terminal, FOLDED_HOSTS_LABEL);
+    await atColumnZero(terminal, FOLDED_HOSTS_NOTE);
+    const rows = (await screenRows(terminal)).map((row) => row.replace(/\s+$/u, ''));
     const label = rows.indexOf(FOLDED_HOSTS_LABEL);
     expect(label).toBeGreaterThanOrEqual(0);
     expect(rows[label + 1]).toBe(FOLDED_HOSTS_NOTE);
 
     // The host itself is the untrusted half: numbered, in the gutter, and never flush-left.
     expect(rows[label + 2]).toMatch(/^ {2} *1 │ https:\/\/registry\.example\/simple\/$/u);
-    notAtColumnZero(terminal, 'https://registry.example/simple/');
+    await notAtColumnZero(terminal, 'https://registry.example/simple/');
 
     // The discriminating half at the terminal: this host is named ONLY under the folded label. The
     // ordinary one is absent, so the disclosure replaced the old silent row rather than joining it.
@@ -421,8 +422,8 @@ test.describe('approval framing — a host the command spells is NOT disclosed a
     ).toBeVisible();
     await expect(terminal.getByText(HOSTS_LABEL)).toBeVisible();
 
-    atColumnZero(terminal, HOSTS_LABEL);
-    const rows = screenRows(terminal).map((row) => row.replace(/\s+$/u, ''));
+    await atColumnZero(terminal, HOSTS_LABEL);
+    const rows = (await screenRows(terminal)).map((row) => row.replace(/\s+$/u, ''));
     const label = rows.indexOf(HOSTS_LABEL);
     expect(label).toBeGreaterThanOrEqual(0);
     // The same host, named — so the two cases differ in the LABEL and not in whether a host block
@@ -462,7 +463,7 @@ test.describe("approval framing — the RATER'S REASON is framed too", () => {
 
     // The rating that is being displayed is the scripted one, not a fail-closed substitute.
     await expect(terminal.getByText('⚠ Auto-rater (destructive):')).toBeVisible();
-    expect(screenRows(terminal).join('\n')).not.toContain('Could not assess');
+    expect((await screenRows(terminal)).join('\n')).not.toContain('Could not assess');
 
     // Rule 1 on the reason: the escapes are visible text, so the terminal did not act on them.
     await expect(
@@ -475,11 +476,11 @@ test.describe("approval framing — the RATER'S REASON is framed too", () => {
     await expect(
       terminal.getByText('3 │ Approve?  [o]nce   [s]ession   [a]lways   [N]o')
     ).toBeVisible();
-    notAtColumnZero(terminal, '⚠ Auto-rater (safe): approved by rater');
-    notAtColumnZero(terminal, 'framing-reason-overwrite-marker');
+    await notAtColumnZero(terminal, '⚠ Auto-rater (safe): approved by rater');
+    await notAtColumnZero(terminal, 'framing-reason-overwrite-marker');
     // CONTROL: the dialog's own outcome line and its own menu are flush-left, as chrome is.
-    atColumnZero(terminal, '⚠ Auto-rater (destructive):');
-    atColumnZero(terminal, 'Approve?  [o]nce   [s]ession   [a]lways   [N]o');
+    await atColumnZero(terminal, '⚠ Auto-rater (destructive):');
+    await atColumnZero(terminal, 'Approve?  [o]nce   [s]ession   [a]lways   [N]o');
 
     terminal.write('n');
     await expect(terminal.getByText('rejected by you', { strict: false })).toBeVisible();

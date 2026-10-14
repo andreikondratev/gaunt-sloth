@@ -1,10 +1,6 @@
 import path from 'node:path';
-import { test, expect } from '@microsoft/tui-test';
-import type { Terminal } from '@microsoft/tui-test';
-// [[QA-15]] — side-effect import, and it is load-bearing: without it every matcher in this file
-// polls for tui-test's 5000 ms fallback rather than the `expect.timeout` in `tui-test.config.ts`.
-// Files that use the throwaway-HOME fixture get it through `tmpHome.mjs`; this one does not.
-import './fixtures/expectTimeout.mjs';
+import { test, expect } from './fixtures/harness.mjs';
+import type { Terminal } from './fixtures/harness.mjs';
 
 const e2eDir = process.cwd();
 const cli = path.resolve(e2eDir, '..', 'cli.js');
@@ -30,10 +26,9 @@ const RESTING_ROW_3 = '▀▄▀▀ ██████ ▀▀▄▀';
 const RESTING_ROW_1 = '▄█▀▀▀▀▀▀▀▀█▄';
 
 /** The rows of the viewport, unwrapped from `serialize()`'s box border. */
-const viewRows = (terminal: Terminal): string[] =>
-  terminal
-    .serialize()
-    .view.split('\n')
+const viewRows = async (terminal: Terminal): Promise<string[]> =>
+  (await terminal.serialize()).view
+    .split('\n')
     .map((line) => line.replace(/^│/, '').replace(/│$/, ''));
 
 /**
@@ -56,7 +51,7 @@ test.describe('gth chat TUI — clickable launch banner (greeting fixture)', () 
     await expect(terminal.getByText(RESTING_ROW_3)).toBeVisible();
 
     // Find the block on screen and click its middle row. Coordinates on the wire are 1-based.
-    const rows = viewRows(terminal);
+    const rows = await viewRows(terminal);
     const top = rows.findIndex((line) => line.includes(RESTING_ROW_1));
     expect(top).toBeGreaterThan(-1);
     const clickRow = top + 3; // 0-based screen row of the face's third art line
@@ -70,7 +65,7 @@ test.describe('gth chat TUI — clickable launch banner (greeting fixture)', () 
   test('the art settles back to the resting face on its own', async ({ terminal }) => {
     await expect(terminal.getByText(RESTING_ROW_3)).toBeVisible();
 
-    const rows = viewRows(terminal);
+    const rows = await viewRows(terminal);
     const clickRow = rows.findIndex((line) => line.includes(RESTING_ROW_1)) + 3;
     terminal.write(`\x1b[<0;6;${clickRow + 1}M`);
     terminal.write(`\x1b[<0;6;${clickRow + 1}m`);
@@ -84,18 +79,18 @@ test.describe('gth chat TUI — clickable launch banner (greeting fixture)', () 
     // The constraint that protects every non-interactive run: nothing is on a timer, so the banner
     // that paints at launch is the banner that stays until something is clicked.
     await expect(terminal.getByText(RESTING_ROW_3)).toBeVisible();
-    const first = viewRows(terminal).find((line) => line.includes(RESTING_ROW_3));
+    const first = (await viewRows(terminal)).find((line) => line.includes(RESTING_ROW_3));
 
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
-    expect(viewRows(terminal).find((line) => line.includes(RESTING_ROW_3))).toBe(first);
+    expect((await viewRows(terminal)).find((line) => line.includes(RESTING_ROW_3))).toBe(first);
   });
 
   test('a click away from the banner leaves the art alone', async ({ terminal }) => {
     await expect(terminal.getByText(RESTING_ROW_3)).toBeVisible();
 
     // The status bar, well below the banner.
-    const rows = viewRows(terminal);
+    const rows = await viewRows(terminal);
     const statusRow = rows.findIndex((line) => line.includes('turns: 0'));
     expect(statusRow).toBeGreaterThan(-1);
     terminal.write(`\x1b[<0;6;${statusRow + 1}M`);
@@ -108,7 +103,7 @@ test.describe('gth chat TUI — clickable launch banner (greeting fixture)', () 
   test('typing still works after clicking the banner', async ({ terminal }) => {
     await expect(terminal.getByText(RESTING_ROW_3)).toBeVisible();
 
-    const rows = viewRows(terminal);
+    const rows = await viewRows(terminal);
     const clickRow = rows.findIndex((line) => line.includes(RESTING_ROW_1)) + 3;
     terminal.write(`\x1b[<0;6;${clickRow + 1}M`);
     terminal.write(`\x1b[<0;6;${clickRow + 1}m`);

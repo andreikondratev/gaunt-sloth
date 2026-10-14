@@ -1,11 +1,11 @@
 import path from 'node:path';
-import { test, expect } from '@microsoft/tui-test';
+import { test, expect } from './fixtures/harness.mjs';
 import { settleSessionsAfterEach } from './fixtures/tmpHome.mjs';
 
 // [[GS2-20]] — see chat.tui.test.ts: settle each session before the throwaway directories go.
 settleSessionsAfterEach(test);
 
-// tui-test keeps process.cwd() at the invocation dir (this folder); the cli lives one level up.
+// The runner runs the suite with this folder as process.cwd(); the cli lives one level up.
 const e2eDir = process.cwd();
 const cli = path.resolve(e2eDir, '..', 'cli.js');
 const fixture = (name: string): string => path.resolve(e2eDir, 'fixtures', name);

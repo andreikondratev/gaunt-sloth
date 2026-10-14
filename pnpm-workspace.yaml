@@ -33,26 +33,15 @@ overrides:
   # chalk 6 is ESM-only, so a blanket override is a hard break rather than an upgrade.
   'ink>chalk': ^6.0.0
 
-  # OPS-120 — there is deliberately NO `minimatch` override, and minimatch 9.0.9 in the tree is
-  # expected rather than a gap. The tree holds 10.2.6 for eslint, typescript-eslint and typedoc,
-  # and 9.0.9 for glob 10.5.0 under @microsoft/tui-test — the PTY harness that gates
-  # `pnpm run it-tui`. The ReDoS advisories against minimatch are fixed on every major line,
-  # 9.x included, from 9.0.7; 9.0.9 is above that floor and no advisory matches it. So a blanket
-  # `minimatch: ^10` would buy no security and would force glob off its own declared `^9.0.4`
-  # onto a major it does not support — the same argument the scoped `ink>chalk` entry above
-  # makes about this same harness. A scoped exemption is not available either: pnpm's selector
-  # grammar splits at the FIRST `>` into exactly parent and child, so a three-segment path like
-  # `@microsoft/tui-test>glob>minimatch` does not parse.
+  # OPS-120 — there is deliberately NO `minimatch` override. The tree holds a single minimatch line,
+  # 10.x, for eslint, typescript-eslint and typedoc, and the ReDoS advisories against minimatch are
+  # fixed on it. An override would hold nothing down that the tree does not already resolve to.
 
-# Dependencies with install/build scripts pnpm is allowed to run (the pnpm
-# equivalent of npm's allow-scripts approval). These are transitive dev/test
-# deps: node-pty + @swc/core come from @microsoft/tui-test (the TUI e2e harness).
-# Without this, pnpm skips their postinstall/native-build steps and aborts with
-# ERR_PNPM_IGNORED_BUILDS. pnpm 11.3.0 uses the `allowBuilds` map; it is written
-# by `pnpm approve-builds`.
-allowBuilds:
-  '@swc/core': true
-  node-pty: true
+# No `allowBuilds` map: no dependency in the tree needs an install or build script. The PTY
+# harness, @microsoft/tui-test, ships its terminal engine as prebuilt per-platform packages. If an
+# install ever aborts with ERR_PNPM_IGNORED_BUILDS, approve the named package deliberately with
+# `pnpm approve-builds` (pnpm 11 writes an `allowBuilds` map here) rather than allowing scripts
+# wholesale.
 
 # Strict mode: refuse an immature package outright rather than install it and append an exception
 # here. A refusal is this guard working, not a broken build.

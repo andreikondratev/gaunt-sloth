@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { test, expect } from '@microsoft/tui-test';
-import type { Terminal } from '@microsoft/tui-test';
+import { test, expect } from './fixtures/harness.mjs';
+import type { Terminal } from './fixtures/harness.mjs';
 import { settleSessionsAfterEach } from './fixtures/tmpHome.mjs';
 
 settleSessionsAfterEach(test);
@@ -30,7 +30,7 @@ settleSessionsAfterEach(test);
  * `spec/tui/checklistDockRedaction.spec.tsx` already pins the ordering and is the right home for it.
  */
 
-// tui-test keeps process.cwd() at the invocation dir (this folder); the cli lives one level up.
+// The runner runs the suite with this folder as process.cwd(); the cli lives one level up.
 const e2eDir = process.cwd();
 const cli = path.resolve(e2eDir, '..', 'cli.js');
 const fixture = (name: string): string => path.resolve(e2eDir, 'fixtures', name);
@@ -45,10 +45,9 @@ const envFor = (fixtureName: string): Record<string, string | undefined> => {
   return env;
 };
 
-const screenRows = (terminal: Terminal): string[] =>
-  terminal
-    .serialize()
-    .view.split('\n')
+const screenRows = async (terminal: Terminal): Promise<string[]> =>
+  (await terminal.serialize()).view
+    .split('\n')
     .slice(1, -1)
     .map((line) => line.replace(/^│/, '').replace(/│$/, ''));
 
@@ -96,7 +95,7 @@ test.describe('gth chat TUI — the pinned checklist dock (REL-23)', () => {
     // panel did not mount, nothing would carry these words.
     await expect(terminal.getByText('Checklist (1/3)')).toBeVisible();
 
-    const rows = screenRows(terminal);
+    const rows = await screenRows(terminal);
 
     // One row per status, each with the glyph its status maps to. Asserted as "the row carrying
     // this item's text also carries this glyph" rather than as a whole-line equality, which would
@@ -156,7 +155,7 @@ test.describe('gth chat TUI — a checklist row carrying hostile bytes and a key
     // identical to a `not.toContain`.
     await expect(terminal.getByText('Checklist (0/1)')).toBeVisible();
 
-    const rows = screenRows(terminal);
+    const rows = await screenRows(terminal);
     const row = rows[rowOf(rows, 'rel23-treated ')];
 
     // Neutralised: every escape is ON SCREEN AS TEXT. This is the assertion the PTY exists for.

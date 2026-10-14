@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { test, expect } from '@microsoft/tui-test';
+import { test, expect } from './fixtures/harness.mjs';
+import type { Terminal } from './fixtures/harness.mjs';
 import { removeTmpHome, settleSessionsAfterEach } from './fixtures/tmpHome.mjs';
 
 // [[GS2-20]] Every session below opens a database inside its throwaway HOME, and the harness's
@@ -33,7 +34,7 @@ settleSessionsAfterEach(test);
  * throughout, which is the independent check that the row's claim and the world agree.
  */
 
-// tui-test keeps process.cwd() at the invocation dir (this folder); the cli lives one level up.
+// The runner runs the suite with this folder as process.cwd(); the cli lives one level up.
 const e2eDir = process.cwd();
 const cli = path.resolve(e2eDir, '..', 'cli.js');
 const siblingConfig = path.resolve(e2eDir, 'fixtures', 'approval-sibling.gsloth.config.mjs');
@@ -51,20 +52,20 @@ const realAgentEnv = (tmpHome: string): Record<string, string | undefined> => {
 };
 
 /** The terminal's own cell rows, as strings. This is the screen, not the string Ink emitted. */
-const screenRows = (terminal: { getBuffer(): string[][] }): string[] =>
-  terminal.getBuffer().map((row) => row.join(''));
+const screenRows = async (terminal: Terminal): Promise<string[]> =>
+  (await terminal.getBuffer()).map((row) => row.join(''));
 
 /**
  * The tool-panel rows for one call — matched on `name(`, which the call line always has and the
  * approval dialog's prose ("… via run_shell_command") never does, so the dialog cannot be mistaken
  * for the row it is asking about.
  */
-const toolRowsFor = (terminal: { getBuffer(): string[][] }, name: string): string[] =>
-  screenRows(terminal).filter((row) => row.includes(`${name}(`));
+const toolRowsFor = async (terminal: Terminal, name: string): Promise<string[]> =>
+  (await screenRows(terminal)).filter((row) => row.includes(`${name}(`));
 
 /** Screen row index of the first line containing `needle`, or -1. Top of the terminal is 0. */
-const rowIndexOf = (terminal: { getBuffer(): string[][] }, needle: string): number =>
-  screenRows(terminal).findIndex((row) => row.includes(needle));
+const rowIndexOf = async (terminal: Terminal, needle: string): Promise<number> =>
+  (await screenRows(terminal)).findIndex((row) => row.includes(needle));
 
 test.describe('gth code TUI — [[TUI-C100]] a gated call with a returning sibling', () => {
   const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gth-e2e-approval-sibling-home-'));
@@ -96,7 +97,7 @@ test.describe('gth code TUI — [[TUI-C100]] a gated call with a returning sibli
     await expect(terminal.getByText('[o]nce', { strict: false })).toBeVisible();
 
     // The gated call claims nothing: neither the tick nor the word, anywhere on its row.
-    const shellRows = toolRowsFor(terminal, 'run_shell_command');
+    const shellRows = await toolRowsFor(terminal, 'run_shell_command');
     expect(shellRows.length).toBeGreaterThan(0);
     expect(shellRows.filter((row) => row.includes('[done]'))).toEqual([]);
     expect(shellRows.filter((row) => row.includes('✓'))).toEqual([]);
@@ -106,7 +107,7 @@ test.describe('gth code TUI — [[TUI-C100]] a gated call with a returning sibli
     // **Nor does its sibling**, and that is measured rather than assumed: the HITL middleware
     // suspends the WHOLE round before any of its calls is dispatched, so the granted listing has
     // not run either at this moment — its row carries no output and must not carry a tick.
-    const readRows = toolRowsFor(terminal, 'list_directory');
+    const readRows = await toolRowsFor(terminal, 'list_directory');
     expect(readRows.length).toBeGreaterThan(0);
     expect(readRows.filter((row) => row.includes('[done]'))).toEqual([]);
     expect(readRows.filter((row) => row.includes('[running]')).length).toBeGreaterThan(0);
@@ -124,7 +125,7 @@ test.describe('gth code TUI — [[TUI-C100]] a gated call with a returning sibli
       terminal.getByText('approval-sibling-final-answer-marker', { strict: false })
     ).toBeVisible();
 
-    const settledShellRows = toolRowsFor(terminal, 'run_shell_command');
+    const settledShellRows = await toolRowsFor(terminal, 'run_shell_command');
     expect(settledShellRows.filter((row) => row.includes('[error]')).length).toBeGreaterThan(0);
     expect(settledShellRows.filter((row) => row.includes('[done]'))).toEqual([]);
     await expect(
@@ -136,7 +137,7 @@ test.describe('gth code TUI — [[TUI-C100]] a gated call with a returning sibli
     // granted listing is never dispatched either — it produces no output and no result. A row that
     // ticks it *done* tells the human a directory was read because they refused a clone, which is
     // the same false claim the refused row is no longer allowed to make.
-    const settledReadRows = toolRowsFor(terminal, 'list_directory');
+    const settledReadRows = await toolRowsFor(terminal, 'list_directory');
     expect(settledReadRows.length).toBeGreaterThan(0);
     expect(settledReadRows.filter((row) => row.includes('[done]'))).toEqual([]);
     expect(settledReadRows.filter((row) => row.includes('✓'))).toEqual([]);
@@ -185,10 +186,10 @@ test.describe('gth code TUI — [[TUI-C100]] the approved gated call still reach
       terminal.getByText('approval-sibling-final-answer-marker', { strict: false })
     ).toBeVisible();
 
-    const shellRows = toolRowsFor(terminal, 'run_shell_command');
+    const shellRows = await toolRowsFor(terminal, 'run_shell_command');
     expect(shellRows.filter((row) => row.includes('[done]')).length).toBeGreaterThan(0);
     // And the granted sibling, which the same resume dispatched, settles too.
-    const readRows = toolRowsFor(terminal, 'list_directory');
+    const readRows = await toolRowsFor(terminal, 'list_directory');
     expect(readRows.filter((row) => row.includes('[done]')).length).toBeGreaterThan(0);
   });
 });
@@ -231,9 +232,9 @@ test.describe('gth code TUI — [[TUI-C99]] a mid-turn gate reads in the order i
     await expect(terminal.getByText('[o]nce', { strict: false })).toBeVisible();
 
     // While the question is open the request block is BELOW both rows of the turn it interrupted.
-    const listingRow = rowIndexOf(terminal, 'list_directory(');
-    const gatedRow = rowIndexOf(terminal, 'run_shell_command(');
-    const requestRow = rowIndexOf(terminal, 'Gaunt Sloth is asking about this call');
+    const listingRow = await rowIndexOf(terminal, 'list_directory(');
+    const gatedRow = await rowIndexOf(terminal, 'run_shell_command(');
+    const requestRow = await rowIndexOf(terminal, 'Gaunt Sloth is asking about this call');
     expect(listingRow).toBeGreaterThanOrEqual(0);
     expect(gatedRow).toBeGreaterThan(listingRow);
     expect(requestRow).toBeGreaterThan(gatedRow);
@@ -248,10 +249,10 @@ test.describe('gth code TUI — [[TUI-C99]] a mid-turn gate reads in the order i
 
     // The decision is one line on the gated call's own row, under it — and the command's own
     // output, produced after the answer, is under that rather than over it.
-    const settledGatedRow = rowIndexOf(terminal, 'run_shell_command(');
-    const outcomeRow = rowIndexOf(terminal, 'approved by you');
-    const outputRow = rowIndexOf(terminal, 'approval-sibling-out-marker');
-    const answerRow = rowIndexOf(terminal, 'approval-sibling-final-answer-marker');
+    const settledGatedRow = await rowIndexOf(terminal, 'run_shell_command(');
+    const outcomeRow = await rowIndexOf(terminal, 'approved by you');
+    const outputRow = await rowIndexOf(terminal, 'approval-sibling-out-marker');
+    const answerRow = await rowIndexOf(terminal, 'approval-sibling-final-answer-marker');
     expect(settledGatedRow).toBeGreaterThanOrEqual(0);
     expect(outcomeRow).toBeGreaterThan(settledGatedRow);
     expect(outputRow).toBeGreaterThan(outcomeRow);

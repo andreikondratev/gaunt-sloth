@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "reason": "passed",
+  "unhandledErrors": [],
+  "modules": [
+    {
+      "file": "zzprobe.tui.test.ts",
+      "state": "passed",
+      "errors": []
+    }
+  ],
+  "cases": [
+    {
+      "file": "zzprobe.tui.test.ts",
+      "line": 36,
+      "column": 5,
+      "title": "zzprobe › passes first time",
+      "state": "passed",
+      "retryCount": 0,
+      "flaky": false,
+      "errors": []
+    }
+  ]
+}

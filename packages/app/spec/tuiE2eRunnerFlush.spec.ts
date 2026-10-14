@@ -60,9 +60,9 @@ describe('QA-13 the tui-e2e runner lets stdout drain', () => {
 
   it('still reads a runner that writes to stdout at exit time', () => {
     // Anti-vacuity, and it has to look at the RIGHT writes. Checking the whole file for
-    // `process.stdout.write` is not enough: the tee handler always contains one, so the assertion
-    // would hold even if the close handler emitted nothing and there were no pending write to
-    // lose. Only writes issued from the close handler — after the last chance to drain — are what
+    // `process.stdout.write` is not enough: a write anywhere else in the file would satisfy it even
+    // if the close handler emitted nothing and there were no pending write to lose. Only writes
+    // issued from the close handler — after the last chance to drain — are what
     // process.exit() would truncate, so scope the check to that handler's body.
     const text = source();
     const closeHandler = text.slice(text.indexOf("child.on('close'"));

@@ -76,7 +76,6 @@ const globalIgnores = [
   '**/dist/**',
   'packages/app/integration-tests/workdir',
   'packages/app/integration-tests/workdir-with-profiles',
-  'packages/*/tui-e2e/.tui-test/**',
   // The scratch dirs the type-checking specs (core's barrel type surface, the app's discovery
   // config agreement) write their probes in. The specs remove them, but a killed run leaves one
   // behind, and an unignored probe file matches no config block here at all — zero rules, no

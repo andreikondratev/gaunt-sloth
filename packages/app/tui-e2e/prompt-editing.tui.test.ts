@@ -1,11 +1,7 @@
 import path from 'node:path';
-import { test, expect } from '@microsoft/tui-test';
-// [[QA-15]] — side-effect import, and it is load-bearing: without it every matcher in this file
-// polls for tui-test's 5000 ms fallback rather than the `expect.timeout` in `tui-test.config.ts`.
-// Files that use the throwaway-HOME fixture get it through `tmpHome.mjs`; this one does not.
-import './fixtures/expectTimeout.mjs';
+import { test, expect } from './fixtures/harness.mjs';
 
-// tui-test keeps process.cwd() at the invocation dir (this folder); the cli lives one level up.
+// The runner runs the suite with this folder as process.cwd(); the cli lives one level up.
 const e2eDir = process.cwd();
 const cli = path.resolve(e2eDir, '..', 'cli.js');
 const fixture = (name: string): string => path.resolve(e2eDir, 'fixtures', name);
@@ -45,8 +41,8 @@ type Cell = { x: number; y: number };
  * that reason, and the throw names the cause so a run that loses colour some other way is diagnosed
  * in one read rather than read as a broken prompt.
  */
-const promptCursorCell = (terminal: Term): Cell => {
-  const { shifts } = terminal.serialize();
+const promptCursorCell = async (terminal: Term): Promise<Cell> => {
+  const { shifts } = await terminal.serialize();
   for (const [key, shift] of shifts.entries()) {
     if (shift.inverse) {
       const [x, y] = key.split(',').map(Number);
@@ -77,7 +73,7 @@ const awaitPromptCursorMovedFrom = async (terminal: Term, from: Cell): Promise<v
   for (;;) {
     let seen: Cell | undefined;
     try {
-      seen = promptCursorCell(terminal);
+      seen = await promptCursorCell(terminal);
     } catch {
       seen = undefined;
     }
@@ -99,16 +95,15 @@ const awaitPromptCursorMovedFrom = async (terminal: Term, from: Cell): Promise<v
  * Used here only to ask which ROW a piece of text landed on, which is the one question a wrapped
  * line makes interesting and the one no unit render can answer.
  */
-const screenRows = (terminal: Term): string[] =>
-  terminal
-    .serialize()
-    .view.split('\n')
+const screenRows = async (terminal: Term): Promise<string[]> =>
+  (await terminal.serialize()).view
+    .split('\n')
     .slice(1, -1)
     .map((line) => line.replace(/^│/, '').replace(/│$/, ''));
 
 /** The screen row `text` appears on. Throws rather than returning -1, so a miss names itself. */
-const rowContaining = (terminal: Term, text: string): number => {
-  const row = screenRows(terminal).findIndex((line) => line.includes(text));
+const rowContaining = async (terminal: Term, text: string): Promise<number> => {
+  const row = (await screenRows(terminal)).findIndex((line) => line.includes(text));
   if (row === -1) throw new Error(`no screen row contains ${JSON.stringify(text)}`);
   return row;
 };
@@ -181,7 +176,7 @@ test.describe('gth chat TUI — editing the message at the prompt (greeting fixt
     terminal.write('alpha beta');
     await expect(terminal.getByText('> alpha beta')).toBeVisible();
 
-    const before = promptCursorCell(terminal);
+    const before = await promptCursorCell(terminal);
     terminal.write('\x1bb'); // Meta+B → the start of `beta`
     await awaitPromptCursorMovedFrom(terminal, before);
     terminal.write('X');
@@ -199,7 +194,7 @@ test.describe('gth chat TUI — editing the message at the prompt (greeting fixt
     terminal.write('beta');
     await expect(terminal.getByText('> beta')).toBeVisible();
 
-    const before = promptCursorCell(terminal);
+    const before = await promptCursorCell(terminal);
     terminal.write('\x01'); // Ctrl+A → the start of the line
     await awaitPromptCursorMovedFrom(terminal, before);
     terminal.write('alpha ');
@@ -233,10 +228,10 @@ test.describe('gth chat TUI — editing the message at the prompt (greeting fixt
   }) => {
     await continueOnto(terminal, 'line one', 'line two');
 
-    const onSecondRow = promptCursorCell(terminal);
+    const onSecondRow = await promptCursorCell(terminal);
     terminal.write('\x1b[A'); // Up
     await awaitPromptCursorMovedFrom(terminal, onSecondRow);
-    const onFirstRow = promptCursorCell(terminal);
+    const onFirstRow = await promptCursorCell(terminal);
     // One row up, same column — both lines are the same length, so the sticky column has nothing
     // to clamp and any horizontal drift would be the editor losing the caret rather than moving it.
     expect(onFirstRow.y).toBe(onSecondRow.y - 1);
@@ -248,10 +243,10 @@ test.describe('gth chat TUI — editing the message at the prompt (greeting fixt
 
     // …and back down. The insert cleared the sticky column, so Down returns to the end of the
     // second line rather than to the column the caret started from.
-    const afterInsert = promptCursorCell(terminal);
+    const afterInsert = await promptCursorCell(terminal);
     terminal.write('\x1b[B'); // Down
     await awaitPromptCursorMovedFrom(terminal, afterInsert);
-    expect(promptCursorCell(terminal).y).toBe(afterInsert.y + 1);
+    expect((await promptCursorCell(terminal)).y).toBe(afterInsert.y + 1);
 
     terminal.write('Y');
     await expect(terminal.getByText('… line twoY')).toBeVisible();
@@ -265,10 +260,10 @@ test.describe('gth chat TUI — editing the message at the prompt (greeting fixt
   }) => {
     await continueOnto(terminal, 'alpha beta', 'gamma delta');
 
-    const before = promptCursorCell(terminal);
+    const before = await promptCursorCell(terminal);
     terminal.write('\x1bb'); // Meta+B → the start of `delta`
     await awaitPromptCursorMovedFrom(terminal, before);
-    expect(promptCursorCell(terminal).y).toBe(before.y);
+    expect((await promptCursorCell(terminal)).y).toBe(before.y);
     terminal.write('X');
 
     await expect(terminal.getByText('… gamma Xdelta')).toBeVisible();
@@ -285,11 +280,11 @@ test.describe('gth chat TUI — editing the message at the prompt (greeting fixt
   }) => {
     await continueOnto(terminal, 'alpha beta', 'gamma delta');
 
-    const before = promptCursorCell(terminal);
+    const before = await promptCursorCell(terminal);
     terminal.write('\x01'); // Ctrl+A
     await awaitPromptCursorMovedFrom(terminal, before);
     // Still on the second row: a jump to the buffer start would have moved the caret up one.
-    expect(promptCursorCell(terminal).y).toBe(before.y);
+    expect((await promptCursorCell(terminal)).y).toBe(before.y);
     terminal.write('Z');
 
     await expect(terminal.getByText('… Zgamma delta')).toBeVisible();
@@ -307,7 +302,7 @@ test.describe('gth chat TUI — editing the message at the prompt (greeting fixt
     terminal.write('alpha beta');
     await expect(terminal.getByText('> alpha beta')).toBeVisible();
 
-    const before = promptCursorCell(terminal);
+    const before = await promptCursorCell(terminal);
     terminal.write('\x17'); // Ctrl+W → `beta` goes
     await awaitPromptCursorMovedFrom(terminal, before);
     terminal.write('X');
@@ -326,7 +321,7 @@ test.describe('gth chat TUI — editing the message at the prompt (greeting fixt
     terminal.write('alpha beta');
     await expect(terminal.getByText('> alpha beta')).toBeVisible();
 
-    const before = promptCursorCell(terminal);
+    const before = await promptCursorCell(terminal);
     terminal.write('\x15'); // Ctrl+U → the whole line, since the caret is at its end
     await awaitPromptCursorMovedFrom(terminal, before);
     terminal.write('zzz');
@@ -406,9 +401,11 @@ test.describe('gth chat TUI — editing the message at the prompt (greeting fixt
     terminal.write(LONG_LINE);
     await expect(terminal.getByText('whiskey')).toBeVisible();
     // The line really is wrapped: its first and last words are on different screen rows.
-    expect(rowContaining(terminal, 'whiskey')).toBeGreaterThan(rowContaining(terminal, 'alpha'));
+    expect(await rowContaining(terminal, 'whiskey')).toBeGreaterThan(
+      await rowContaining(terminal, 'alpha')
+    );
 
-    const before = promptCursorCell(terminal);
+    const before = await promptCursorCell(terminal);
     terminal.write('\x1bb'); // Meta+B → the start of `whiskey`
     await awaitPromptCursorMovedFrom(terminal, before);
     terminal.write('X');
@@ -425,13 +422,15 @@ test.describe('gth chat TUI — editing the message at the prompt (greeting fixt
 
     terminal.write(LONG_LINE);
     await expect(terminal.getByText('whiskey')).toBeVisible();
-    expect(rowContaining(terminal, 'whiskey')).toBeGreaterThan(rowContaining(terminal, 'alpha'));
+    expect(await rowContaining(terminal, 'whiskey')).toBeGreaterThan(
+      await rowContaining(terminal, 'alpha')
+    );
 
-    const before = promptCursorCell(terminal);
+    const before = await promptCursorCell(terminal);
     terminal.write('\x01'); // Ctrl+A
     await awaitPromptCursorMovedFrom(terminal, before);
     // Up a screen row: the caret was on the wrapped tail and is now on the row the line starts on.
-    expect(promptCursorCell(terminal).y).toBeLessThan(before.y);
+    expect((await promptCursorCell(terminal)).y).toBeLessThan(before.y);
     terminal.write('Z');
 
     await expect(terminal.getByText('> Zalpha')).toBeVisible();

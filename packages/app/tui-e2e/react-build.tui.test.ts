@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { test, expect } from '@microsoft/tui-test';
+import { test, expect } from './fixtures/harness.mjs';
 import { settleSessionsAfterEach } from './fixtures/tmpHome.mjs';
 
 /**
@@ -27,7 +27,7 @@ import { settleSessionsAfterEach } from './fixtures/tmpHome.mjs';
 
 settleSessionsAfterEach(test);
 
-// tui-test keeps process.cwd() at the invocation dir (this folder); the cli lives one level up.
+// The runner runs the suite with this folder as process.cwd(); the cli lives one level up.
 const e2eDir = process.cwd();
 const cli = path.resolve(e2eDir, '..', 'cli.js');
 const probe = path.resolve(e2eDir, 'fixtures', 'reactBuildProbe.mjs');
@@ -92,8 +92,7 @@ test.describe('gth chat TUI — React build selection (default: nothing sets NOD
     const report = probeReport('default.tsv');
 
     // Non-vacuity first: the probe fired at all. If this ever fails, the assertions below are
-    // meaningless rather than reassuring. (tui-test bundles jest's `expect`, which takes no
-    // message argument — hence the bare matcher.)
+    // meaningless rather than reassuring.
     expect(report).toContain('react=');
 
     expect(report).toContain('react=production');

@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "reason": "failed",
+  "unhandledErrors": [],
+  "modules": [
+    {
+      "file": "zzprobe.tui.test.ts",
+      "state": "failed",
+      "errors": []
+    }
+  ],
+  "cases": [
+    {
+      "file": "zzprobe.tui.test.ts",
+      "line": 21,
+      "column": 5,
+      "title": "zzprobe › passes on the retry",
+      "state": "passed",
+      "retryCount": 1,
+      "flaky": true,
+      "errors": [
+        "expected 1 to be greater than 1"
+      ]
+    },
+    {
+      "file": "zzprobe.tui.test.ts",
+      "line": 29,
+      "column": 5,
+      "title": "zzprobe › is genuinely failing",
+      "state": "failed",
+      "retryCount": 2,
+      "flaky": false,
+      "errors": [
+        "expected 'this never holds' to be 'on any attempt' // Object.is equality",
+        "expected 'this never holds' to be 'on any attempt' // Object.is equality",
+        "expected 'this never holds' to be 'on any attempt' // Object.is equality"
+      ]
+    }
+  ]
+}

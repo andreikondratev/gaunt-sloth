@@ -1,152 +1,111 @@
-// QA-13 — read @microsoft/tui-test's report and make a *flaky* outcome escape the log.
+// QA-13 — read the PTY e2e run's structured result and make a *flaky* outcome escape the log.
 //
-// tui-test already distinguishes flaky from failed: a test that fails and then passes on a retry
-// is reported as `N flaky`, and `process.exit()` counts only genuinely-failed tests, so a flake
-// exits 0. That part is right and this module does not change it. What is missing is reach: a
-// flake produces a green check with one yellow line buried in a log nobody opens, so an
-// intermittent bug decays into invisible noise. These helpers turn that line into a GitHub
-// annotation and a job-summary entry, which survive a green run.
+// A case that fails and then passes on a retry leaves the run green, which is the right exit code:
+// the node's acceptance asks for a flake to be REPORTED as flaky, not turned into a failure
+// (promoting one is the promote-after-soak rule, which belongs to OPS-14). What a green run loses is
+// reach — a flake buried in a log nobody opens decays into invisible noise. These helpers turn it
+// into a GitHub annotation and a job-summary entry, which survive a green run.
 //
-// Parsing stdout is not the shape anyone would choose. tui-test hardcodes `new ListReporter()`
-// (lib/runner/runner.js) with no way to register another, and its per-test outcome reaches the
-// terminal only as an ANSI colour, so there is no structured channel to read instead. The
-// mitigation is that this module is pure and unit-tested against captured real output
-// (packages/app/spec/fixtures/tui-e2e-output/), and that it fails LOUD rather than quiet when the
-// format stops matching — a checker that has gone blind must never report "no flakes".
+// The input is the JSON `tui-e2e-results-reporter.mjs` writes from vitest's reporter API — the
+// case's final state and its retry count, as data. Nothing here parses terminal output. What this
+// module still has to be is LOUD: a result it cannot read, a schema it does not know, or a run that
+// ran no cases at all is reported as a problem, because a checker that has gone blind must never
+// report "no flakes".
+
+/** The result schema this module reads. Must equal `RESULTS_SCHEMA` in tui-e2e-results-reporter.mjs. */
+export const KNOWN_RESULTS_SCHEMA = 1;
 
 /**
- * Strip CSI escape sequences. Only CSI is needed: chalk emits SGR (`ESC [ … m`) and the list
- * reporter emits cursor moves (lib/reporter/utils.js `ansi`), both of which are CSI. Stripping is
- * required even when our stdout is a pipe, because chalk enables colour whenever it detects a CI
- * vendor regardless of TTY — so CI output is coloured and a local piped run is not.
- */
-export function stripAnsi(text) {
-  // eslint-disable-next-line no-control-regex
-  return text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '');
-}
-
-/**
- * The reporter's final tally, e.g. `  tests: 1 failed, 1 flaky, 34 did not run, 1 passed, 37 total`.
- * Tokens are emitted only when non-zero (lib/reporter/base.js `_printSummary`), and the whole line
- * is skipped when no tests were discovered at all — which is the case the caller must not mistake
- * for success.
- */
-const SUMMARY_RE = /^\s*tests: (?<tokens>.+?), (?<total>\d+) total\s*$/m;
-
-const TOKEN_RE = /(\d+) (failed|flaky|did not run|skipped|passed)/g;
-
-/**
- * One numbered header per reported test, e.g.
- *   `  2) mouse.tui.test.ts:11:9 › an ordinary escape sequence is not mangled into the prompt`
- * Only the first attempt gets a numbered header; later attempts get a dim `Retry #N` instead
- * (lib/reporter/base.js `_printFailures`, guarded on `resultIdx === 0`), so headers are
- * one-per-test. Under a TTY the line is padded to 96 columns with `─`; when stdout is a pipe
- * `process.stdout.columns` is undefined and the padding is skipped, so tolerate both.
- */
-const HEADER_RE = /^ {2}(\d+)\) (.+?):(\d+):(\d+) › (.*?)[\s─]*$/gm;
-
-/**
- * Parse a completed run's combined output.
+ * Turn the structured result into the run's verdict.
  *
- * Identity of a flaky test comes from ordering, not from any label: the reporter prints
- * `failuresToPrint = [...unexpected, ...flaky]` (lib/reporter/base.js `_generateSummary`), so the
- * first `failed` headers are the genuine failures and the remainder are the flakes. That couples
- * this parser to two internals — the concatenation order and the summary wording — which is why
- * a mismatch between the counts and the headers is reported as a problem rather than guessed at.
- *
- * @param {string} raw combined stdout+stderr of one tui-test run
- * @returns {{summary: null | {failed:number, flaky:number, didNotRun:number, skipped:number, passed:number, total:number}, failed: object[], flaky: object[], problem: string | null}}
+ * @param {string} raw the contents of the results file
+ * @returns {{
+ *   summary: null | { failed: number, flaky: number, didNotRun: number, skipped: number, passed: number, total: number },
+ *   failed: { file: string, row: number | null, column: number | null, title: string }[],
+ *   flaky: { file: string, row: number | null, column: number | null, title: string }[],
+ *   unhandled: string[],
+ *   problem: string | null,
+ * }}
  */
 export function analyseRun(raw) {
-  const text = stripAnsi(raw);
-  const summaryMatch = text.match(SUMMARY_RE);
+  const blind = (problem, summary = null) => ({
+    summary,
+    failed: [],
+    flaky: [],
+    unhandled: [],
+    problem,
+  });
 
-  const entries = [...text.matchAll(HEADER_RE)].map((m) => ({
-    index: Number(m[1]),
-    file: m[2],
-    row: Number(m[3]),
-    column: Number(m[4]),
-    title: m[5],
-  }));
-
-  if (!summaryMatch) {
-    return {
-      summary: null,
-      failed: [],
-      flaky: [],
-      problem:
-        'tui-test printed no "tests: … total" line. It skips that line only when it discovered ' +
-        'no tests at all, so either testMatch matched nothing (a silent all-green run over an ' +
-        'empty suite) or the reporter format changed.',
-    };
+  let record;
+  try {
+    record = JSON.parse(raw);
+  } catch (err) {
+    return blind(
+      `the results file is not JSON (${err instanceof Error ? err.message : String(err)}), so ` +
+        'the flake check cannot tell what ran.'
+    );
+  }
+  if (record === null || typeof record !== 'object' || record.schema !== KNOWN_RESULTS_SCHEMA) {
+    return blind(
+      `the results file has schema ${JSON.stringify(record?.schema)}, and this checker reads ` +
+        `schema ${KNOWN_RESULTS_SCHEMA}. The reporter and the checker have drifted apart.`
+    );
+  }
+  if (!Array.isArray(record.cases) || !Array.isArray(record.modules)) {
+    return blind('the results file has no case list, so the flake check cannot tell what ran.');
   }
 
-  const counts = { failed: 0, flaky: 0, didNotRun: 0, skipped: 0, passed: 0 };
-  const key = {
-    failed: 'failed',
-    flaky: 'flaky',
-    'did not run': 'didNotRun',
-    skipped: 'skipped',
-    passed: 'passed',
+  const entry = (c) => ({ file: c.file, row: c.line, column: c.column, title: c.title });
+  const cases = record.cases;
+  const summary = {
+    failed: cases.filter((c) => c.state === 'failed').length,
+    flaky: 0,
+    didNotRun: cases.filter((c) => c.state === 'pending').length,
+    skipped: cases.filter((c) => c.state === 'skipped').length,
+    passed: cases.filter((c) => c.state === 'passed').length,
+    total: cases.length,
   };
-  for (const [, n, label] of summaryMatch.groups.tokens.matchAll(TOKEN_RE)) {
-    counts[key[label]] = Number(n);
-  }
-  const summary = { ...counts, total: Number(summaryMatch.groups.total) };
+  const flaky = cases
+    .filter((c) => c.state === 'passed' && (c.flaky === true || c.retryCount > 0))
+    .map(entry);
+  summary.flaky = flaky.length;
 
-  const expectedHeaders = summary.failed + summary.flaky;
-  if (entries.length !== expectedHeaders) {
-    return {
-      summary,
-      failed: [],
-      flaky: [],
-      problem:
-        `the summary reports ${summary.failed} failed + ${summary.flaky} flaky = ` +
-        `${expectedHeaders} reported test(s), but ${entries.length} numbered header(s) were ` +
-        'found. The flake check cannot tell which test was which, so it is refusing to claim ' +
-        'there were no flakes.',
-    };
+  // A file that failed to load contributes no cases at all, so it is counted here or nowhere.
+  const brokenModules = record.modules
+    .filter((m) => m.state === 'failed' && Array.isArray(m.errors) && m.errors.length > 0)
+    .map((m) => ({
+      file: m.file,
+      row: null,
+      column: null,
+      title: `(file failed: ${m.errors[0]})`,
+    }));
+  const failed = [...cases.filter((c) => c.state === 'failed').map(entry), ...brokenModules];
+  summary.failed = failed.length;
+
+  if (summary.passed + summary.failed === 0) {
+    return blind(
+      `the run discovered ${summary.total} case(s) and ran none of them (` +
+        `${summary.skipped} skipped, ${summary.didNotRun} did not run). A suite that ran nothing ` +
+        'is a gate that measured nothing, so this run is not green.',
+      summary
+    );
+  }
+  if (record.reason === 'interrupted') {
+    return blind(
+      'the run was interrupted before it finished, so its result is incomplete.',
+      summary
+    );
   }
 
   return {
     summary,
-    failed: entries.slice(0, summary.failed),
-    flaky: entries.slice(summary.failed),
+    failed,
+    flaky,
+    unhandled: Array.isArray(record.unhandledErrors) ? record.unhandledErrors : [],
     problem: null,
   };
 }
 
-/**
- * GS2-20 — read the report `fixtures/tmpHome.mjs` writes, and turn it into a failure message.
- * `null` means the run was clean.
- *
- * A file rather than a stream because a stream does not arrive: these hooks run in a workerpool
- * child whose captured output the reporter prints only for a test it is already reporting, and
- * never at all for `afterAllWorker`. Measured, not assumed.
- *
- * Why this is a hard failure and not a warning: a `gth` session holds `<HOME>/.gsloth/history.db`
- * open for its whole life, and this suite is the only place that would notice a handle never being
- * released — the removal succeeds on POSIX regardless, so win32 is the sole detector.
- *
- * **The report carries two independent findings, and the message must not merge them**, because
- * they have different causes and different fixes:
- *
- * - `still-running` — a session did not exit within the wait after being killed. The removal that
- *   follows was racing a live process, and no amount of retrying the removal is the fix.
- * - `unremovable` — a directory would not delete, and the pty had already reported an exit for
- *   every session in that file. **That is an observation, not a conclusion, and the message says
- *   so.** On win32 node-pty emits `exit` when its conout socket closes rather than on the process
- *   actually dying, and whether that precedes the kernel releasing the process's handles is
- *   untested — so the recorded exit wait times are printed alongside, since a run where every
- *   session "exited" in about a millisecond points at the signal itself and a run of hundreds of
- *   milliseconds points at a handle that outlived its process.
- *
- * @param {string} raw contents of the report file (empty when nothing failed)
- * @param {Record<string, string>} [outcomes] per-directory result of re-attempting the removal
- *   once the whole run has exited, keyed by directory. A directory that deletes cleanly then was
- *   locked only transiently; one that still will not delete is holding.
- * @returns {string | null}
- */
 /**
  * The directories the report says would not delete, so the caller can try them again once the whole
  * run has exited. Separated from {@link describeLeakReport} so the retry lives in the parent
@@ -170,6 +129,36 @@ export function leakedDirs(raw) {
   return dirs;
 }
 
+/**
+ * GS2-20 — read the report `fixtures/tmpHome.mjs` writes, and turn it into a failure message.
+ * `null` means the run was clean.
+ *
+ * A file rather than a stream because the hooks that write it run in a test worker process, and
+ * the parent is the one place that sees the whole run; the parent owns the worker's environment, so
+ * handing down a path is the one channel that always arrives.
+ *
+ * Why this is a hard failure and not a warning: a `gth` session holds `<HOME>/.gsloth/history.db`
+ * open for its whole life, and this suite is the only place that would notice a handle never being
+ * released — the removal succeeds on POSIX regardless, so win32 is the sole detector.
+ *
+ * **The report carries two independent findings, and the message must not merge them**, because
+ * they have different causes and different fixes:
+ *
+ * - `still-running` — a session did not exit within the wait after being killed. The removal that
+ *   follows was racing a live process, and no amount of retrying the removal is the fix.
+ * - `unremovable` — a directory would not delete, and the terminal engine had already reported an
+ *   exit for every session in that file. **That is an observation, not a conclusion, and the
+ *   message says so.** Whether the engine's exit report precedes the kernel releasing the
+ *   process's handles on win32 is not established, so the recorded exit wait times are printed
+ *   alongside: a run where every session "exited" in about a millisecond points at the signal
+ *   itself, and a run of hundreds of milliseconds points at a handle that outlived its process.
+ *
+ * @param {string} raw contents of the report file (empty when nothing failed)
+ * @param {Record<string, string>} [outcomes] per-directory result of re-attempting the removal
+ *   once the whole run has exited, keyed by directory. A directory that deletes cleanly then was
+ *   locked only transiently; one that still will not delete is holding.
+ * @returns {string | null}
+ */
 export function describeLeakReport(raw, outcomes = {}) {
   const records = [];
   for (const line of raw.split('\n')) {
@@ -220,8 +209,8 @@ export function describeLeakReport(raw, outcomes = {}) {
         : `  The pty reported an exit for every session in this run before its directory was ` +
           `removed. If that signal is faithful, a live session of ours is not what is holding ` +
           `these, which leaves a handle that outlived the process that opened it or a scanner on ` +
-          `the host. On win32 the signal is the pty's output socket closing rather than the ` +
-          `process dying, so it is evidence and not proof.${timing}`;
+          `the host. On win32 how that signal relates to the process actually dying is not ` +
+          `established, so it is evidence and not proof.${timing}`;
     parts.push(
       `${unremovable.length} throwaway HOME director${unremovable.length === 1 ? 'y' : 'ies'} ` +
         `could not be removed:\n${detail}\n${context}`
@@ -239,7 +228,7 @@ export function describeLeakReport(raw, outcomes = {}) {
   return parts.join('\n');
 }
 
-/** Repo-relative path for an entry. Headers are relative to the tui-e2e dir the runner ran in. */
+/** Repo-relative path for an entry. Entry files are relative to the tui-e2e folder, with `/`. */
 export function repoPath(entry, testDir = 'packages/app/tui-e2e') {
   return `${testDir}/${entry.file}`;
 }

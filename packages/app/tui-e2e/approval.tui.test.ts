@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { test, expect } from '@microsoft/tui-test';
+import { test, expect } from './fixtures/harness.mjs';
 import { removeTmpHome, settleSessionsAfterEach } from './fixtures/tmpHome.mjs';
 
 // [[GS2-20]] Every session below opens a database inside its throwaway HOME, and the harness's
@@ -23,7 +23,7 @@ settleSessionsAfterEach(test);
  * text) must not appear until the approval is answered.
  */
 
-// tui-test keeps process.cwd() at the invocation dir (this folder); the cli lives one level up.
+// The runner runs the suite with this folder as process.cwd(); the cli lives one level up.
 const e2eDir = process.cwd();
 const cli = path.resolve(e2eDir, '..', 'cli.js');
 const approvalConfig = path.resolve(e2eDir, 'fixtures', 'approval.gsloth.config.mjs');
@@ -83,8 +83,7 @@ test.describe('gth code TUI — EXT-52 lean shell approval prompt (real agent, s
     // when the graph suspends, and what used to end the call was that stream's closing flush, with
     // no sibling involved. The row is read from the terminal's own cells so the assertion is about
     // the line the human is looking at, not about a string somewhere on the screen.
-    const gatedRows = terminal
-      .getBuffer()
+    const gatedRows = (await terminal.getBuffer())
       .map((row) => row.join(''))
       .filter((row) => row.includes('run_shell_command('));
     expect(gatedRows.length).toBeGreaterThan(0);
@@ -254,7 +253,7 @@ test.describe('gth code TUI — EXT-70 §6 the menu names what it will store, an
    *
    * **The remedy, for whoever needs to press it:** clamp the project dir the same way HOME is
    * clamped, by copying (or generating) the config into the per-suite `mkdtemp` and pointing
-   * `-c` at the copy. `tui-test`'s `program` option takes no `cwd`, so the config path is the lever;
+   * `-c` at the copy. The harness's `program` option takes no `cwd`, so the config path is the lever;
    * assert afterwards that the store landed under the temp dir, which also makes the persistence
    * itself testable instead of merely avoided.
    */

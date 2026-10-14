@@ -45,8 +45,8 @@ briefs/*
 req
 readonly
 
-# tui-test (Stage D PTY e2e) transpiled cache
-packages/*/tui-e2e/.tui-test/
+# PTY e2e: vite/vitest caches, written under the suite folder because its config roots vitest there
+packages/*/tui-e2e/node_modules/
 
 # Scratch dirs the type-checking specs (core's barrel type surface, the app's discovery config
 # agreement) write their probes in. They live inside the package because a probe resolves that

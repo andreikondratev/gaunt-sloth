@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { test, expect } from '@microsoft/tui-test';
+import { test, expect } from './fixtures/harness.mjs';
 import { removeTmpHome, settleSessionsAfterEach } from './fixtures/tmpHome.mjs';
 
 // [[GS2-20]] Every session below opens a database inside its throwaway HOME, and the harness's
@@ -32,7 +32,7 @@ settleSessionsAfterEach(test);
  * without a second test file's worth of module loading in the run.
  */
 
-// tui-test keeps process.cwd() at the invocation dir (this folder); the cli lives one level up.
+// The runner runs the suite with this folder as process.cwd(); the cli lives one level up.
 const e2eDir = process.cwd();
 const cli = path.resolve(e2eDir, '..', 'cli.js');
 const toolConfig = path.resolve(e2eDir, 'fixtures', 'approval-tool.gsloth.config.mjs');

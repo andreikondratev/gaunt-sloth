@@ -1,11 +1,11 @@
 import path from 'node:path';
-import { test, expect } from '@microsoft/tui-test';
-import type { Terminal } from '@microsoft/tui-test';
+import { test, expect } from './fixtures/harness.mjs';
+import type { Terminal } from './fixtures/harness.mjs';
 import { settleSessionsAfterEach } from './fixtures/tmpHome.mjs';
 
 settleSessionsAfterEach(test);
 
-// tui-test keeps process.cwd() at the invocation dir (this folder); the cli lives one level up.
+// The runner runs the suite with this folder as process.cwd(); the cli lives one level up.
 const e2eDir = process.cwd();
 const cli = path.resolve(e2eDir, '..', 'cli.js');
 const fixture = (name: string): string => path.resolve(e2eDir, 'fixtures', name);
@@ -20,10 +20,9 @@ const envFor = (fixtureName: string): Record<string, string | undefined> => {
   return env;
 };
 
-const screenRows = (terminal: Terminal): string[] =>
-  terminal
-    .serialize()
-    .view.split('\n')
+const screenRows = async (terminal: Terminal): Promise<string[]> =>
+  (await terminal.serialize()).view
+    .split('\n')
     .slice(1, -1)
     .map((line) => line.replace(/^│/, '').replace(/│$/, ''));
 
@@ -64,7 +63,7 @@ test.describe('gth chat TUI — a compaction applied mid-turn (EXT-167)', () => 
     await expect(terminal.getByText('Model context: 15 messages')).toBeVisible();
     await expect(terminal.getByText('Nothing already on screen was undone')).toBeVisible();
 
-    const rows = screenRows(terminal);
+    const rows = await screenRows(terminal);
     const rowOf = (needle: string): number => {
       const at = rows.findIndex((row) => row.includes(needle));
       if (at === -1) {

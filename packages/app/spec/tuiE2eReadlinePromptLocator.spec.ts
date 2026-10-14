@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EMPTY_PROMPT } from '../tui-e2e/fixtures/readlinePrompt.mjs';
+import { findMatches, screenBlock } from '../tui-e2e/fixtures/harness.mjs';
 
 /**
  * [[QA-49]] — **the discrimination control for the readline prompt locator.**
@@ -15,8 +16,9 @@ import { EMPTY_PROMPT } from '../tui-e2e/fixtures/readlinePrompt.mjs';
  * `tui-e2e/chat.tui.test.ts`, which asserts the same pair against a real xterm buffer; this half is
  * the one that can vary the input freely and name what actually distinguishes the two rows.
  *
- * **Scanned with `matchAll`, exactly as tui-test does.** `lib/terminal/locator.js` resolves a regex
- * locator through `Array.from(block.matchAll(this._text))`, so that is what is exercised here. Two
+ * **Scanned by the harness's own code.** The string and the scan are `screenBlock` and
+ * `findMatches` from `fixtures/harness.mjs` — the functions every locator in the suite resolves
+ * through — not a model of them written here. A regex goes through `matchAll`. Two
  * things ride on it: a non-global pattern makes `String.prototype.matchAll` throw a TypeError
  * rather than report no match (which is why the `g` flag is load-bearing), and `.test()` on a
  * global regex would advance `lastIndex` between calls and give this control an alternating,
@@ -28,23 +30,28 @@ const COLUMNS = 100;
 const WIDE = 120;
 
 /**
- * One terminal row, padded to the full width the way xterm's buffer holds it.
+ * One terminal row as cells, padded to the full width the way the emulator's buffer holds it.
  *
- * tui-test joins the rows into a single string with **no separator**, so the padding is not
+ * The harness joins the rows into a single string with **no separator**, so the padding is not
  * cosmetic: it is the only thing that keeps the end of one row from running into the start of the
  * next, and it is what makes "a run of spaces after the marker" mean "nothing was typed here".
  */
-const row = (text: string, columns: number = COLUMNS): string => text.padEnd(columns, ' ');
+const cells = (text: string, columns: number = COLUMNS): string[] =>
+  Array.from(text.padEnd(columns, ' '));
 
-/** A block of rows, built the way `locator.js` builds the string it scans. */
-const block = (...rows: string[]): string => rows.map((r) => row(r)).join('');
+/** One row as the harness scans it. */
+const row = (text: string, columns: number = COLUMNS): string =>
+  screenBlock([cells(text, columns)]);
+
+/** A block of rows, built by the harness the way every locator's scan builds it. */
+const block = (...rows: string[]): string => screenBlock(rows.map((r) => cells(r)));
 
 /** The same, at the width five of the six readline describes open. */
-const wideBlock = (...rows: string[]): string => rows.map((r) => row(r, WIDE)).join('');
+const wideBlock = (...rows: string[]): string => screenBlock(rows.map((r) => cells(r, WIDE)));
 
-/** What tui-test's locator does with a regex, and therefore what a locator's match really means. */
-const matches = (pattern: RegExp, text: string): RegExpExecArray[] =>
-  Array.from(text.matchAll(pattern)) as RegExpExecArray[];
+/** What the harness's locator does with a regex, and therefore what a locator's match really means. */
+const matches = (pattern: RegExp, text: string): { index: number; length: number }[] =>
+  findMatches(pattern, text);
 
 /** The screen a readline session shows when it is waiting for the first line. */
 const ARMED = block('', 'Gaunt Sloth is ready to chat. Type your prompt.', '', '  > ', '');
@@ -111,7 +118,7 @@ describe('QA-49 the readline prompt locator discriminates an armed prompt from a
     expect(matches(EMPTY_PROMPT, block('a line that ends in  >', '', '  > exit'))).toHaveLength(1);
   });
 
-  it('keeps the g flag, without which tui-test cannot resolve the locator at all', () => {
+  it('keeps the g flag, without which the harness cannot resolve the locator at all', () => {
     expect(EMPTY_PROMPT.flags).toContain('g');
     // Not a style assertion: this is the failure a locator written without the flag produces, and
     // it arrives from inside the matcher's poll where it reads as a broken harness rather than as

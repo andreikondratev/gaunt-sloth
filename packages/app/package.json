@@ -61,7 +61,7 @@
     "react": "19.2.8"
   },
   "devDependencies": {
-    "@microsoft/tui-test": "^0.0.4",
+    "@microsoft/tui-test": "^0.1.0",
     "@types/react": "19.2.18",
     "ink-testing-library": "^4.0.0"
   },
