@@ -121,6 +121,7 @@ export class OAuthClientProviderImpl implements OAuthClientProvider {
     };
   }
 
+  /** Stores the client registration in this server's OAuth storage file. */
   // noinspection JSUnusedGlobalSymbols
   saveClientInformation(clientInformation: OAuthClientInformationFull): Promise<void> {
     const data = this.loadStorageData();
@@ -129,12 +130,14 @@ export class OAuthClientProviderImpl implements OAuthClientProvider {
     return Promise.resolve();
   }
 
+  /** Returns the client registration stored for this server, if there is one. */
   // noinspection JSUnusedGlobalSymbols
   async clientInformation(): Promise<OAuthClientInformationFull | undefined> {
     const data = this.loadStorageData();
     return Promise.resolve(data.clientInformation);
   }
 
+  /** Stores the tokens, unchanged, in this server's OAuth storage file. */
   // noinspection JSUnusedGlobalSymbols
   async saveTokens(tokens: OAuthTokens): Promise<void> {
     const data = this.loadStorageData();
