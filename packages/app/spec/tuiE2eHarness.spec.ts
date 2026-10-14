@@ -38,7 +38,11 @@ function fakeEngine(
   } = {}
 ) {
   const grid = rows.map((r) => Array.from(r.padEnd(cols, ' ')));
-  const text = rows.map((r) => r.trimEnd()).join('\n');
+  // The engine's text() omits the screen's trailing blank rows.
+  const text = rows
+    .map((r) => r.trimEnd())
+    .join('\n')
+    .replace(/\n+$/u, '');
   return {
     getSize: async () => ({ cols, rows: grid.length }),
     cells: async () => grid.flatMap((row, y) => row.map((char, x) => ({ x, y, char }))),
@@ -169,8 +173,14 @@ describe('OPS-153 the harness input and buffer guarantees', () => {
     expect(rows).toEqual(['one', 'two', 'three']);
   });
 
+  it('getBuffer() keeps the screen’s trailing blank rows that the full text omits', async () => {
+    const terminal = terminalOn(['one', 'two', '', ''], { fullText: 'zero\none\ntwo' });
+    const rows = (await terminal.getBuffer()).map((row: string[]) => row.join('').trimEnd());
+    expect(rows).toEqual(['zero', 'one', 'two', '', '']);
+  });
+
   it('getBuffer() fails rather than return rows it could not line up', async () => {
-    const terminal = terminalOn(['two', 'three'], { fullText: 'one\nsomething else' });
+    const terminal = terminalOn(['two', 'three'], { fullText: 'three' });
     await expect(terminal.getBuffer()).rejects.toThrow(/did not agree on 5 reads/);
   });
 });

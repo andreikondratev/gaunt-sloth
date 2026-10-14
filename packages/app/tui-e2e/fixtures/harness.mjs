@@ -530,39 +530,39 @@ export class Terminal {
   /**
    * The whole buffer, scrollback first, as rows of cell strings — 0.0.4's `getBuffer()`.
    *
-   * The engine exposes cells for the viewport only, so the scrollback rows come from
-   * `text({ full: true })` and are padded to the width; `text()` already reads a wide character as
-   * the one character it is, so they agree with the visible rows. The two reads are taken
-   * separately, so the split is re-read until the full text ends with the visible text.
+   * Built from ONE `text({ full: true })` read, because that is the one read the engine takes
+   * atomically: the engine parses on its own thread, so a cells read and a text read taken one
+   * after the other can see different screens. Measured: under CPU load an animated status row (the
+   * "Thinking…" spinner) differed between two consecutive reads on every one of five attempts, and
+   * a redraw once left the full text at 3 lines against a 50-line viewport. `text()` reads a wide
+   * character as the one character it is, as {@link getViewableBuffer} does, so each line padded to
+   * the width is the row 0.0.4 returned.
+   *
+   * The full text omits the viewport's trailing blank rows; their count comes from a `text()` read
+   * of the viewport (the screen minus its trailing blanks). Only that COUNT is taken from the second
+   * read, and a count that cannot be right — more visible lines than the screen has rows, or than
+   * the full text holds — is re-read, and after five reads fails rather than return rows a case's
+   * row arithmetic would then misplace.
    */
   async getBuffer() {
     await this.#settled();
     for (let attempt = 0; ; attempt++) {
-      const visible = await this.getViewableBuffer();
+      const { cols, rows } = await this.#tt.getSize();
       const fullText = await this.#tt.text({ full: true });
       const viewText = await this.#tt.text();
-      const fullLines = fullText.split('\n');
-      const viewLines = viewText === '' ? [] : viewText.split('\n');
-      const scrollbackCount = fullLines.length - viewLines.length;
-      // Consistent means: the full text ends with the visible text, AND the visible rows read as
-      // cells say the same as the visible text — so scrollback and viewport are one screen.
-      const consistent =
-        scrollbackCount >= 0 &&
-        viewLines.every((line, i) => fullLines[scrollbackCount + i] === line) &&
-        visible.every((row, i) => row.join('').trimEnd() === (viewLines[i] ?? '').trimEnd());
-      if (consistent) {
-        const cols = visible[0]?.length ?? 0;
-        const scrollback = fullLines
-          .slice(0, scrollbackCount)
-          .map((line) => Array.from(line.padEnd(cols, ' ')));
-        return [...scrollback, ...visible];
+      const fullLines = fullText === '' ? [] : fullText.split('\n');
+      const visibleLines = viewText === '' ? 0 : viewText.split('\n').length;
+      if (visibleLines <= rows && visibleLines <= fullLines.length) {
+        const trailingBlank = rows - visibleLines;
+        return [...fullLines, ...Array(trailingBlank).fill('')].map((line) =>
+          Array.from(line.padEnd(cols, ' '))
+        );
       }
       if (attempt >= 4) {
-        // A buffer whose rows cannot be lined up would put a case's row arithmetic on the wrong
-        // rows, so this fails rather than returning a guess.
         throw new Error(
           'getBuffer(): the scrollback and the visible screen did not agree on 5 reads ' +
-            `${POLL_MS} ms apart, so their rows cannot be lined up.`
+            `${POLL_MS} ms apart, so their rows cannot be lined up (last read: the full text has ` +
+            `${fullLines.length} lines, the visible text ${visibleLines}, the screen ${rows} rows).`
         );
       }
       await sleep(POLL_MS);
