@@ -198,16 +198,33 @@ describe('createFrontendImageInjectionMiddleware — transform', () => {
     expect(lastInjectedBlocks(result)![1]).toEqual({ type: 'image_url', image_url: DATA_URL });
   });
 
-  it('{error} payload → "Camera unavailable" note, no image block', async () => {
+  it('EXT-208: {error} payload injects nothing — no note is appended after the newest message', async () => {
     const mw = createFrontendImageInjectionMiddleware({ provider: 'anthropic' });
-    const result = await runBeforeModel(mw, captureRound({ error: 'no camera device' }));
+    const messages = [
+      new HumanMessage('Take a picture'),
+      ...captureRound({ error: 'no camera device' }),
+      new HumanMessage('Try again'),
+    ];
+    // No state update at all: the error stays in the tool result, and the user's retry stays last.
+    expect(await runBeforeModel(mw, messages)).toBeUndefined();
+  });
+
+  it('EXT-208: a successful capture after a failed one in the same history still injects its frame', async () => {
+    const mw = createFrontendImageInjectionMiddleware({ provider: 'openai' });
+    const messages = [
+      new HumanMessage('Take a picture'),
+      ...captureRound({ error: 'The capture was cancelled.' }, 'call-failed'),
+      new HumanMessage('Try again'),
+      ...captureRound(IMG, 'call-retried'),
+    ];
+    const result = await runBeforeModel(mw, messages);
     const msgs = result.messages as BaseMessage[];
-    const note = msgs[msgs.length - 1];
-    expect(typeof note.content === 'string' ? note.content : '').toBe(
-      'Camera unavailable: no camera device'
-    );
-    // No vision block was injected (content is a plain string, not a block array).
-    expect(Array.isArray(note.content)).toBe(false);
+    // Exactly one message appended — the frame for the retried capture, nothing for the failed one.
+    expect(msgs).toHaveLength(messages.length + 1);
+    expect(lastInjectedBlocks(result)).toEqual([
+      { type: 'text', text: 'Camera frame captured:' },
+      { type: 'image_url', image_url: { url: DATA_URL } },
+    ]);
   });
 
   it('non-JSON tool result → skipped (nothing injected)', async () => {

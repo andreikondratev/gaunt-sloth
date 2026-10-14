@@ -23,7 +23,8 @@ import { markMiddlewareInjected } from '#src/middleware/middlewareInjectedMarker
 
 /**
  * The tool-result envelope a frontend capture tool posts back as the ToolMessage's (string) content:
- * either an image (`mimeType` + base64 `data`) or an `{ error }` note when the capture failed.
+ * either an image (`mimeType` + base64 `data`) or an `{ error }` when the capture failed. An error
+ * result is left for the model to read as the tool result; nothing is injected for it (EXT-208).
  */
 interface ImagePayload {
   mimeType?: string;
@@ -200,7 +201,7 @@ export function createFrontendImageInjectionMiddleware(
 ): AgentMiddleware {
   const toolName = opts.toolName ?? DEFAULT_CAPTURE_TOOL_NAME;
 
-  // thread_id → set of tool_call_ids whose image (or error note) has already been injected. It
+  // thread_id → set of tool_call_ids whose image has already been injected. It
   // scopes injection to ONE frame per capture per graph thread: `beforeModel` runs before every
   // model call, so a multi-step turn would otherwise stack a copy of the same frame at each step,
   // each one appended after the newest content and mispairing the assistant message with a stale
@@ -267,13 +268,13 @@ export function createFrontendImageInjectionMiddleware(
       const newMessages = [...messages];
       for (const { payload, id } of injected) {
         if (payload.error) {
-          // Mark injected so the error note isn't re-emitted on a later turn.
-          injectedIds.add(id);
-          newMessages.push(
-            markMiddlewareInjected(
-              new HumanMessage({ content: `Camera unavailable: ${payload.error}` })
-            )
-          );
+          // EXT-208: a failed or cancelled capture injects NOTHING. Do not restore a
+          // "Camera unavailable" note here. The tool result itself already carries the error text to
+          // the model, in its place in the conversation. A note could only be appended at the END of
+          // the messages, and the AG-UI server replays the whole history into a fresh graph thread
+          // every turn, so the note was re-appended after the user's newest message on every later
+          // turn. The model then read the old failure as the latest event and refused to retry
+          // ("cancelled again"): measured 0/5 retries with the note, 5/5 without it.
           continue;
         }
         if (payload.mimeType && payload.data) {

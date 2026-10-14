@@ -22,6 +22,7 @@ import type { RunnableConfig } from '@langchain/core/runnables';
 import { GthLangChainAgent } from '@gaunt-sloth/core/core/GthLangChainAgent.js';
 import type { GthConfig } from '@gaunt-sloth/core/config.js';
 import { createResolvers } from '#src/resolvers.js';
+import { convertMessages } from '#src/modules/apiAgUiModule.js';
 
 /**
  * A minimal chat model (no provider / API key) that records every batch of messages it is asked to
@@ -116,6 +117,52 @@ describe('RC-22 wiring: frontend-image-injection fires on the real GthLangChainA
       { type: 'text', text: 'Camera frame captured:' },
       { type: 'image_url', image_url: { url: DATA_URL } },
     ]);
+  });
+
+  it('EXT-208: a failed capture reaches the model as its tool result, and the user retry stays the newest message', async () => {
+    // The AG-UI wire history a client replays after a cancelled capture, converted exactly as the
+    // server converts it (convertMessages restores the tool name the middleware keys on).
+    const errorContent = JSON.stringify({
+      error: 'Failed to capture frame. The capture was cancelled.',
+    });
+    const wire = [
+      { id: 'u1', role: 'user', content: 'Take a picture' },
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: '',
+        toolCalls: [
+          {
+            id: 'call-cancel',
+            type: 'function',
+            function: { name: 'capture_image', arguments: '{}' },
+          },
+        ],
+      },
+      { id: 't1', role: 'tool', toolCallId: 'call-cancel', content: errorContent },
+      { id: 'u2', role: 'user', content: 'Try again' },
+    ];
+    const model = new CapturingChatModel();
+    const agent = new GthLangChainAgent(vi.fn(), createResolvers());
+    await agent.init('api', apiConfig(model, ['frontend-image-injection']));
+
+    await agent.invoke(
+      convertMessages(wire as Parameters<typeof convertMessages>[0], new Set(['capture_image'])),
+      runConfig
+    );
+
+    expect(model.seenMessages.length).toBeGreaterThan(0);
+    const input = model.seenMessages[0];
+    // The error text reaches the model, unmodified, as the capture_image tool result.
+    const toolResult: any = input.find(
+      (m: any) => m.getType() === 'tool' && m.tool_call_id === 'call-cancel'
+    );
+    expect(toolResult).toBeDefined();
+    expect(toolResult.content).toBe(errorContent);
+    // ...and nothing poses as a newer camera event: the last thing the model sees is the retry.
+    const last: any = input[input.length - 1];
+    expect(last.getType()).toBe('human');
+    expect(last.content).toBe('Try again');
   });
 
   it('NEGATIVE control: without the middleware, no vision block is injected (the ToolMessage stays plain text)', async () => {
